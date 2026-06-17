@@ -1,0 +1,112 @@
+{
+  "instructions": [
+    "memory/SYSTEM_INVARIANTS.md",
+    "memory/HANDOFF.md"
+  ],
+  "agent": {
+    "gm": {
+      "description": "Primary co-developer and orchestrator",
+      "mode": "primary",
+      "model": "opencode-go/qwen3.7-plus",
+      "temperature": 0.2,
+      "prompt": "{file:.opencode/prompts/gm.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": {
+          "src/**": "allow",
+          "AGENTS.md": "allow",
+          "memory/HANDOFF.md": "allow",
+          ".opencode/**/*.md": "allow",
+          "*dist/*": "deny",
+          "*node_modules/*": "deny",
+          "*SYSTEM_INVARIANTS.md": "deny",
+          "memory/learnings.jsonl": "deny"
+        },
+        "bash": {
+          "python memory/filter.py *": "allow",
+          "git status": "allow",
+          "git diff": "allow",
+          "git log": "allow",
+          "git add *": "allow",
+          "git commit *": "allow",
+          "*": "ask"
+        },
+        "task": {
+          "code-reviewer": "allow",
+          "pro-reviewer": "allow",
+          "test-writer": "allow",
+          "*": "deny"
+        },
+        "webfetch": "allow"
+      }
+    },
+    "code-reviewer": {
+      "description": "Reviews code diffs against project rules. Structured report with severity-ranked findings. Read-only.",
+      "mode": "subagent",
+      "model": "opencode-go/deepseek-v4-pro",
+      "temperature": 0.1,
+      "steps": 10,
+      "prompt": "{file:.opencode/prompts/code-reviewer.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": "deny",
+        "webfetch": "deny",
+        "bash": {
+          "git diff *": "allow",
+          "git log *": "allow",
+          "git status *": "allow",
+          "python memory/filter.py *": "allow",
+          "*": "deny"
+        }
+      }
+    },
+    "pro-reviewer": {
+      "description": "Audits plan files for readiness. Scores 0-5, identifies gaps, consolidates clarifying questions. Read-only.",
+      "mode": "subagent",
+      "model": "opencode-go/deepseek-v4-pro",
+      "temperature": 0.1,
+      "steps": 10,
+      "prompt": "{file:.opencode/prompts/pro-reviewer.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": "deny",
+        "bash": {
+          "python memory/filter.py *": "allow",
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "question": "allow"
+      }
+    },
+    "test-writer": {
+      "description": "Scaffolds unit tests for pure functions, utilities, and isolated logic. Read source code, write tests only.",
+      "mode": "subagent",
+      "model": "opencode-go/deepseek-v4-pro",
+      "temperature": 0.2,
+      "steps": 10,
+      "prompt": "{file:.opencode/prompts/test-writer.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": {
+          "**/*.test.*": "allow",
+          "**/*_test.*": "allow",
+          "**/test_*.*": "allow",
+          "*": "deny"
+        },
+        "webfetch": "deny",
+        "bash": {
+          "python memory/filter.py *": "allow",
+          "*": "ask"
+        }
+      }
+    }
+  }
+}
