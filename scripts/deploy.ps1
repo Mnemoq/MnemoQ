@@ -31,9 +31,9 @@ $BackupDir = "$LiveEngine\backups\$Timestamp"
 if (-not $DryRun) {
     Write-Host "Backing up live engine to $BackupDir..."
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
-    Copy-Item "$LiveEngine\*.py" "$BackupDir\" -Force
-    Copy-Item "$LiveEngine\VERSION" "$BackupDir\" -Force
-    Copy-Item "$LiveEngine\templates" "$BackupDir\templates" -Recurse -Force
+    Get-ChildItem "$LiveEngine\*.py" -ErrorAction SilentlyContinue | Copy-Item "$BackupDir\" -Force
+    if (Test-Path "$LiveEngine\VERSION") { Copy-Item "$LiveEngine\VERSION" "$BackupDir\" -Force }
+    if (Test-Path "$LiveEngine\templates") { Copy-Item "$LiveEngine\templates" "$BackupDir\templates" -Recurse -Force }
 }
 
 Write-Host "Copying dev files to live engine..."
@@ -79,7 +79,7 @@ if (-not $DryRun) {
 if ($CanaryProject) {
     Write-Host "Updating canary project: $CanaryProject"
     if (-not $DryRun) {
-        python "$LiveEngine\update.py" --project $CanaryProject --yes
+        python "$LiveEngine\update.py" --project "$CanaryProject" --yes
     }
 } else {
     Write-Host "Updating all registered projects..."

@@ -32,9 +32,9 @@ BACKUP_DIR="$LIVE_ENGINE/backups/$TIMESTAMP"
 if [[ "$DRY_RUN" == "false" ]]; then
     echo "Backing up live engine to $BACKUP_DIR..."
     mkdir -p "$BACKUP_DIR"
-    cp "$LIVE_ENGINE"/*.py "$BACKUP_DIR/"
-    cp "$LIVE_ENGINE/VERSION" "$BACKUP_DIR/"
-    cp -r "$LIVE_ENGINE/templates" "$BACKUP_DIR/templates"
+    cp "$LIVE_ENGINE"/*.py "$BACKUP_DIR/" 2>/dev/null || true
+    [[ -f "$LIVE_ENGINE/VERSION" ]] && cp "$LIVE_ENGINE/VERSION" "$BACKUP_DIR/"
+    [[ -d "$LIVE_ENGINE/templates" ]] && cp -r "$LIVE_ENGINE/templates" "$BACKUP_DIR/templates"
 fi
 
 echo "Copying dev files to live engine..."
