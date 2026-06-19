@@ -24,6 +24,8 @@ CLI modes:
       Clear learnings.jsonl after review (requires recent --consolidate run).
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import math
@@ -32,33 +34,39 @@ import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from profile import load_profile, get_profile_context
+from engine_version import get_engine_version
+
+# --- Paths Dataclass ---
+
+@dataclass(frozen=True)
+class Paths:
+    """Immutable container for all path-dependent state."""
+    memory_dir: str
+    repo_root: str
+    config_path: str
+    learnings_path: str
+    quarantine_path: str
+    archive_dir: str
+    session_file: str
+    agents_md_path: str
 
 # --- Constants ---
 
-def _read_engine_version():
-    """Read engine version from VERSION file, with fallback to hardcoded value."""
-    version_file = Path.home() / ".agent-memory" / "engine" / "VERSION"
-    if version_file.exists():
-        try:
-            return version_file.read_text().strip()
-        except Exception:
-            pass
-    return "1.15.0"  # Fallback version
+ENGINE_VERSION = get_engine_version()
 
-ENGINE_VERSION = _read_engine_version()
+# ponytail: module-level singleton, parameterize if multi-instance needed
+PATHS: Paths | None = None
 
-# Path globals — initialized by setup_paths() in main()
-MEMORY_DIR = None
-CONFIG_PATH = None
-REPO_ROOT = None
-LEARNINGS_PATH = None
-QUARANTINE_PATH = None
-ARCHIVE_DIR = None
-SESSION_FILE = None
-AGENTS_MD_PATH = None
+
+def _get_paths() -> Paths:
+    """Get PATHS or raise if not initialized."""
+    if PATHS is None:
+        raise RuntimeError("PATHS not initialized. Call setup_paths() first.")
+    return PATHS
 
 SESSION_EXPIRY_MINUTES = 10
 
@@ -127,41 +135,63 @@ TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 # --- Path resolution ---
 
-def setup_paths(memory_dir_arg):
-    """Resolve and initialize all path-dependent globals.
+def resolve_memory_dir(memory_dir_arg: str | None) -> str:
+    """Resolve memory directory path.
     
     Resolution priority:
       1. --memory-dir CLI flag
       2. AGENT_MEMORY_DIR environment variable
       3. <cwd>/memory/ (if it exists)
-      4. Exit with error
+      4. Raise ValueError
     
-    All paths are normalized to absolute paths via os.path.abspath().
+    All paths are normalized to absolute paths.
     Explicit paths (--memory-dir and AGENT_MEMORY_DIR) are validated to exist.
+    
+    Raises:
+        ValueError: If no valid memory directory is found.
     """
-    global MEMORY_DIR, CONFIG_PATH, REPO_ROOT, LEARNINGS_PATH, QUARANTINE_PATH, ARCHIVE_DIR, SESSION_FILE, AGENTS_MD_PATH
-    
-    if memory_dir_arg:
+    if memory_dir_arg is not None:
         raw = memory_dir_arg.strip()
-        if not os.path.isdir(raw):
-            sys.exit(f"ERROR: --memory-dir path does not exist or is not a directory: {raw}")
-    elif os.environ.get("AGENT_MEMORY_DIR"):
-        raw = os.environ["AGENT_MEMORY_DIR"].strip()
-        if not os.path.isdir(raw):
-            sys.exit(f"ERROR: AGENT_MEMORY_DIR path does not exist or is not a directory: {raw}")
-    elif os.path.isdir(os.path.join(os.getcwd(), "memory")):
-        raw = os.path.join(os.getcwd(), "memory")
-    else:
-        sys.exit("ERROR: No memory directory found. Use --memory-dir or run from a project root.")
+        if raw and os.path.isdir(raw):
+            return os.path.abspath(raw)
+        raise ValueError(f"--memory-dir path does not exist or is not a directory: {raw}")
     
-    MEMORY_DIR = os.path.abspath(raw)
-    REPO_ROOT = os.path.dirname(MEMORY_DIR)
-    CONFIG_PATH = os.path.join(MEMORY_DIR, "config.json")
-    LEARNINGS_PATH = os.path.join(MEMORY_DIR, "learnings.jsonl")
-    QUARANTINE_PATH = os.path.join(MEMORY_DIR, "quarantine.jsonl")
-    ARCHIVE_DIR = os.path.join(MEMORY_DIR, "archive")
-    SESSION_FILE = os.path.join(MEMORY_DIR, ".consolidate_session.json")
-    AGENTS_MD_PATH = os.path.join(REPO_ROOT, "AGENTS.md")
+    env_dir = os.environ.get("AGENT_MEMORY_DIR")
+    if env_dir:
+        raw = env_dir.strip()
+        if raw and os.path.isdir(raw):
+            return os.path.abspath(raw)
+        raise ValueError(f"AGENT_MEMORY_DIR path does not exist or is not a directory: {raw}")
+    
+    cwd_memory = os.path.join(os.getcwd(), "memory")
+    if os.path.isdir(cwd_memory):
+        return os.path.abspath(cwd_memory)
+    
+    raise ValueError("No memory directory found. Use --memory-dir or run from a project root.")
+
+
+def setup_paths(memory_dir_arg: str | None) -> Paths:
+    """Resolve and return all path-dependent state.
+    
+    Returns a Paths dataclass. Does not mutate module state.
+    
+    Note: repo_root is derived as os.path.dirname(memory_dir). If memory_dir
+    is the repo root itself (edge case: --memory-dir .), agents_md_path will
+    resolve to <parent>/AGENTS.md. This is pre-existing behavior.
+    """
+    memory_dir = resolve_memory_dir(memory_dir_arg)
+    repo_root = os.path.dirname(memory_dir)
+    
+    return Paths(
+        memory_dir=memory_dir,
+        repo_root=repo_root,
+        config_path=os.path.join(memory_dir, "config.json"),
+        learnings_path=os.path.join(memory_dir, "learnings.jsonl"),
+        quarantine_path=os.path.join(memory_dir, "quarantine.jsonl"),
+        archive_dir=os.path.join(memory_dir, "archive"),
+        session_file=os.path.join(memory_dir, ".consolidate_session.json"),
+        agents_md_path=os.path.join(repo_root, "AGENTS.md"),
+    )
 
 # --- Config loading ---
 
@@ -211,7 +241,7 @@ def load_config():
     are converted from JSON arrays to Python sets for O(1) membership testing.
     If the config value is null, the dict value is None (skip validation).
     """
-    config_path = Path(CONFIG_PATH)
+    config_path = Path(_get_paths().config_path)
     if not config_path.exists():
         return {}
     
@@ -340,9 +370,9 @@ def load_config():
 def read_learnings():
     """Read all entries from learnings.jsonl, skipping malformed lines."""
     entries = []
-    if not os.path.exists(LEARNINGS_PATH):
+    if not os.path.exists(_get_paths().learnings_path):
         return entries
-    with open(LEARNINGS_PATH, "r", encoding="utf-8") as f:
+    with open(_get_paths().learnings_path, "r", encoding="utf-8") as f:
         for i, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -362,21 +392,21 @@ def append_learning(entry):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            with open(LEARNINGS_PATH, "a", encoding="utf-8") as f:
+            with open(_get_paths().learnings_path, "a", encoding="utf-8") as f:
                 f.write(line)
             return
         except PermissionError:
             if attempt < max_retries - 1:
                 time.sleep(0.1 * (2 ** attempt))
             else:
-                print(f"ERROR: Cannot write to {LEARNINGS_PATH} after {max_retries} attempts", file=sys.stderr)
+                print(f"ERROR: Cannot write to {_get_paths().learnings_path} after {max_retries} attempts", file=sys.stderr)
                 print("File may be locked by antivirus or another process.", file=sys.stderr)
                 raise
 
 
 def write_learnings(entries):
     """Rewrite learnings.jsonl atomically via temp file with Windows retry."""
-    tmp_path = LEARNINGS_PATH + ".tmp"
+    tmp_path = _get_paths().learnings_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         for entry in entries:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -384,7 +414,7 @@ def write_learnings(entries):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            os.replace(tmp_path, LEARNINGS_PATH)
+            os.replace(tmp_path, _get_paths().learnings_path)
             return
         except PermissionError:
             if attempt < max_retries - 1:
@@ -392,7 +422,7 @@ def write_learnings(entries):
             else:
                 print(f"WARNING: Atomic write failed after {max_retries} attempts, using fallback", file=sys.stderr)
                 try:
-                    with open(LEARNINGS_PATH, "w", encoding="utf-8") as f:
+                    with open(_get_paths().learnings_path, "w", encoding="utf-8") as f:
                         for entry in entries:
                             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                     os.remove(tmp_path)
@@ -414,7 +444,7 @@ def quarantine(raw_input, reason):
         "reason": reason,
         "ts": ts
     }
-    with open(QUARANTINE_PATH, "a", encoding="utf-8") as f:
+    with open(_get_paths().quarantine_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
@@ -513,7 +543,7 @@ def stamp_entry(entry):
             commit = subprocess.check_output(
                 ["git", "rev-parse", "--short", "HEAD"],
                 stderr=subprocess.DEVNULL,
-                cwd=MEMORY_DIR
+                cwd=_get_paths().memory_dir
             ).decode().strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
             commit = "unknown"
@@ -687,14 +717,14 @@ def tokenize_keywords(text):
 
 def handle_review_agents(current_step, threshold):
     """Handle --review-agents mode: diagnostic report on AGENTS.md section health."""
-    sections = parse_agents_sections(AGENTS_MD_PATH)
+    sections = parse_agents_sections(_get_paths().agents_md_path)
 
     if not sections:
         print("## AGENTS.md Section Health Report")
         print(f"(step {current_step}, threshold {threshold})")
         print()
-        if not os.path.exists(AGENTS_MD_PATH):
-            print("WARNING: AGENTS.md not found at:", AGENTS_MD_PATH)
+        if not os.path.exists(_get_paths().agents_md_path):
+            print("WARNING: AGENTS.md not found at:", _get_paths().agents_md_path)
         else:
             print("WARNING: AGENTS.md has no ## headings — nothing to report.")
         return 0
@@ -783,7 +813,7 @@ def check_agents_conflict(entry):
         return False, None, 0.0, 0
 
     # Parse AGENTS.md sections
-    sections = parse_agents_sections(AGENTS_MD_PATH)
+    sections = parse_agents_sections(_get_paths().agents_md_path)
     if not sections:
         return False, None, 0.0, 0
 
@@ -1269,11 +1299,11 @@ def detect_contradictions(entries):
 
 def review_quarantine():
     """Read quarantine.jsonl and summarize entries."""
-    if not os.path.exists(QUARANTINE_PATH):
+    if not os.path.exists(_get_paths().quarantine_path):
         return 0, {}, []
 
     entries = []
-    with open(QUARANTINE_PATH, "r", encoding="utf-8") as f:
+    with open(_get_paths().quarantine_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -1324,7 +1354,7 @@ def check_staleness(entry):
         # Use repo root as cwd so git can find files like src/entities/GroundScenery.ts
         result = subprocess.run(
             ["git", "diff", "--stat", f"{commit}..HEAD", "--"] + files,
-            capture_output=True, text=True, cwd=REPO_ROOT
+            capture_output=True, text=True, cwd=_get_paths().repo_root
         )
 
         if result.returncode != 0:
@@ -1394,7 +1424,7 @@ def save_session(sprint_number):
         "sprint": sprint_number
     }
     try:
-        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        with open(_get_paths().session_file, "w", encoding="utf-8") as f:
             json.dump(session_data, f)
     except IOError as e:
         print(f"WARNING: Could not save session file: {e}", file=sys.stderr)
@@ -1402,11 +1432,11 @@ def save_session(sprint_number):
 
 def load_session():
     """Load session timestamp. Returns (timestamp, sprint) or (None, None) if missing/invalid."""
-    if not os.path.exists(SESSION_FILE):
+    if not os.path.exists(_get_paths().session_file):
         return None, None
 
     try:
-        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+        with open(_get_paths().session_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         ts = datetime.fromisoformat(data["timestamp"])
@@ -1428,9 +1458,9 @@ def load_session():
 
 def clear_session():
     """Remove session file after successful reset."""
-    if os.path.exists(SESSION_FILE):
+    if os.path.exists(_get_paths().session_file):
         try:
-            os.remove(SESSION_FILE)
+            os.remove(_get_paths().session_file)
         except IOError:
             pass
 
@@ -1466,7 +1496,7 @@ def handle_consolidate(sprint_number=None, confirm_reset=False, force=False):
     if sprint_number is None:
         sprint_number = infer_sprint_number(unresolved)
 
-    archive_path = os.path.join(ARCHIVE_DIR, f"sprint-{sprint_number}.jsonl")
+    archive_path = os.path.join(_get_paths().archive_dir, f"sprint-{sprint_number}.jsonl")
 
     # Check if archive already exists
     if os.path.exists(archive_path) and not force:
@@ -1475,7 +1505,7 @@ def handle_consolidate(sprint_number=None, confirm_reset=False, force=False):
         return 1
 
     # Create archive directory if needed
-    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    os.makedirs(_get_paths().archive_dir, exist_ok=True)
 
     # Archive
     with open(archive_path, "w", encoding="utf-8") as f:
@@ -1640,7 +1670,7 @@ def handle_confirm_reset():
     print(f"✓ Session valid (sprint {sprint}, started {ts.strftime('%H:%M:%S')})")
 
     # Clear learnings.jsonl
-    with open(LEARNINGS_PATH, "w", encoding="utf-8") as f:
+    with open(_get_paths().learnings_path, "w", encoding="utf-8") as f:
         pass  # Empty file
 
     print("✓ learnings.jsonl reset. Sprint complete.")
@@ -1714,7 +1744,12 @@ Examples:
         return 0
 
     # Resolve memory directory paths (must happen before load_config)
-    setup_paths(args.memory_dir)
+    global PATHS
+    try:
+        PATHS = setup_paths(args.memory_dir)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Load project-specific config and apply to module globals
     try:

@@ -17,16 +17,57 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Validating dev project..."
-for f in src/filter.py src/profile.py src/scaffold.py src/update.py VERSION; do
+for f in src/filter.py src/profile.py src/scaffold.py src/update.py src/engine_version.py src/shim.py VERSION; do
     if [[ ! -f "$DEV_ROOT/$f" ]]; then
         echo "ERROR: Missing required file: $f" >&2
         exit 1
     fi
 done
 
-echo "Running tests..."
+echo "Running tests with coverage..."
 cd "$DEV_ROOT"
-python -m pytest tests/ --tb=short || { echo "Tests failed. Aborting deploy." >&2; exit 1; }
+TEST_OUTPUT=$(python -m pytest tests/ --tb=short --cov=src --cov-report=term-missing 2>&1)
+TEST_EXIT_CODE=$?
+
+# Check test exit code
+if [[ $TEST_EXIT_CODE -ne 0 ]]; then
+    echo "Tests failed (exit code $TEST_EXIT_CODE). Aborting deploy." >&2
+    echo "$TEST_OUTPUT"
+    exit 1
+fi
+
+# Extract coverage percentage from TOTAL line
+# Format: "TOTAL                      499   1197    29%"
+# Use awk for portability (works on both GNU and BSD/macOS)
+CURRENT_COVERAGE=$(echo "$TEST_OUTPUT" | awk '/TOTAL.*%/ { for(i=1;i<=NF;i++) if($i ~ /%$/) { gsub(/%/,"",$i); print $i; exit } }')
+
+if [[ -n "$CURRENT_COVERAGE" ]]; then
+    echo "  Coverage: ${CURRENT_COVERAGE}%"
+    
+    BASELINE_FILE="$DEV_ROOT/coverage-baseline.txt"
+    if [[ -f "$BASELINE_FILE" ]]; then
+        BASELINE_COVERAGE=$(awk '/TOTAL.*%/ { for(i=1;i<=NF;i++) if($i ~ /%$/) { gsub(/%/,"",$i); print $i; exit } }' "$BASELINE_FILE" 2>/dev/null || echo "")
+        if [[ -n "$BASELINE_COVERAGE" ]]; then
+            REGRESSION=$((BASELINE_COVERAGE - CURRENT_COVERAGE))
+            if [[ $REGRESSION -gt 5 ]]; then
+                echo "ERROR: Coverage regression: ${BASELINE_COVERAGE}% -> ${CURRENT_COVERAGE}% (${REGRESSION} point drop)" >&2
+                echo "Deploy aborted. Improve tests before deploying." >&2
+                exit 1
+            elif [[ $REGRESSION -gt 0 ]]; then
+                echo "  Coverage: ${CURRENT_COVERAGE}% (baseline: ${BASELINE_COVERAGE}%, regression: ${REGRESSION} points — within tolerance)"
+            else
+                GAIN=$((-REGRESSION))
+                echo "  Coverage: ${CURRENT_COVERAGE}% (baseline: ${BASELINE_COVERAGE}%, gain: +${GAIN} points)"
+            fi
+        else
+            echo "WARNING: Baseline file exists but TOTAL line not found. Skipping coverage gate." >&2
+        fi
+    else
+        echo "  No baseline found. Run: pytest --cov=src > coverage-baseline.txt"
+    fi
+else
+    echo "WARNING: Could not extract coverage from test output. Skipping coverage gate." >&2
+fi
 
 BACKUP_DIR="$LIVE_ENGINE/backups/$TIMESTAMP"
 if [[ "$DRY_RUN" == "false" ]]; then
@@ -38,7 +79,7 @@ if [[ "$DRY_RUN" == "false" ]]; then
 fi
 
 echo "Copying dev files to live engine..."
-for pair in "src/filter.py:filter.py" "src/profile.py:profile.py" "src/scaffold.py:scaffold.py" "src/update.py:update.py" "VERSION:VERSION"; do
+for pair in "src/filter.py:filter.py" "src/profile.py:profile.py" "src/scaffold.py:scaffold.py" "src/update.py:update.py" "src/engine_version.py:engine_version.py" "src/shim.py:shim.py" "VERSION:VERSION"; do
     src="${pair%%:*}"
     dst="${pair##*:}"
     if [[ "$DRY_RUN" == "true" ]]; then
