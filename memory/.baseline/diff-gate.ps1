@@ -27,13 +27,19 @@ function Assert-NoDiff($name, $expected, $actual) {
     if ($null -eq $aContent) { $aContent = @() }
     $eNorm = Normalize-Lines $eContent
     $aNorm = Normalize-Lines $aContent
-    $diff = Compare-Object $eNorm $aNorm
-    if ($diff) {
-        Write-Host "  FAIL: $name" -ForegroundColor Red
-        $diff | Format-Table -AutoSize
+    
+    try {
+        $diff = Compare-Object $eNorm $aNorm -ErrorAction Stop
+        if ($diff) {
+            Write-Host "  FAIL: $name (diff found)" -ForegroundColor Red
+            $diff | Format-Table -AutoSize
+            $script:allPass = $false
+        } else {
+            Write-Host "  PASS: $name" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  FAIL: $name (Compare-Object error: $_)" -ForegroundColor Red
         $script:allPass = $false
-    } else {
-        Write-Host "  PASS: $name" -ForegroundColor Green
     }
 }
 
