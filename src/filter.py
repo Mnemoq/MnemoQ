@@ -365,263 +365,63 @@ def load_config():
     
     return result
 
-# --- I/O helpers ---
+# --- I/O helpers (delegated to engine.io) ---
+
+from engine.io import (
+    read_learnings as _io_read_learnings,
+    append_learning as _io_append_learning,
+    write_learnings as _io_write_learnings,
+    quarantine as _io_quarantine,
+)
+
 
 def read_learnings():
     """Read all entries from learnings.jsonl, skipping malformed lines."""
-    entries = []
-    if not os.path.exists(_get_paths().learnings_path):
-        return entries
-    with open(_get_paths().learnings_path, "r", encoding="utf-8") as f:
-        for i, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError as e:
-                print(f"WARNING: Skipping malformed line {i} in learnings.jsonl: {e}",
-                      file=sys.stderr)
-    return entries
+    return _io_read_learnings(_get_paths())
 
 
 def append_learning(entry):
     """Append a single entry to learnings.jsonl with Windows retry."""
-    line = json.dumps(entry, ensure_ascii=False) + "\n"
-    
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            with open(_get_paths().learnings_path, "a", encoding="utf-8") as f:
-                f.write(line)
-            return
-        except PermissionError:
-            if attempt < max_retries - 1:
-                time.sleep(0.1 * (2 ** attempt))
-            else:
-                print(f"ERROR: Cannot write to {_get_paths().learnings_path} after {max_retries} attempts", file=sys.stderr)
-                print("File may be locked by antivirus or another process.", file=sys.stderr)
-                raise
+    _io_append_learning(_get_paths(), entry)
 
 
 def write_learnings(entries):
     """Rewrite learnings.jsonl atomically via temp file with Windows retry."""
-    tmp_path = _get_paths().learnings_path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            os.replace(tmp_path, _get_paths().learnings_path)
-            return
-        except PermissionError:
-            if attempt < max_retries - 1:
-                time.sleep(0.1 * (2 ** attempt))
-            else:
-                print(f"WARNING: Atomic write failed after {max_retries} attempts, using fallback", file=sys.stderr)
-                try:
-                    with open(_get_paths().learnings_path, "w", encoding="utf-8") as f:
-                        for entry in entries:
-                            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                    os.remove(tmp_path)
-                except PermissionError:
-                    print(f"ERROR: Fallback write also failed. File may be locked.", file=sys.stderr)
-                    print(f"Temp file preserved at: {tmp_path}", file=sys.stderr)
-                    raise
-                except OSError as e:
-                    print(f"ERROR: Fallback write failed: {e}", file=sys.stderr)
-                    print(f"Temp file preserved at: {tmp_path}", file=sys.stderr)
-                    raise
+    _io_write_learnings(_get_paths(), entries)
 
 
 def quarantine(raw_input, reason):
     """Append a malformed/rejected entry to quarantine.jsonl."""
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    record = {
-        "raw": raw_input,
-        "reason": reason,
-        "ts": ts
+    _io_quarantine(_get_paths(), raw_input, reason)
+
+
+
+# --- Validation (delegated to engine.validation) ---
+
+from engine.validation import (
+    validate_entry as _val_validate_entry,
+    jaccard_similarity,
+    actions_oppose,
+    find_best_match,
+)
+
+
+def _build_validation_ctx():
+    """Build ctx dict from current module globals for validate_entry."""
+    return {
+        "max_step": MAX_STEP,
+        "valid_source_agents": VALID_SOURCE_AGENTS,
+        "valid_types": VALID_TYPES,
+        "valid_domains": VALID_DOMAINS,
+        "valid_severities": VALID_SEVERITIES,
+        "valid_scopes": VALID_SCOPES,
+        "valid_debt_levels": VALID_DEBT_LEVELS,
     }
-    with open(_get_paths().quarantine_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-
-# --- Validation ---
 
 def validate_entry(entry):
     """Validate an entry against the schema. Returns list of error strings."""
-    errors = []
-
-    required_fields = [
-        "step", "source_agent", "type", "domain", "components",
-        "files_touched", "trigger", "action", "reason",
-        "importance", "severity"
-    ]
-
-    for field in required_fields:
-        if field not in entry:
-            errors.append(f"Missing required field: {field}")
-
-    if errors:
-        return errors
-
-    if not isinstance(entry["step"], int) or entry["step"] < 1:
-        errors.append("step must be a positive integer")
-    elif MAX_STEP is not None and entry["step"] > MAX_STEP:
-        errors.append(f"step must be <= {MAX_STEP}")
-
-    if VALID_SOURCE_AGENTS is not None and entry["source_agent"] not in VALID_SOURCE_AGENTS:
-        errors.append(f"source_agent must be one of: {', '.join(sorted(VALID_SOURCE_AGENTS))}")
-
-    if entry["type"] not in VALID_TYPES:
-        errors.append(f"type must be one of: {', '.join(sorted(VALID_TYPES))}")
-
-    if VALID_DOMAINS is not None and entry["domain"] not in VALID_DOMAINS:
-        errors.append(f"domain must be one of: {', '.join(sorted(VALID_DOMAINS))}")
-
-    if entry["severity"] not in VALID_SEVERITIES:
-        errors.append(f"severity must be one of: {', '.join(sorted(VALID_SEVERITIES))}")
-
-    if not isinstance(entry["importance"], int) or not (1 <= entry["importance"] <= 10):
-        errors.append("importance must be integer 1-10")
-
-    if not isinstance(entry["components"], list) or len(entry["components"]) == 0:
-        errors.append("components must be non-empty list of strings")
-    elif not all(isinstance(c, str) for c in entry["components"]):
-        errors.append("components must be list of strings")
-
-    if not isinstance(entry["files_touched"], list) or len(entry["files_touched"]) == 0:
-        errors.append("files_touched must be non-empty list of strings")
-    elif not all(isinstance(f, str) for f in entry["files_touched"]):
-        errors.append("files_touched must be list of strings")
-
-    if not isinstance(entry["trigger"], str) or not entry["trigger"].strip():
-        errors.append("trigger must be non-empty string")
-    elif not entry["trigger"].lower().startswith("when"):
-        errors.append("trigger must start with 'When' (case-insensitive)")
-
-    if not isinstance(entry["action"], str) or not entry["action"].strip():
-        errors.append("action must be non-empty string")
-    elif "ALWAYS" not in entry["action"].upper() and "NEVER" not in entry["action"].upper():
-        errors.append("action must contain 'ALWAYS' or 'NEVER' (case-insensitive)")
-
-    if not isinstance(entry["reason"], str) or not entry["reason"].strip():
-        errors.append("reason must be non-empty string")
-
-    # reinforcement_count is optional (defaults to 0)
-    if "reinforcement_count" in entry:
-        if not isinstance(entry["reinforcement_count"], int) or entry["reinforcement_count"] < 0:
-            errors.append("reinforcement_count must be non-negative integer")
-
-    if "verified" in entry:
-        if not isinstance(entry["verified"], bool):
-            errors.append("verified must be boolean")
-
-    if "scope" in entry:
-        if entry["scope"] not in VALID_SCOPES:
-            errors.append(f"scope must be one of: {', '.join(sorted(VALID_SCOPES))}")
-
-    if "symptoms" in entry:
-        if not isinstance(entry["symptoms"], str):
-            errors.append("symptoms must be string")
-
-    if "debt_level" in entry:
-        if entry["debt_level"] not in VALID_DEBT_LEVELS:
-            errors.append(f"debt_level must be one of: {', '.join(sorted(VALID_DEBT_LEVELS))}")
-
-    return errors
-
-
-# --- Write mode ---
-
-def stamp_entry(entry):
-    """Auto-inject commit and ts fields if not provided."""
-    if "commit" not in entry or not entry["commit"]:
-        try:
-            commit = subprocess.check_output(
-                ["git", "rev-parse", "--short", "HEAD"],
-                stderr=subprocess.DEVNULL,
-                cwd=_get_paths().memory_dir
-            ).decode().strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            commit = "unknown"
-        entry["commit"] = commit
-
-    if "ts" not in entry or not entry["ts"]:
-        entry["ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    if "access_count" not in entry:
-        entry["access_count"] = 0
-
-    if "reinforcement_count" not in entry:
-        entry["reinforcement_count"] = 0
-
-    if "resolved" not in entry:
-        entry["resolved"] = False
-
-    if "verified" not in entry:
-        entry["verified"] = False
-
-    if "scope" not in entry:
-        entry["scope"] = "file"
-
-    if "symptoms" not in entry:
-        entry["symptoms"] = ""
-
-    if "debt_level" not in entry:
-        entry["debt_level"] = "proper"
-
-    return entry
-
-
-def jaccard_similarity(text1, text2):
-    """Compute Jaccard similarity between two texts."""
-    words1 = set(text1.lower().split())
-    words2 = set(text2.lower().split())
-    if not words1 and not words2:
-        return 0.0
-    union = words1 | words2
-    if len(union) == 0:
-        return 0.0
-    intersection = words1 & words2
-    return len(intersection) / len(union)
-
-
-def actions_oppose(action1, action2):
-    """Check if two actions oppose each other (ALWAYS vs NEVER)."""
-    a1_upper = action1.upper()
-    a2_upper = action2.upper()
-    a1_has_always = "ALWAYS" in a1_upper
-    a1_has_never = "NEVER" in a1_upper
-    a2_has_always = "ALWAYS" in a2_upper
-    a2_has_never = "NEVER" in a2_upper
-    return (a1_has_always and a2_has_never) or (a1_has_never and a2_has_always)
-
-
-def find_best_match(entry, entries):
-    """Find the highest similarity match among entries sharing components."""
-    entry_components_lower = {c.lower() for c in entry["components"]}
-    best_similarity = 0.0
-    best_match = None
-
-    for existing in entries:
-        if existing.get("resolved", False):
-            continue
-        existing_components_lower = {c.lower() for c in existing.get("components", [])}
-        if not (entry_components_lower & existing_components_lower):
-            continue
-
-        trigger_action_new = entry["trigger"] + " " + entry["action"]
-        trigger_action_existing = existing["trigger"] + " " + existing["action"]
-        similarity = jaccard_similarity(trigger_action_new, trigger_action_existing)
-
-        if similarity > best_similarity:
-            best_similarity = similarity
-            best_match = existing
-
-    return best_similarity, best_match
+    return _val_validate_entry(entry, _build_validation_ctx())
 
 
 # --- AGENTS.md review utilities ---
@@ -1001,138 +801,47 @@ def handle_resolve(ts):
     return 0
 
 
-# --- Retrieval mode ---
+# --- Retrieval mode (delegated to engine.retrieval) ---
+
+from engine.retrieval import (
+    score_entry as _ret_score_entry,
+    is_in_retention as _ret_is_in_retention,
+    handle_retrieval as _ret_handle_retrieval,
+)
+
+
+def _build_retrieval_ctx():
+    """Build ctx dict from current module globals for retrieval."""
+    return {
+        "decay_rate": DECAY_RATE,
+        "score_threshold": SCORE_THRESHOLD,
+        "component_weight": COMPONENT_WEIGHT,
+        "file_weight": FILE_WEIGHT,
+        "domain_weight": DOMAIN_WEIGHT,
+        "no_match_weight": NO_MATCH_WEIGHT,
+        "max_warnings": MAX_WARNINGS,
+        "max_patterns": MAX_PATTERNS,
+        "minor_retention": MINOR_RETENTION,
+        "major_retention": MAJOR_RETENTION,
+        "escalation_threshold": ESCALATION_THRESHOLD,
+        "max_step": MAX_STEP,
+        "domain_mappings": DOMAIN_MAPPINGS,
+    }
+
 
 def score_entry(entry, current_step, task_components, task_files, task_domain):
     """Score an entry against the current task context."""
-    step_diff = current_step - entry["step"]
-    recency = DECAY_RATE ** step_diff
-    importance = entry["importance"] / 10.0
-
-    task_components_lower = {c.lower() for c in task_components}
-    entry_components_lower = {c.lower() for c in entry["components"]}
-    if task_components_lower & entry_components_lower:
-        relevance = COMPONENT_WEIGHT
-    elif task_files and set(task_files) & set(entry.get("files_touched", [])):
-        relevance = FILE_WEIGHT
-    elif task_domain and task_domain == entry.get("domain"):
-        relevance = DOMAIN_WEIGHT
-    else:
-        relevance = NO_MATCH_WEIGHT
-
-    return recency * importance * relevance
+    return _ret_score_entry(entry, current_step, task_components, task_files, task_domain, _build_retrieval_ctx())
 
 
 def is_in_retention(entry, current_step):
     """Check if an entry is within its retention window."""
-    severity = entry["severity"]
-    step_diff = current_step - entry["step"]
-    access_count = entry.get("access_count", 0)
-
-    if severity == "critical":
-        return True
-    elif severity == "major":
-        return step_diff <= MAJOR_RETENTION
-    elif severity == "minor":
-        return step_diff <= MINOR_RETENTION or access_count > 3
-    return False
+    return _ret_is_in_retention(entry, current_step, _build_retrieval_ctx())
 
 
 def handle_retrieval(current_step, task_components, task_files, task_domain):
     """Handle retrieval mode: score, filter, and print relevant learnings."""
-    entries = read_learnings()
-
-    warnings = []
-    patterns = []
-    escalations = []
-
-    for entry in entries:
-        if entry.get("resolved", False):
-            continue
-
-        if not is_in_retention(entry, current_step):
-            continue
-
-        score = score_entry(entry, current_step, task_components, task_files, task_domain)
-
-        if entry["severity"] == "critical" or score >= SCORE_THRESHOLD:
-            if entry["severity"] == "critical":
-                warnings.append((score, entry))
-                step_diff = current_step - entry["step"]
-                if step_diff >= ESCALATION_THRESHOLD:
-                    escalations.append(entry)
-            else:
-                patterns.append((score, entry))
-
-    warnings.sort(key=lambda x: x[0], reverse=True)
-    patterns.sort(key=lambda x: x[0], reverse=True)
-
-    warnings = warnings[:MAX_WARNINGS]
-    patterns = patterns[:MAX_PATTERNS]
-
-    for _, entry in warnings + patterns:
-        entry["access_count"] = entry.get("access_count", 0) + 1
-
-    if warnings or patterns:
-        write_learnings(entries)
-
-    print("## ⚠ WARNINGS — Read before starting")
-    if warnings:
-        for _, entry in warnings:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
-            verified_str = "verified" if entry.get("verified", False) else "unverified"
-            scope_str = entry.get("scope", "file")
-            debt_str = entry.get("debt_level", "proper")
-            symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
-            if symptoms_str:
-                print(f"  Symptoms: {symptoms_str}")
-    else:
-        print("(none)")
-
-    profile = load_profile()
-    # Pass config-provided domain_mappings (may be None if not in config)
-    profile_context = get_profile_context(profile, task_domain, domain_mappings=DOMAIN_MAPPINGS)
-    print("\n## 🎯 DEVELOPER PREFERENCES")
-    if profile_context:
-        for pref in profile_context:
-            print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
-            print(f"  Reason: {pref['reason']}")
-    else:
-        print("(none)")
-
-    print("\n## RELEVANT PATTERNS")
-    if patterns:
-        for _, entry in patterns:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
-            verified_str = "verified" if entry.get("verified", False) else "unverified"
-            scope_str = entry.get("scope", "file")
-            debt_str = entry.get("debt_level", "proper")
-            symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
-            if symptoms_str:
-                print(f"  Symptoms: {symptoms_str}")
-    else:
-        print("(none)")
-
-    if escalations:
-        print("\n## ⚡ ESCALATION — Critical entries unresolved for 30+ steps")
-        for entry in escalations:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']}")
-
-    unresolved_count = sum(1 for e in entries if not e.get("resolved", False))
-    
-    print(f"\n## STATS: {len(entries)} total entries, {unresolved_count} unresolved")
-    
-    sleep_cycle_steps = {10, 20, MAX_STEP} if MAX_STEP is not None else {10, 20}
-    if unresolved_count > 50 or current_step in sleep_cycle_steps:
-        if unresolved_count > 50:
-            print(f"\n## SLEEP CYCLE DUE — {unresolved_count} unresolved entries exceed threshold of 50")
-        if current_step in sleep_cycle_steps:
-            print(f"\n## SLEEP CYCLE DUE — Sprint boundary at step {current_step} ({unresolved_count} unresolved entries)")
-        print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
-
-    return 0
+    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_retrieval_ctx(), _get_paths())
 
 
 def handle_stats():

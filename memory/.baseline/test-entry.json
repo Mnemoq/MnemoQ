@@ -1,0 +1,1 @@
+{"step":1,"source_agent":"gm","type":"bug_fix","domain":"tooling","components":["Test"],"files_touched":["test.py"],"trigger":"When running baseline tests","action":"ALWAYS verify output matches expected","reason":"Baseline validation","importance":5,"severity":"minor"}
