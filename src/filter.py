@@ -651,6 +651,8 @@ def check_agents_conflict(entry):
     return False, None, best_jaccard, best_containment
 
 
+from engine.git_utils import stamp_entry
+
 def handle_log(json_str):
     """Handle --log mode: validate, dedup-check, append."""
     try:
@@ -672,7 +674,7 @@ def handle_log(json_str):
         print(f"QUARANTINED: {entry['source_agent']} is retrieval-only", file=sys.stderr)
         return 1
 
-    entry = stamp_entry(entry)
+    entry = stamp_entry(entry, _get_paths().repo_root)
 
     # AGENTS.md conflict detection (informational, non-blocking)
     conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry)
@@ -732,11 +734,11 @@ def handle_update(ts, json_str):
 
     if VALID_RETRIEVAL_ONLY_AGENTS is not None and entry.get("source_agent") in VALID_RETRIEVAL_ONLY_AGENTS:
         quarantine(json_str, f"{entry['source_agent']} is retrieval-only (use --step mode)")
-        print(f"QUARANTINED: {entry['source_agent']} is retrieval-only", file=sys.stderr)
+        print(f"ERROR: Cannot append entry. learnings.jsonl is not writable or missing.", file=sys.stderr)
         return 1
 
     original_fields = set(entry.keys())
-    entry = stamp_entry(entry)
+    entry = stamp_entry(entry, _get_paths().repo_root)
 
     existing_entries = read_learnings()
     found = False
@@ -928,466 +930,34 @@ def handle_stats():
     return 0
 
 
-# --- Sleep Cycle (Consolidation) ---
+# --- Sleep Cycle (Consolidation) (delegated to engine.consolidation) ---
 
-def score_for_promotion(entry, current_step):
-    """Score an entry for promotion to SYSTEM_INVARIANTS.md.
+from engine.consolidation import (
+    handle_consolidate as _con_handle_consolidate,
+    handle_confirm_reset as _con_handle_confirm_reset,
+)
 
-    Formula: 0.4 * access_score + 0.4 * severity_score + 0.2 * recency_score
-
-    The promotion scoring differs from retrieval scoring intentionally:
-    - Retrieval scoring answers "is this relevant to the current task?"
-    - Promotion scoring answers "is this important enough to become a permanent invariant?"
-    """
-    access_count = entry.get("access_count", 0)
-    severity = entry.get("severity", "minor")
-    step_diff = current_step - entry.get("step", current_step)
-
-    # Access count component (0.0 - 1.0, caps at 10 accesses)
-    access_score = min(access_count / 10.0, 1.0)
-
-    # Severity component (critical=1.0, major=0.6, minor=0.3)
-    severity_map = {"critical": 1.0, "major": 0.6, "minor": 0.3}
-    severity_score = severity_map.get(severity, 0.3)
-
-    # Recency component (decays over 30 steps)
-    recency_score = max(0.0, 1.0 - step_diff / 30.0)
-
-    # Weighted sum
-    promotion_score = (
-        0.4 * access_score +
-        0.4 * severity_score +
-        0.2 * recency_score
-    )
-
-    return promotion_score
-
-
-def is_promotion_candidate(entry, current_step):
-    """Check if an entry qualifies for promotion.
-
-    Three gates (any one triggers promotion):
-    1. promotion_score >= 0.5 (common case)
-    2. severity == "critical" (safety net for critical entries with low scores)
-    3. access_count > 5 (safety net for frequently-accessed entries that narrowly miss threshold)
-    """
-    score = score_for_promotion(entry, current_step)
-    severity = entry.get("severity", "minor")
-    access_count = entry.get("access_count", 0)
-
-    if score >= 0.5:
-        return True, score
-    if severity == "critical":
-        return True, score
-    if access_count > 5:
-        return True, score
-
-    return False, score
-
-
-def detect_contradictions(entries):
-    """Identify architectural_pattern entries proposing supersession.
-
-    Detection heuristics:
-    - type == "architectural_pattern"
-    - reason contains keywords: supersede, outdated, no longer applies, conflicts with, replaces
-    """
-    contradiction_keywords = {"supersede", "outdated", "no longer applies", "conflicts with", "replaces"}
-    contradictions = []
-
-    for entry in entries:
-        if entry.get("type") != "architectural_pattern":
-            continue
-
-        reason = entry.get("reason", "").lower()
-        if any(kw in reason for kw in contradiction_keywords):
-            contradictions.append(entry)
-
-    return contradictions
-
-
-def review_quarantine():
-    """Read quarantine.jsonl and summarize entries."""
-    if not os.path.exists(_get_paths().quarantine_path):
-        return 0, {}, []
-
-    entries = []
-    with open(_get_paths().quarantine_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-
-    if not entries:
-        return 0, {}, []
-
-    # Categorize by reason
-    reason_counts = {}
-    for entry in entries:
-        reason = entry.get("reason", "unknown")
-        # Heuristic categorization
-        if "JSON parse error" in reason:
-            category = "JSON parse errors"
-        elif "Missing required field" in reason or "must be" in reason:
-            category = "Schema validation errors"
-        elif "retrieval-only" in reason:
-            category = "Permission/agent errors"
-        else:
-            category = "Other errors"
-
-        reason_counts[category] = reason_counts.get(category, 0) + 1
-
-    # Sample recent failures (last 5)
-    recent = entries[-5:] if len(entries) > 5 else entries
-
-    return len(entries), reason_counts, recent
-
-
-def check_staleness(entry):
-    """Check if an entry is stale based on git diff.
-
-    Returns (is_stale, lines_changed, error_message).
-    error_message is None on success, or a string describing the failure.
-    """
-    if "commit" not in entry or not entry.get("files_touched"):
-        return False, 0, None
-
-    commit = entry["commit"]
-    files = entry["files_touched"]
-
-    try:
-        # Use repo root as cwd so git can find files like src/entities/GroundScenery.ts
-        result = subprocess.run(
-            ["git", "diff", "--stat", f"{commit}..HEAD", "--"] + files,
-            capture_output=True, text=True, cwd=_get_paths().repo_root
-        )
-
-        if result.returncode != 0:
-            return False, 0, f"git diff failed: {result.stderr.strip()[:100]}"
-
-        # Parse diff stat output to count lines changed
-        lines_changed = 0
-        for line in result.stdout.strip().split("\n"):
-            if "|" in line:
-                parts = line.split("|")
-                if len(parts) >= 2:
-                    changes_str = parts[1].strip().split()[0]
-                    try:
-                        lines_changed += int(changes_str)
-                    except ValueError:
-                        pass
-
-        # Staleness threshold: >500 lines changed
-        # Raised from plan's original >100 to reduce false positives from minor refactors.
-        # Percentage-based churn (>60%) deferred to future version (requires original file sizes).
-        is_stale = lines_changed > 500
-
-        return is_stale, lines_changed, None
-
-    except FileNotFoundError as e:
-        return False, 0, f"git not found: {str(e)[:100]}"
-
-
-def get_agents_md_suggestions(entries):
-    """Find learnings that suggest AGENTS.md updates.
-
-    Detection: files_touched contains "AGENTS.md" OR components contains "agents" (case-insensitive).
-    """
-    suggestions = []
-    for entry in entries:
-        files_touched = entry.get("files_touched", [])
-        components = entry.get("components", [])
-
-        has_agents_ref = (
-            any("AGENTS.md" in f for f in files_touched) or
-            any("agents" in c.lower() for c in components)
-        )
-
-        if has_agents_ref:
-            suggestions.append(entry)
-
-    return suggestions
-
-
-def infer_sprint_number(entries):
-    """Infer sprint number from max step in entries.
-
-    Formula: ceil(max_step / 10)
-    Examples: max_step=11 → sprint 2, max_step=20 → sprint 2, max_step=21 → sprint 3
-    """
-    if not entries:
-        return 1
-
-    max_step = max(e.get("step", 0) for e in entries)
-    return math.ceil(max_step / 10)
-
-
-def save_session(sprint_number):
-    """Save session timestamp for --confirm-reset safety check."""
-    session_data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "sprint": sprint_number
+def _build_consolidation_ctx():
+    return {
+        "session_expiry_minutes": SESSION_EXPIRY_MINUTES
     }
-    try:
-        with open(_get_paths().session_file, "w", encoding="utf-8") as f:
-            json.dump(session_data, f)
-    except IOError as e:
-        print(f"WARNING: Could not save session file: {e}", file=sys.stderr)
-
-
-def load_session():
-    """Load session timestamp. Returns (timestamp, sprint) or (None, None) if missing/invalid."""
-    if not os.path.exists(_get_paths().session_file):
-        return None, None
-
-    try:
-        with open(_get_paths().session_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        ts = datetime.fromisoformat(data["timestamp"])
-        sprint = data.get("sprint", 1)
-
-        # Check expiry
-        now = datetime.now(timezone.utc)
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-
-        if (now - ts) > timedelta(minutes=SESSION_EXPIRY_MINUTES):
-            return None, None
-
-        return ts, sprint
-
-    except (json.JSONDecodeError, KeyError, ValueError, IOError):
-        return None, None
-
-
-def clear_session():
-    """Remove session file after successful reset."""
-    if os.path.exists(_get_paths().session_file):
-        try:
-            os.remove(_get_paths().session_file)
-        except IOError:
-            pass
-
 
 def handle_consolidate(sprint_number=None, confirm_reset=False, force=False):
-    """Handle --consolidate mode: Sleep Cycle for episodic memory.
-
-    Without --confirm-reset:
-    1. Validate preconditions
-    2. Archive learnings.jsonl
-    3. Analyze promotion candidates
-    4. Generate consolidation report
-    5. Save session for --confirm-reset
-
-    With --confirm-reset:
-    1. Check session validity
-    2. Clear learnings.jsonl
-    3. Remove session file
-    """
-    if confirm_reset:
-        return handle_confirm_reset()
-
-    # Read entries
-    entries = read_learnings()
-    unresolved = [e for e in entries if not e.get("resolved", False)]
-
-    # Validate preconditions
-    if not unresolved:
-        print("⚠ No unresolved entries to consolidate. Archive not created.")
-        return 0
-
-    # Determine sprint number
-    if sprint_number is None:
-        sprint_number = infer_sprint_number(unresolved)
-
-    archive_path = os.path.join(_get_paths().archive_dir, f"sprint-{sprint_number}.jsonl")
-
-    # Check if archive already exists
-    if os.path.exists(archive_path) and not force:
-        print(f"⚠ Warning: {archive_path} already exists.")
-        print("  Use --force to overwrite, or specify a different sprint number.")
-        return 1
-
-    # Create archive directory if needed
-    os.makedirs(_get_paths().archive_dir, exist_ok=True)
-
-    # Archive
-    with open(archive_path, "w", encoding="utf-8") as f:
-        for entry in unresolved:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    print(f"✓ Archived {len(unresolved)} entries to {archive_path}")
-
-    # Current step for scoring (use max step in entries)
-    current_step = max(e.get("step", 0) for e in unresolved)
-
-    # Analyze promotion candidates
-    candidates = []
-    for entry in unresolved:
-        is_candidate, score = is_promotion_candidate(entry, current_step)
-        if is_candidate:
-            candidates.append((score, entry))
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-
-    # Detect contradictions
-    contradictions = detect_contradictions(unresolved)
-
-    # Review quarantine
-    quarantine_count, quarantine_breakdown, quarantine_recent = review_quarantine()
-
-    # Staleness detection
-    stale_entries = []
-    for entry in unresolved:
-        is_stale, lines_changed, error = check_staleness(entry)
-        stale_entries.append((is_stale, lines_changed, error, entry))
-
-    # AGENTS.md suggestions (Phase 2 preview)
-    agents_suggestions = get_agents_md_suggestions(unresolved)
-
-    # Generate report
-    print("\n" + "=" * 60)
-    print(f"## SLEEP CYCLE REPORT — Sprint {sprint_number}")
-    print("=" * 60)
-
-    # Promotion candidates
-    print(f"\n## 🎯 PROMOTION CANDIDATES ({len(candidates)} entries)")
-    print("The following entries are candidates for promotion to SYSTEM_INVARIANTS.md.")
-    print("Review each entry, then apply approved entries to the invariants file.\n")
-
-    if candidates:
-        for i, (score, entry) in enumerate(candidates, 1):
-            print(f"### Candidate {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-            print(f"**Trigger:** {entry.get('trigger', '')}")
-            print(f"**Action:** {entry.get('action', '')}")
-            print(f"**Reason:** {entry.get('reason', '')}")
-            print(f"**Promotion score:** {score:.2f} (access_count={entry.get('access_count', 0)}, severity={entry.get('severity', 'minor')}, step_diff={current_step - entry.get('step', 0)})")
-            print()
-    else:
-        print("No promotion candidates found.\n")
-
-    # Contradictions
-    print(f"\n## ⚔️ CONTRADICTIONS ({len(contradictions)} entries)")
-    print("The following entries propose superseding existing invariants via the Challenge Protocol.")
-    print("Review carefully — these may indicate outdated rules or necessary architectural changes.\n")
-
-    if contradictions:
-        for i, entry in enumerate(contradictions, 1):
-            print(f"### Contradiction {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-            print(f"**Trigger:** {entry.get('trigger', '')}")
-            print(f"**Action:** {entry.get('action', '')}")
-            print(f"**Reason:** {entry.get('reason', '')}")
-            print(f"**Action required:** Review and update SYSTEM_INVARIANTS.md if applicable")
-            print()
-    else:
-        print("No contradictions detected.\n")
-
-    # Quarantine review
-    print(f"\n## 🗑️ QUARANTINE REVIEW")
-    print(f"Total quarantined entries: {quarantine_count}\n")
-
-    if quarantine_breakdown:
-        print("### Breakdown by reason:")
-        for category, count in sorted(quarantine_breakdown.items()):
-            print(f"  - {category}: {count}")
-        print()
-
-    if quarantine_recent:
-        print("### Recent failures:")
-        for i, entry in enumerate(quarantine_recent, 1):
-            print(f"{i}. [{entry.get('ts', '?')}] {entry.get('reason', 'unknown')}")
-            print(f"   Raw: {entry.get('raw', '')[:80]}...")
-        print()
-
-    print("Interpretation guidance:")
-    print("- Chronic quarantine from one agent → meta_learning signal (agent doesn't understand schema)")
-    print("- Repeated validation errors → need for better documentation or examples")
-    print("- Clear quarantine after review: echo \"\" > memory/quarantine.jsonl")
-    print()
-
-    # Stale entries
-    print(f"\n## 🕰️ STALE ENTRIES")
-    print("The following entries may be stale based on git history.")
-    print("Verify against current code before promoting.\n")
-
-    stale_count = sum(1 for is_stale, _, _, _ in stale_entries if is_stale)
-    error_count = sum(1 for _, _, err, _ in stale_entries if err is not None)
-
-    if stale_count > 0 or error_count > 0:
-        idx = 1
-        for is_stale, lines_changed, error, entry in stale_entries:
-            if error:
-                print(f"### Uncheckable {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-                print(f"**Status:**  Could not check staleness — {error}")
-                print(f"**Entry:** {entry.get('trigger', '')}")
-                print()
-                idx += 1
-            elif is_stale:
-                print(f"### Stale {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-                print(f"**Commit:** {entry.get('commit', 'unknown')}")
-                print(f"**Files touched:** {', '.join(entry.get('files_touched', []))}")
-                print(f"**Lines changed since entry:** {lines_changed}")
-                print(f"**Status:**  HIGH CHURN — verify trigger/action still hold")
-                print(f"**Entry:** {entry.get('trigger', '')}")
-                print()
-                idx += 1
-    else:
-        print("No stale entries detected.\n")
-
-    # AGENTS.md suggestions (Phase 2 preview)
-    if agents_suggestions:
-        print(f"\n## AGENTS.md Updates Suggested ({len(agents_suggestions)} entries)")
-        print("The following learnings reference AGENTS.md and may suggest updates.\n")
-
-        for entry in agents_suggestions:
-            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
-            print(f"  → Suggests reviewing AGENTS.md for potential updates")
-        print()
-
-    # Next steps
-    print("=" * 60)
-    print("## NEXT STEPS")
-    print("=" * 60)
-    print("1. Review promotion candidates above")
-    print("2. Draft proposed diff to SYSTEM_INVARIANTS.md (output in chat or scratch file)")
-    print("3. Human reviews and applies approved entries to SYSTEM_INVARIANTS.md")
-    print("4. Human confirms with: python memory/filter.py --consolidate --confirm-reset")
-    print()
-
-    # Save session for --confirm-reset
-    save_session(sprint_number)
-    print(f"✓ Session saved. Run --confirm-reset within {SESSION_EXPIRY_MINUTES} minutes to clear learnings.jsonl.")
-
-    return 0
-
+    """Handle --consolidate mode: Sleep Cycle for episodic memory."""
+    return _con_handle_consolidate(
+        sprint_number, 
+        confirm_reset, 
+        force, 
+        _get_paths(), 
+        _build_consolidation_ctx()
+    )
 
 def handle_confirm_reset():
     """Handle --consolidate --confirm-reset: clear learnings.jsonl after review."""
-    # Check session validity
-    ts, sprint = load_session()
-
-    if ts is None:
-        print("ERROR: No recent --consolidate session found.")
-        print("  Run --consolidate first, then --confirm-reset within 10 minutes.")
-        return 1
-
-    print(f"✓ Session valid (sprint {sprint}, started {ts.strftime('%H:%M:%S')})")
-
-    # Clear learnings.jsonl
-    with open(_get_paths().learnings_path, "w", encoding="utf-8") as f:
-        pass  # Empty file
-
-    print("✓ learnings.jsonl reset. Sprint complete.")
-
-    # Remove session file
-    clear_session()
-
-    return 0
+    return _con_handle_confirm_reset(
+        _get_paths(), 
+        _build_consolidation_ctx()
+    )
 
 
 # --- Main ---
