@@ -16,47 +16,139 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+from engine_version import get_engine_version
+from shim import SHIM_TEMPLATE, is_shim
 
 
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.1
 
 
-def _read_engine_version():
-    """Read engine version from VERSION file, with fallback to hardcoded value."""
-    version_file = Path.home() / ".agent-memory" / "engine" / "VERSION"
-    if version_file.exists():
-        try:
-            version = version_file.read_text().strip()
-            if version:  # Non-empty
-                return version
-        except Exception:
-            pass
-    return "1.15.0"  # Fallback version
-
-
-ENGINE_VERSION = _read_engine_version()
+ENGINE_VERSION = get_engine_version()
 ENGINE_DIR = Path.home() / ".agent-memory" / "engine"
 
 
-def load_projects():
-    """Load list of project paths from projects.txt."""
+def is_temp_path(path: Path) -> bool:
+    """Check if path is under system temp directory.
+    
+    Returns True if the resolved path is relative to the system temp dir.
+    Returns False on any resolution error (treat as non-temp for safety).
+    """
+    try:
+        temp_dir = Path(tempfile.gettempdir()).resolve()
+        return path.resolve().is_relative_to(temp_dir)
+    except (ValueError, OSError):
+        return False
+
+
+def migrate_to_shim(project_path, dry_run=False):
+    """Replace full engine copy with shim.
+    
+    Creates backup of existing files, then writes shim.
+    Cleans stale __pycache__/ after migration.
+    """
+    memory_dir = project_path / "memory"
+    if not memory_dir.exists():
+        return False, "No memory/ directory found"
+    
+    # Check if already a shim
+    filter_path = memory_dir / "filter.py"
+    if is_shim(filter_path):
+        return True, "Already a shim"
+    
+    # Create backup
+    if not dry_run:
+        backup_dir = memory_dir / "backups" / datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Backup existing files
+        for filename in ["filter.py", "profile.py"]:
+            src = memory_dir / filename
+            if src.exists():
+                shutil.copy2(src, backup_dir / filename)
+    
+    # Write shim
+    if not dry_run:
+        filter_path.write_text(SHIM_TEMPLATE, encoding='utf-8')
+        
+        # Remove profile.py (no longer needed)
+        profile_path = memory_dir / "profile.py"
+        if profile_path.exists():
+            profile_path.unlink()
+        
+        # Clean stale __pycache__/
+        pycache_dir = memory_dir / "__pycache__"
+        if pycache_dir.exists():
+            shutil.rmtree(pycache_dir)
+    
+    return True, "Migrated to shim"
+
+
+def load_projects(dry_run=False):
+    """Load list of project paths from projects.txt, auto-pruning temp dirs.
+    
+    Stale temp entries are removed from projects.txt with a backup created.
+    If dry_run=True, skip the prune step (read-only mode).
+    """
     projects_file = ENGINE_DIR / "projects.txt"
     if not projects_file.exists():
         return []
     
     projects = []
-    with open(projects_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            # Skip comments and empty lines
-            if line and not line.startswith('#'):
-                projects.append(Path(line))
+    stale_entries = []
+    all_lines = []
     
-    return projects
+    with open(projects_file, 'r', encoding='utf-8') as f:
+        all_lines = f.readlines()
+    
+    for line in all_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            projects.append(stripped)  # Keep comments/empty as-is (will be filtered later)
+            continue
+        p = Path(stripped)
+        if is_temp_path(p):
+            stale_entries.append(stripped)
+        else:
+            projects.append(p)
+    
+    # Auto-prune stale entries (skip during dry-run)
+    if stale_entries and not dry_run:
+        # Create backup
+        backup_path = ENGINE_DIR / f"projects.txt.backup-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        shutil.copy2(projects_file, backup_path)
+        print(f"WARNING: Pruned {len(stale_entries)} temp directory entries:", file=sys.stderr)
+        for s in stale_entries:
+            print(f"  - {s}", file=sys.stderr)
+        print(f"Backup saved to: {backup_path}", file=sys.stderr)
+        
+        # Atomic rewrite: write to temp, then os.replace
+        tmp_path = projects_file.with_suffix('.txt.tmp')
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                for item in projects:
+                    if isinstance(item, str):
+                        f.write(item + '\n')
+                    else:
+                        f.write(str(item) + '\n')
+            os.replace(tmp_path, projects_file)
+        except Exception:
+            # Clean up temp file on failure
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+    elif stale_entries and dry_run:
+        # Just warn during dry-run, don't prune
+        print(f"WARNING: Found {len(stale_entries)} temp directory entries (would prune on real run):", file=sys.stderr)
+        for s in stale_entries:
+            print(f"  - {s}", file=sys.stderr)
+    
+    # Return only Path objects
+    return [p for p in projects if isinstance(p, Path)]
 
 
 def validate_project(project_path):
@@ -73,11 +165,6 @@ def validate_project(project_path):
         return False, "memory/filter.py does not exist"
     
     return True, "Valid"
-
-
-def get_engine_version():
-    """Get version from engine/VERSION file."""
-    return ENGINE_VERSION
 
 
 def get_project_version(project_path):
@@ -242,44 +329,17 @@ def update_config_schema(project_path, engine_path, new_version):
         return False
 
 
-def update_engine_files(project_path, engine_path):
-    """Copy engine files to project, embedding static version in filter.py."""
+def update_engine_files(project_path, engine_path, dry_run=False):
+    """For shim projects, no file updates needed. For legacy copies, migrate to shim."""
     memory_dir = project_path / "memory"
+    filter_path = memory_dir / "filter.py"
     
-    src_filter = engine_path / "filter.py"
-    dst_filter = memory_dir / "filter.py"
-    content = src_filter.read_text(encoding='utf-8')
+    # Check if it's a shim
+    if is_shim(filter_path):
+        return True  # Shim, nothing to update
     
-    pattern = r'def _read_engine_version\(\):.*?ENGINE_VERSION = _read_engine_version\(\)'
-    replacement = f'ENGINE_VERSION = "{ENGINE_VERSION}"'
-    new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-    
-    if new_content == content:
-        return False
-    
-    if 'def _read_engine_version():' in new_content:
-        return False
-    
-    if f'ENGINE_VERSION = "{ENGINE_VERSION}"' not in new_content:
-        return False
-    
-    try:
-        dst_filter.write_text(new_content, encoding='utf-8')
-    except PermissionError as e:
-        raise PermissionError(
-            f"Cannot write to {dst_filter}. "
-            f"File may be read-only. Remove read-only attribute and retry."
-        ) from e
-    
-    try:
-        shutil.copy2(engine_path / "profile.py", memory_dir / "profile.py")
-    except PermissionError as e:
-        raise PermissionError(
-            f"Cannot write to {memory_dir / 'profile.py'}. "
-            f"File may be read-only. Remove read-only attribute and retry."
-        ) from e
-    
-    return True
+    # Legacy copy — migrate to shim
+    return migrate_to_shim(project_path, dry_run=dry_run)[0]
 
 
 def clear_pycache(project_path):
@@ -293,6 +353,18 @@ def clear_pycache(project_path):
             print(f"  Warning: Could not clear __pycache__: {e}", file=sys.stderr)
             return False
     return True
+
+
+def verify_shim_integrity(project_path):
+    """Verify shim file matches template (lightweight check, no subprocess)."""
+    filter_path = project_path / "memory" / "filter.py"
+    if not filter_path.exists():
+        return False
+    try:
+        content = filter_path.read_text(encoding='utf-8')
+        return content == SHIM_TEMPLATE
+    except Exception:
+        return False
 
 
 def verify_update(project_path):
@@ -373,7 +445,7 @@ def update_project(project_path, engine_version, engine_path, dry_run=False,
     
     # Update engine files
     try:
-        update_engine_files(project_path, engine_path)
+        update_engine_files(project_path, engine_path, dry_run=dry_run)
     except Exception as e:
         if backup_dir:
             restore_from_backup(project_path, backup_dir)
@@ -384,14 +456,23 @@ def update_project(project_path, engine_version, engine_path, dry_run=False,
     if update_config_flag:
         config_updated = update_config_schema(project_path, engine_path, engine_version)
     
-    # Clear __pycache__
-    clear_pycache(project_path)
+    # Clear __pycache__ (skip for shim projects - no compiled artifacts)
+    if not dry_run:
+        filter_path = project_path / "memory" / "filter.py"
+        if not is_shim(filter_path):
+            clear_pycache(project_path)
     
-    # Verify update
-    if not verify_update(project_path):
-        if backup_dir:
-            restore_from_backup(project_path, backup_dir)
-        return False, "Post-update verification failed", backup_dir
+    # Verify update (shim projects: integrity check; legacy: subprocess verify)
+    filter_path = project_path / "memory" / "filter.py"
+    if is_shim(filter_path):
+        if not verify_shim_integrity(project_path):
+            # Shim corrupted, re-write it
+            filter_path.write_text(SHIM_TEMPLATE, encoding='utf-8')
+    else:
+        if not verify_update(project_path):
+            if backup_dir:
+                restore_from_backup(project_path, backup_dir)
+            return False, "Post-update verification failed", backup_dir
     
     status = f"Updated: v{project_version} -> v{engine_version}"
     if config_updated:
@@ -411,6 +492,7 @@ Examples:
   python update.py --project /path/to/proj  # Update specific project
   python update.py --force                  # Force update even if versions match
   python update.py --update-config          # Also update config.json schema
+  python update.py --migrate-to-shim        # Replace full engine copies with shims
         """
     )
     
@@ -419,6 +501,7 @@ Examples:
     parser.add_argument("--force", action="store_true", help="Force update even if versions match")
     parser.add_argument("--no-backup", action="store_true", help="Skip backup creation (default: create backup)")
     parser.add_argument("--update-config", action="store_true", help="Update config.json with new schema (default: False)")
+    parser.add_argument("--migrate-to-shim", action="store_true", help="Replace full engine copies with shims")
     parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt for multi-project updates")
     parser.add_argument("--version", action="store_true", help="Show update.py version")
     
@@ -433,15 +516,27 @@ Examples:
     
     # Determine projects to update
     if args.project:
-        projects = [Path(args.project)]
+        projects = [Path(args.project).resolve()]
     else:
-        projects = load_projects()
+        projects = load_projects(dry_run=args.dry_run)
         if not projects:
             print("No projects found in projects.txt", file=sys.stderr)
             return 2
     
     # Remove duplicates
     projects = list(dict.fromkeys(projects))
+    
+    # Handle --migrate-to-shim
+    if args.migrate_to_shim:
+        print(f"\n{'[DRY RUN] ' if args.dry_run else ''}Migrating to shim...\n")
+        for project in projects:
+            valid, message = validate_project(project)
+            if not valid:
+                print(f"  {project}: SKIP — {message}")
+                continue
+            success, msg = migrate_to_shim(project, args.dry_run)
+            print(f"  {project}: {msg}")
+        return 0
     
     # Confirm update
     if not args.yes and not confirm_update(projects, args.dry_run):

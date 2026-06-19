@@ -23,28 +23,20 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from engine_version import get_engine_version
+from shim import SHIM_TEMPLATE, is_shim
 
-def _read_engine_version():
-    """Read engine version from VERSION file, with fallback to hardcoded value."""
-    version_file = Path.home() / ".agent-memory" / "engine" / "VERSION"
-    if version_file.exists():
-        try:
-            return version_file.read_text().strip()
-        except Exception:
-            pass
-    return "1.15.0"  # Fallback version
-
-ENGINE_VERSION = _read_engine_version()
+ENGINE_VERSION = get_engine_version()
 ENGINE_DIR = Path.home() / ".agent-memory" / "engine"
 
 
 def check_prerequisites():
     """Verify engine files exist before scaffolding."""
-    required_files = ["filter.py", "profile.py", "templates/config.json"]
+    required_files = ["filter.py", "templates/config.json"]
     for f in required_files:
         path = ENGINE_DIR / f
         if not path.exists():
-            sys.exit(f"ERROR: Engine file missing: {path}\nRun Step 6 first to establish the global master.")
+            sys.exit(f"ERROR: Engine file missing: {path}\nRun the deploy script first.")
 
 
 def resolve_target_path(cli_path):
@@ -65,45 +57,22 @@ def resolve_target_path(cli_path):
 
 
 def copy_engine_files(target_memory, force):
-    """Copy filter.py and profile.py from engine to target."""
+    """Write shim to target project's memory directory."""
     target_memory.mkdir(parents=True, exist_ok=True)
     
-    for filename in ["filter.py", "profile.py"]:
-        src = ENGINE_DIR / filename
-        dst = target_memory / filename
-        
-        if dst.exists() and not force:
-            # This shouldn't happen if we checked for existing memory/ earlier
-            continue
-        
-        # Read the source file
-        content = src.read_text(encoding='utf-8')
-        
-        # For filter.py, replace the dynamic version reading with hardcoded version
-        if filename == "filter.py":
-            # Replace the _read_engine_version function and ENGINE_VERSION assignment
-            # with a simple hardcoded assignment
-            import re
-            # Find and replace the version reading block
-            pattern = r'def _read_engine_version\(\):.*?ENGINE_VERSION = _read_engine_version\(\)'
-            replacement = f'ENGINE_VERSION = "{ENGINE_VERSION}"'
-            new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-            
-            # Verify the substitution actually happened
-            if new_content == content:
-                raise RuntimeError("Version embedding failed: regex pattern not found in filter.py")
-            
-            # Verify the dynamic reader is gone and static version is present
-            if 'def _read_engine_version():' in new_content:
-                raise RuntimeError("Version embedding failed: dynamic reader still present")
-            
-            if f'ENGINE_VERSION = "{ENGINE_VERSION}"' not in new_content:
-                raise RuntimeError("Version embedding failed: static version not embedded")
-            
-            content = new_content
-        
-        # Write the modified content
-        dst.write_text(content, encoding='utf-8')
+    # Remove profile.py if it exists (no longer needed)
+    profile_path = target_memory / "profile.py"
+    if profile_path.exists():
+        profile_path.unlink()
+
+    # Write shim
+    shim_path = target_memory / "filter.py"
+    if shim_path.exists() and not force:
+        if is_shim(shim_path):
+            return  # Already a shim, nothing to do
+        # It's an old full copy, overwrite
+    
+    shim_path.write_text(SHIM_TEMPLATE, encoding='utf-8')
 
 
 def prompt_project_name(default_name):
@@ -552,7 +521,7 @@ Examples:
     
     # Copy engine files
     copy_engine_files(target_memory, args.force)
-    print(f"  Copied filter.py and profile.py")
+    print(f"  Wrote shim to filter.py")
     
     # Write config.json (create if absent, never overwrite)
     config_path = target_memory / "config.json"

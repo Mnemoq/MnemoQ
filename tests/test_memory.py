@@ -3,12 +3,15 @@ Tests for multi-project memory system.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 @pytest.fixture
@@ -586,8 +589,10 @@ class TestScaffoldIntegration:
     
     def test_scaffold_creates_memory(self, fresh_project, engine_dir):
         """Test that scaffold creates memory directory structure."""
+        # Use source dir, not deployed engine dir (scaffold.py is not deployed)
+        source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, str(engine_dir / "scaffold.py"), str(fresh_project), "--defaults"],
+            [sys.executable, str(source_dir / "scaffold.py"), str(fresh_project), "--defaults"],
             capture_output=True,
             text=True
         )
@@ -600,15 +605,17 @@ class TestScaffoldIntegration:
         
         # Check that key files exist
         assert (memory_dir / "filter.py").exists()
-        assert (memory_dir / "profile.py").exists()
+        assert not (memory_dir / "profile.py").exists()
         assert (memory_dir / "config.json").exists()
         assert (memory_dir / "learnings.jsonl").exists()
         assert (memory_dir / "quarantine.jsonl").exists()
     
     def test_scaffold_opencode_wiring(self, fresh_project, engine_dir):
         """Test that --opencode flag wires opencode.json."""
+        # Use source dir, not deployed engine dir (scaffold.py is not deployed)
+        source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, str(engine_dir / "scaffold.py"), str(fresh_project), "--defaults", "--opencode"],
+            [sys.executable, str(source_dir / "scaffold.py"), str(fresh_project), "--defaults", "--opencode"],
             capture_output=True,
             text=True
         )
@@ -629,6 +636,382 @@ class TestScaffoldIntegration:
         assert "agent" in opencode
         assert "gm" in opencode["agent"]
         assert "code-reviewer" in opencode["agent"]
+
+
+class TestUpdateHygiene:
+    """Test update.py hygiene features (temp path detection, auto-prune)."""
+    
+    def test_is_temp_path_detects_temp(self):
+        """is_temp_path returns True for paths under system temp dir."""
+        from update import is_temp_path
+        
+        temp_dir = Path(tempfile.gettempdir())
+        assert is_temp_path(temp_dir) is True
+        assert is_temp_path(temp_dir / "some" / "subdir") is True
+        # Windows-specific temp paths
+        if sys.platform == "win32":
+            assert is_temp_path(Path("C:/Users/Admin/AppData/Local/Temp") / "tmp1234") is True
+    
+    def test_is_temp_path_rejects_non_temp(self):
+        """is_temp_path returns False for paths not under system temp dir."""
+        from update import is_temp_path
+        
+        assert is_temp_path(Path("C:/Projects/magpie-swoop")) is False
+        assert is_temp_path(Path("/home/user/projects/foo")) is False
+        assert is_temp_path(Path(tempfile.gettempdir()).parent / "other_dir") is False
+    
+    def test_is_temp_path_handles_nonexistent(self):
+        """is_temp_path returns False for non-existent paths (doesn't crash)."""
+        from update import is_temp_path
+        
+        assert is_temp_path(Path("Z:/nonexistent/path")) is False
+    
+    def test_load_projects_prunes_temp_entries(self, tmp_path, monkeypatch):
+        """load_projects auto-prunes temp entries with backup."""
+        import update
+        
+        # Setup: create a fake ENGINE_DIR with projects.txt
+        engine_dir = tmp_path / "engine"
+        engine_dir.mkdir()
+        projects_file = engine_dir / "projects.txt"
+        
+        # Write projects.txt with one valid and one temp entry
+        # Use a path that's clearly NOT under temp dir
+        temp_entry = str(Path(tempfile.gettempdir()) / "tmp1234")
+        valid_entry = "C:/Projects/my-project" if sys.platform == "win32" else "/home/user/projects/my-project"
+        projects_file.write_text(f"# Comment\n{valid_entry}\n{temp_entry}\n")
+        
+        # Monkeypatch ENGINE_DIR in update module
+        monkeypatch.setattr(update, "ENGINE_DIR", engine_dir)
+        
+        # Run load_projects
+        result = update.load_projects(dry_run=False)
+        
+        # Verify: only valid project returned
+        assert len(result) == 1
+        assert result[0] == Path(valid_entry)
+        
+        # Verify: backup created
+        backups = list(engine_dir.glob("projects.txt.backup-*"))
+        assert len(backups) == 1
+        
+        # Verify: projects.txt rewritten without temp entry
+        content = projects_file.read_text()
+        assert temp_entry not in content
+        # Path may be normalized (forward/back slashes)
+        assert "my-project" in content
+    
+    def test_load_projects_dry_run_no_prune(self, tmp_path, monkeypatch):
+        """load_projects with dry_run=True does not modify projects.txt."""
+        import update
+        
+        engine_dir = tmp_path / "engine"
+        engine_dir.mkdir()
+        projects_file = engine_dir / "projects.txt"
+        
+        temp_entry = str(Path(tempfile.gettempdir()) / "tmp1234")
+        valid_entry = "C:/Projects/my-project" if sys.platform == "win32" else "/home/user/projects/my-project"
+        original_content = f"# Comment\n{valid_entry}\n{temp_entry}\n"
+        projects_file.write_text(original_content)
+        
+        monkeypatch.setattr(update, "ENGINE_DIR", engine_dir)
+        
+        # Run load_projects with dry_run=True
+        result = update.load_projects(dry_run=True)
+        
+        # Verify: only valid project returned
+        assert len(result) == 1
+        
+        # Verify: projects.txt NOT modified
+        assert projects_file.read_text() == original_content
+        
+        # Verify: no backup created
+        backups = list(engine_dir.glob("projects.txt.backup-*"))
+        assert len(backups) == 0
+
+
+class TestResolver:
+    """Test resolve_memory_dir() and _get_paths() guard."""
+    
+    def test_resolve_memory_dir_priority(self, monkeypatch, tmp_path):
+        """Test resolve_memory_dir() honors priority: --memory-dir > env > cwd/memory."""
+        from filter import resolve_memory_dir
+        
+        # Test 1: --memory-dir takes priority
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        result = resolve_memory_dir(str(memory_dir))
+        assert result == str(memory_dir.resolve())
+        
+        # Test 2: AGENT_MEMORY_DIR env var (when --memory-dir is None)
+        env_dir = tmp_path / "env_memory"
+        env_dir.mkdir()
+        monkeypatch.setenv("AGENT_MEMORY_DIR", str(env_dir))
+        result = resolve_memory_dir(None)
+        assert result == str(env_dir.resolve())
+        
+        # Test 3: cwd/memory fallback (when both are None)
+        monkeypatch.delenv("AGENT_MEMORY_DIR", raising=False)
+        monkeypatch.chdir(tmp_path)
+        result = resolve_memory_dir(None)
+        assert result == str(memory_dir.resolve())
+    
+    def test_resolve_memory_dir_errors(self, monkeypatch, tmp_path):
+        """Test resolve_memory_dir() raises ValueError on invalid paths."""
+        from filter import resolve_memory_dir
+        
+        # Test 1: Invalid --memory-dir raises ValueError
+        with pytest.raises(ValueError, match="--memory-dir path does not exist"):
+            resolve_memory_dir(str(tmp_path / "nonexistent"))
+        
+        # Test 2: Empty string --memory-dir raises ValueError
+        with pytest.raises(ValueError, match="--memory-dir path does not exist"):
+            resolve_memory_dir("")
+        
+        # Test 3: Invalid AGENT_MEMORY_DIR raises ValueError
+        monkeypatch.delenv("AGENT_MEMORY_DIR", raising=False)
+        monkeypatch.setenv("AGENT_MEMORY_DIR", str(tmp_path / "nonexistent"))
+        with pytest.raises(ValueError, match="AGENT_MEMORY_DIR path does not exist"):
+            resolve_memory_dir(None)
+        
+        # Test 4: No memory dir found raises ValueError
+        monkeypatch.delenv("AGENT_MEMORY_DIR", raising=False)
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(ValueError, match="No memory directory found"):
+            resolve_memory_dir(None)
+    
+    def test_get_paths_raises_if_uninitialized(self):
+        """Test _get_paths() raises RuntimeError if PATHS is None.
+        
+        Note: This test mutates the module-level PATHS singleton directly.
+        Safe here because no other test calls filter.main() in-process.
+        If future tests do, use a fixture to save/restore PATHS.
+        """
+        import filter
+        old_paths = filter.PATHS
+        try:
+            filter.PATHS = None
+            with pytest.raises(RuntimeError, match="PATHS not initialized"):
+                filter._get_paths()
+        finally:
+            filter.PATHS = old_paths
+
+
+class TestShim:
+    """Test shim functionality."""
+    
+    def test_shim_delegates_to_engine(self, temp_project, engine_dir):
+        """Test that shim correctly delegates to central engine."""
+        from shim import SHIM_TEMPLATE
+        
+        # Write shim to project (memory dir already exists from fixture)
+        memory_dir = temp_project / "memory"
+        shim_path = memory_dir / "filter.py"
+        shim_path.write_text(SHIM_TEMPLATE)
+        
+        # Run shim with --version
+        result = subprocess.run(
+            [sys.executable, str(shim_path), "--version"],
+            capture_output=True,
+            text=True,
+            cwd=temp_project
+        )
+        
+        # Should match engine version
+        assert result.returncode == 0
+        assert "agent-memory-engine" in result.stderr
+    
+    def test_shim_memory_dir_override(self, temp_project, engine_dir, tmp_path):
+        """Test that --memory-dir CLI flag overrides AGENT_MEMORY_DIR set by shim."""
+        from shim import SHIM_TEMPLATE
+        
+        # Write shim to project (memory dir already exists from fixture)
+        memory_dir = temp_project / "memory"
+        shim_path = memory_dir / "filter.py"
+        shim_path.write_text(SHIM_TEMPLATE)
+        
+        # Create alternate memory directory
+        alt_memory = tmp_path / "alt_memory"
+        alt_memory.mkdir()
+        (alt_memory / "learnings.jsonl").touch()
+        (alt_memory / "quarantine.jsonl").touch()
+        (alt_memory / "archive").mkdir()
+        
+        # Run shim with --memory-dir override
+        result = subprocess.run(
+            [sys.executable, str(shim_path), "--memory-dir", str(alt_memory), "--stats"],
+            capture_output=True,
+            text=True,
+            cwd=temp_project
+        )
+        
+        # Should use alt_memory, not the shim's directory
+        assert result.returncode == 0
+        assert "MEMORY STATS" in result.stdout
+    
+    def test_migrate_to_shim(self, temp_project, engine_dir):
+        """Test --migrate-to-shim converts full copy to shim."""
+        # Copy full engine to project (memory dir already exists from fixture)
+        memory_dir = temp_project / "memory"
+        shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
+        shutil.copy2(engine_dir / "profile.py", memory_dir / "profile.py")
+        
+        # Migrate
+        from update import migrate_to_shim
+        success, msg = migrate_to_shim(temp_project)
+        
+        assert success
+        assert "Migrated" in msg
+        
+        # Verify shim
+        from shim import is_shim
+        assert is_shim(memory_dir / "filter.py")
+        
+        # Verify profile.py removed
+        assert not (memory_dir / "profile.py").exists()
+        
+        # Verify backup created
+        backups = list((memory_dir / "backups").glob("*"))
+        assert len(backups) == 1
+    
+    def test_migrate_to_shim_idempotent(self, temp_project, engine_dir):
+        """Test running --migrate-to-shim twice is safe."""
+        # Copy full engine to project (memory dir already exists from fixture)
+        memory_dir = temp_project / "memory"
+        shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
+        
+        # Migrate once
+        from update import migrate_to_shim
+        success1, msg1 = migrate_to_shim(temp_project)
+        assert success1
+        assert "Migrated" in msg1
+        
+        # Count backups after first migration
+        backups_after_first = list((memory_dir / "backups").glob("*"))
+        
+        # Migrate again
+        success2, msg2 = migrate_to_shim(temp_project)
+        assert success2
+        assert "Already a shim" in msg2
+        
+        # Verify no additional backup created
+        backups_after_second = list((memory_dir / "backups").glob("*"))
+        assert len(backups_after_first) == len(backups_after_second)
+    
+    def test_shim_missing_engine(self, temp_project, tmp_path):
+        """Test shim handles missing engine gracefully."""
+        from shim import SHIM_TEMPLATE
+        
+        # Write shim to project (memory dir already exists from fixture)
+        memory_dir = temp_project / "memory"
+        shim_path = memory_dir / "filter.py"
+        shim_path.write_text(SHIM_TEMPLATE)
+        
+        # Temporarily rename engine directory
+        engine_dir = Path.home() / ".agent-memory" / "engine"
+        backup_dir = tmp_path / "engine_backup"
+        if engine_dir.exists():
+            shutil.move(str(engine_dir), str(backup_dir))
+            assert not engine_dir.exists(), "shutil.move failed to relocate engine dir"
+        
+        try:
+            # Run shim
+            result = subprocess.run(
+                [sys.executable, str(shim_path), "--stats"],
+                capture_output=True,
+                text=True,
+                cwd=temp_project
+            )
+            
+            # Should fail with error message
+            assert result.returncode == 1
+            assert "Engine not found" in result.stderr
+            assert "deploy script" in result.stderr
+        finally:
+            # Restore engine directory
+            if backup_dir.exists():
+                shutil.move(str(backup_dir), str(engine_dir))
+    
+    def test_profile_loads_post_migration(self, temp_project, engine_dir):
+        """Test that profile.py loads from central location after migration."""
+        # Copy full engine to project (memory dir already exists from fixture)
+        memory_dir = temp_project / "memory"
+        shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
+        shutil.copy2(engine_dir / "profile.py", memory_dir / "profile.py")
+        
+        # Migrate
+        from update import migrate_to_shim
+        migrate_to_shim(temp_project)
+        
+        # Run shim with retrieval
+        result = subprocess.run(
+            [sys.executable, str(memory_dir / "filter.py"), "--step", "1", "--components", "Tooling", "--domain", "tooling"],
+            capture_output=True,
+            text=True,
+            cwd=temp_project
+        )
+        
+        # Should succeed (profile.py loaded from central location)
+        assert result.returncode == 0
+        # Profile context appears in output if profile exists
+        # (may be "(none)" if no profile, but should not error)
+    
+    def test_scaffold_force_overwrites_old_copy(self, fresh_project, engine_dir):
+        """Test that scaffold.py --force overwrites old full copy with shim."""
+        # Use source directory, not deployed engine
+        source_dir = Path(__file__).parent.parent / "src"
+        
+        # Copy full engine to project (simulating legacy state)
+        memory_dir = fresh_project / "memory"
+        memory_dir.mkdir()
+        shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
+        
+        # Verify it's not a shim yet
+        from shim import is_shim
+        assert not is_shim(memory_dir / "filter.py")
+        
+        # Run scaffold with --force from source directory
+        result = subprocess.run(
+            [sys.executable, str(source_dir / "scaffold.py"), str(fresh_project), "--defaults", "--force"],
+            capture_output=True,
+            text=True
+        )
+        
+        assert result.returncode == 0
+        
+        # Verify it's now a shim
+        assert is_shim(memory_dir / "filter.py")
+    
+    def test_scaffold_idempotent(self, fresh_project, engine_dir):
+        """Test that scaffold.py is idempotent when already a shim."""
+        from shim import SHIM_TEMPLATE, is_shim
+        
+        # Use source directory, not deployed engine
+        source_dir = Path(__file__).parent.parent / "src"
+        
+        # Write shim to project
+        memory_dir = fresh_project / "memory"
+        memory_dir.mkdir()
+        shim_path = memory_dir / "filter.py"
+        shim_path.write_text(SHIM_TEMPLATE)
+        
+        # Get modification time before scaffold
+        mtime_before = shim_path.stat().st_mtime_ns
+        
+        # Run scaffold without --force (should detect existing memory/ and fail)
+        # But copy_engine_files() should still be idempotent if called
+        # So we test the copy_engine_files() function directly
+        sys.path.insert(0, str(source_dir))
+        from scaffold import copy_engine_files
+        
+        copy_engine_files(memory_dir, force=False)
+        
+        # Verify file was not modified (idempotent)
+        mtime_after = shim_path.stat().st_mtime_ns
+        assert mtime_before == mtime_after
+        
+        # Verify still a shim
+        assert is_shim(shim_path)
 
 
 if __name__ == "__main__":
