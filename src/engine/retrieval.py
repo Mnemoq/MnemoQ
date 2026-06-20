@@ -7,7 +7,7 @@ the ctx dict; file I/O uses the paths object.
 from __future__ import annotations
 
 from engine.io import read_learnings, write_learnings
-from profile import load_profile, get_profile_context
+from .profile import load_profile, get_profile_context
 
 
 def score_entry(entry, current_step, task_components, task_files, task_domain, ctx):

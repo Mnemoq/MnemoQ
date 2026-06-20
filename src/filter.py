@@ -28,16 +28,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
-import re
-import subprocess
 import sys
-import time
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from profile import load_profile, get_profile_context
 from engine_version import get_engine_version
 
 # --- Paths Dataclass ---
@@ -68,70 +62,14 @@ def _get_paths() -> Paths:
         raise RuntimeError("PATHS not initialized. Call setup_paths() first.")
     return PATHS
 
-SESSION_EXPIRY_MINUTES = 10
 
-DECAY_RATE = 0.995
-SCORE_THRESHOLD = 0.15
-COMPONENT_WEIGHT = 1.0
-FILE_WEIGHT = 0.7
-DOMAIN_WEIGHT = 0.4
-NO_MATCH_WEIGHT = 0.1
+# Import defaults from engine.constants
+from engine.constants import DEFAULTS as _CONST_DEFAULTS
 
-MAX_WARNINGS = 5
-MAX_PATTERNS = 15
+# Module-level ctx dict: seeded from DEFAULTS (lowercased), overlaid by load_config() in main()
+# Engine modules expect lowercase keys; DEFAULTS and load_config() use UPPERCASE.
+_CTX = {k.lower(): v for k, v in _CONST_DEFAULTS.items()}
 
-MINOR_RETENTION = 5
-MAJOR_RETENTION = 20
-ESCALATION_THRESHOLD = 30
-MAX_STEP = 30  # Default; overridden by config.json if present
-
-VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "phaser-scout", "asset-scout", "plan-reviewer", "basic-reviewer", "pro-reviewer"}
-
-# Universal schema constraints — not configurable per-project.
-# 
-# Rationale: These define the fundamental structure of a learning entry.
-# Making them configurable would allow project-specific types/severities
-# but would break cross-project learning sharing.
-#
-# Decision: Keep hardcoded for now. Revisit if a concrete use case emerges
-# where a project needs custom types (e.g., "feature_request", "documentation")
-# or severities (e.g., "blocker", "trivial").
-#
-# Tradeoff: We value cross-project learning sharing over per-project flexibility.
-# If all projects use the same schema, learnings can be shared between projects.
-# If each project has custom schema, sharing breaks (a learning with type
-# "feature_request" from Project A would fail validation in Project B).
-VALID_TYPES = {"bug_fix", "optimization", "architectural_pattern"}
-VALID_DOMAINS = {"physics", "ui", "audio", "data", "tooling", "entities", "scenes", "spawner", "performance", "mobile", "testing", "phaser_api", "asset_pipeline"}
-VALID_SEVERITIES = {"minor", "major", "critical"}
-VALID_SCOPES = {"file", "module", "system"}
-VALID_DEBT_LEVELS = {"proper", "workaround", "temporary"}
-VALID_RETRIEVAL_ONLY_AGENTS = {"basic-reviewer", "pro-reviewer"}
-
-# Two-phase initialization:
-# Phase 1 (module load): DOMAIN_MAPPINGS = None (default, use profile/hardcoded)
-# Phase 2 (main() startup): load_config() may set DOMAIN_MAPPINGS via globals().update()
-# This allows config.json to override the default at runtime.
-DOMAIN_MAPPINGS = None  # None means "use profile.py's DEFAULT_DOMAIN_MAPPINGS"
-
-STOP_WORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "can", "shall", "to", "of", "in", "for", "on",
-    "with", "at", "by", "from", "as", "into", "through", "during", "before",
-    "after", "above", "below", "between", "and", "but", "or", "not", "so",
-    "yet", "both", "either", "neither", "each", "every", "all", "any", "few",
-    "more", "most", "other", "some", "such", "no", "only", "own", "same",
-    "than", "too", "very", "just", "because", "until", "while", "if", "then",
-    "else", "when", "where", "why", "how", "this", "that", "these", "those",
-    "which", "who", "whom", "always", "never", "must", "required", "optional",
-    "use", "using", "used", "make", "made", "get", "got", "set", "run",
-    "new", "old", "first", "last", "long", "great", "little", "own",
-    "its", "it", "he", "she", "they", "them", "his", "her", "their",
-    "my", "your", "our", "we", "you", "i", "me", "him", "us",
-}
-
-TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 # --- Path resolution ---
 
@@ -365,7 +303,20 @@ def load_config():
     
     return result
 
-# --- I/O helpers (delegated to engine.io) ---
+
+# --- Context builder ---
+
+def _build_ctx():
+    """Build ctx dict from _CTX (defaults + config overlay).
+    
+    This replaces the old globals().update(config) pattern.
+    All engine modules receive this ctx dict instead of reading module globals.
+    """
+    return dict(_CTX)
+
+
+# --- Delegate wrappers ---
+# Each delegates to the engine module, passing paths and ctx.
 
 from engine.io import (
     read_learnings as _io_read_learnings,
@@ -395,9 +346,6 @@ def quarantine(raw_input, reason):
     _io_quarantine(_get_paths(), raw_input, reason)
 
 
-
-# --- Validation (delegated to engine.validation) ---
-
 from engine.validation import (
     validate_entry as _val_validate_entry,
     jaccard_similarity,
@@ -406,404 +354,54 @@ from engine.validation import (
 )
 
 
-def _build_validation_ctx():
-    """Build ctx dict from current module globals for validate_entry."""
-    return {
-        "max_step": MAX_STEP,
-        "valid_source_agents": VALID_SOURCE_AGENTS,
-        "valid_types": VALID_TYPES,
-        "valid_domains": VALID_DOMAINS,
-        "valid_severities": VALID_SEVERITIES,
-        "valid_scopes": VALID_SCOPES,
-        "valid_debt_levels": VALID_DEBT_LEVELS,
-    }
-
-
 def validate_entry(entry):
     """Validate an entry against the schema. Returns list of error strings."""
-    return _val_validate_entry(entry, _build_validation_ctx())
+    return _val_validate_entry(entry, _build_ctx())
 
 
-# --- AGENTS.md review utilities ---
-
-def parse_agents_sections(agents_md_path):
-    """Parse AGENTS.md into a list of (heading, content) tuples.
-
-    Extracts ##, ###, and #### headings. Content is everything from after
-    the heading until the next heading of equal or higher level.
-    Returns empty list if file doesn't exist or has no headings.
-    """
-    if not os.path.exists(agents_md_path):
-        return []
-
-    with open(agents_md_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    heading_re = re.compile(r"^(#{2,4})\s+(.+)$")
-    sections = []
-    current_heading = None
-    current_lines = []
-
-    for line in lines:
-        m = heading_re.match(line)
-        if m:
-            if current_heading is not None:
-                sections.append((current_heading, "\n".join(current_lines)))
-            current_heading = m.group(2).strip()
-            current_lines = []
-        else:
-            if current_heading is not None:
-                current_lines.append(line)
-
-    if current_heading is not None:
-        sections.append((current_heading, "\n".join(current_lines)))
-
-    return sections
-
-
-def extract_section_keywords(heading, content):
-    """Extract a set of lowercase keywords from a section heading and content.
-
-    Strips code blocks (triple-backtick), extracts table cell keywords
-    (split on |), strips inline backticks (preserving content), lowercases,
-    splits on whitespace, and removes stop-words.
-    """
-    # Strip triple-backtick code blocks
-    content = re.sub(r"```.*?```", "", content, flags=re.DOTALL)
-
-    # Fallback: if unbalanced backticks remain, strip everything after last fence
-    if content.count("```") % 2 != 0:
-        last_fence = content.rfind("```")
-        if last_fence != -1:
-            content = content[:last_fence]
-
-    # Extract table cell keywords: split lines on |, take each cell
-    table_keywords = []
-    for line in content.split("\n"):
-        if "|" in line:
-            cells = line.split("|")
-            for cell in cells:
-                cell = cell.strip()
-                if cell and cell.replace("-", "") != "":
-                    table_keywords.append(cell)
-
-    # Combine heading + content + table keywords
-    text = heading + " " + content + " " + " ".join(table_keywords)
-
-    # Strip inline backticks but preserve content: `PooledEntity` -> PooledEntity
-    text = text.replace("`", "")
-
-    # Use shared tokenizer
-    return tokenize_keywords(text)
-
-
-def tokenize_keywords(text):
-    """Shared tokenizer: lowercase, split, remove stop-words, keep alphanumeric tokens.
-
-    Used by both extract_section_keywords() and check_agents_conflict() to ensure
-    consistent keyword extraction across section and learning text.
-    """
-    words = text.lower().split()
-
-    # Remove stop-words and non-alphanumeric tokens (allow digits, hyphens, underscores)
-    keywords = set()
-    for word in words:
-        word = word.strip(".,;:!?()[]{}\"'")
-        if word and word not in STOP_WORDS and re.match(r'^[a-zA-Z0-9._-]+$', word):
-            keywords.add(word)
-
-    return keywords
-
-
-def handle_review_agents(current_step, threshold):
-    """Handle --review-agents mode: diagnostic report on AGENTS.md section health."""
-    sections = parse_agents_sections(_get_paths().agents_md_path)
-
-    if not sections:
-        print("## AGENTS.md Section Health Report")
-        print(f"(step {current_step}, threshold {threshold})")
-        print()
-        if not os.path.exists(_get_paths().agents_md_path):
-            print("WARNING: AGENTS.md not found at:", _get_paths().agents_md_path)
-        else:
-            print("WARNING: AGENTS.md has no ## headings — nothing to report.")
-        return 0
-
-    # Extract keywords for each section
-    section_keywords = []
-    for heading, content in sections:
-        keywords = extract_section_keywords(heading, content)
-        section_keywords.append((heading, keywords))
-
-    # Read learnings within the threshold window
-    entries = read_learnings()
-    recent_entries = [
-        e for e in entries
-        if not e.get("resolved", False)
-        and (current_step - e.get("step", 0)) <= threshold
-    ]
-
-    # Cross-reference: count matches per section
-    section_ref_counts = {heading: 0 for heading, _ in sections}
-    unmatched_learnings = []
-
-    for entry in recent_entries:
-        trigger_action = entry.get("trigger", "") + " " + entry.get("action", "")
-        trigger_action_words = tokenize_keywords(trigger_action)
-
-        matched_sections = []
-        for heading, keywords in section_keywords:
-            if keywords and (keywords & trigger_action_words):
-                section_ref_counts[heading] += 1
-                matched_sections.append(heading)
-
-        if not matched_sections:
-            unmatched_learnings.append(entry)
-        elif len(matched_sections) > 1:
-            print(f"WARNING: Learning matches multiple sections: {matched_sections}", file=sys.stderr)
-            print(f"  Learning: {entry.get('trigger', '')}", file=sys.stderr)
-
-    # Output report
-    print("## AGENTS.md Section Health Report")
-    print(f"(step {current_step}, threshold {threshold})")
-    print()
-
-    # ACTIVE sections
-    active = [(h, c) for h, c in section_ref_counts.items() if c > 0]
-    if active:
-        print("### ACTIVE — Referenced by learnings")
-        for heading, count in active:
-            print(f"- {heading.lower().replace(' ', '-')} ({count} refs)")
-        print()
-
-    # COLD sections
-    cold = [(h, c) for h, c in section_ref_counts.items() if c == 0]
-    if cold:
-        print("### COLD — No references in last {} steps".format(threshold))
-        for heading, count in cold:
-            print(f"- {heading.lower().replace(' ', '-')} (0 refs) — may be foundational or stale")
-        print()
-
-    # UNMATCHED learnings
-    if unmatched_learnings:
-        print("### UNMATCHED — Learnings with no section match")
-        for entry in unmatched_learnings:
-            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}] {entry.get('trigger', '')}")
-        print()
-
-    return 0
+from engine.agents_review import (
+    check_agents_conflict as _ar_check_agents_conflict,
+    handle_review_agents as _ar_handle_review_agents,
+)
 
 
 def check_agents_conflict(entry):
-    """Check if a learning overlaps with AGENTS.md sections.
-
-    Returns (overlap_detected, best_section, jaccard_score, containment_hits) or
-    (False, None, 0.0, 0) if no AGENTS.md reference found.
-    """
-    files_touched = entry.get("files_touched", [])
-    components = entry.get("components", [])
-
-    # Check for AGENTS.md reference
-    has_agents_ref = (
-        any("AGENTS.md" in f for f in files_touched) or
-        any("agents" in c.lower() for c in components)
-    )
-
-    if not has_agents_ref:
-        return False, None, 0.0, 0
-
-    # Parse AGENTS.md sections
-    sections = parse_agents_sections(_get_paths().agents_md_path)
-    if not sections:
-        return False, None, 0.0, 0
-
-    # Get learning keywords (use shared tokenizer for consistency)
-    trigger_action = entry.get("trigger", "") + " " + entry.get("action", "")
-    learning_keywords = tokenize_keywords(trigger_action)
-
-    best_section = None
-    best_jaccard = 0.0
-    best_containment = 0
-
-    for heading, content in sections:
-        section_keywords = extract_section_keywords(heading, content)
-        if not section_keywords:
-            continue
-
-        # Jaccard similarity
-        union = learning_keywords | section_keywords
-        intersection = learning_keywords & section_keywords
-        jaccard = len(intersection) / len(union) if union else 0.0
-
-        # Containment hits (how many learning keywords appear in section)
-        containment = len(intersection)
-
-        if jaccard > best_jaccard or (jaccard == best_jaccard and containment > best_containment):
-            best_jaccard = jaccard
-            best_containment = containment
-            best_section = heading
-
-    # Threshold: 0.1 Jaccard OR >=3 containment hits
-    # (Lenient for informational warning; large sections dilute Jaccard)
-    if best_jaccard >= 0.1 or best_containment >= 3:
-        return True, best_section, best_jaccard, best_containment
-
-    return False, None, best_jaccard, best_containment
+    """Check if a learning overlaps with AGENTS.md sections."""
+    return _ar_check_agents_conflict(entry, _get_paths())
 
 
-from engine.git_utils import stamp_entry
+def handle_review_agents(current_step, threshold):
+    """Handle --review-agents mode."""
+    return _ar_handle_review_agents(current_step, threshold, _get_paths())
+
+
+from engine.handlers import (
+    handle_log as _h_handle_log,
+    handle_update as _h_handle_update,
+    handle_resolve as _h_handle_resolve,
+    handle_stats as _h_handle_stats,
+)
+
 
 def handle_log(json_str):
-    """Handle --log mode: validate, dedup-check, append."""
-    try:
-        entry = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        quarantine(json_str, f"JSON parse error: {e}")
-        print(f"QUARANTINED: JSON parse error: {e}", file=sys.stderr)
-        return 1
-
-    errors = validate_entry(entry)
-    if errors:
-        reason = "; ".join(errors)
-        quarantine(json_str, reason)
-        print(f"QUARANTINED: {reason}", file=sys.stderr)
-        return 1
-
-    if VALID_RETRIEVAL_ONLY_AGENTS is not None and entry.get("source_agent") in VALID_RETRIEVAL_ONLY_AGENTS:
-        quarantine(json_str, f"{entry['source_agent']} is retrieval-only (use --step mode)")
-        print(f"QUARANTINED: {entry['source_agent']} is retrieval-only", file=sys.stderr)
-        return 1
-
-    entry = stamp_entry(entry, _get_paths().repo_root)
-
-    # AGENTS.md conflict detection (informational, non-blocking)
-    conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry)
-    if conflict_detected:
-        print(f"WARNING: Learning may overlap with AGENTS.md section '{best_section}'")
-        print(f"  Jaccard: {jaccard_score:.2f}, Containment hits: {containment_hits}")
-        print(f"  Learning: {entry['trigger']}: {entry['action']}")
-        print(f"  Consider: Updating existing section instead of adding new rule")
-
-    existing_entries = read_learnings()
-    similarity, best_match = find_best_match(entry, existing_entries)
-
-    if similarity >= 0.7:
-        best_match["access_count"] = best_match.get("access_count", 0) + 1
-        best_match["reinforcement_count"] = best_match.get("reinforcement_count", 0) + 1
-        write_learnings(existing_entries)
-        print(f"DUPLICATE — existing entry matches (similarity: {similarity:.2f}):")
-        print(f"  [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}")
-        print(f"  access_count incremented to {best_match['access_count']}.")
-        print(f"  reinforcement_count incremented to {best_match['reinforcement_count']}.")
-        return 0
-
-    if 0.4 <= similarity < 0.7:
-        if actions_oppose(entry["action"], best_match["action"]):
-            append_learning(entry)
-            print(f"CONFLICT — potential contradiction detected (similarity: {similarity:.2f}):")
-            print(f"  Existing: [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}")
-            print(f"  Your entry proposes an opposing action for the same trigger.")
-            print(f"  Follow the Challenge Protocol: re-submit with type 'architectural_pattern' and")
-            print(f"  explain in the reason why the old rule no longer applies.")
-            return 0
-        else:
-            append_learning(entry)
-            print(f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
-            return 0
-
-    append_learning(entry)
-    print(f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
-    return 0
+    """Handle --log mode."""
+    return _h_handle_log(json_str, _get_paths(), _build_ctx())
 
 
 def handle_update(ts, json_str):
-    """Handle --update mode: amend existing entry."""
-    try:
-        entry = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        quarantine(json_str, f"JSON parse error: {e}")
-        print(f"QUARANTINED: JSON parse error: {e}", file=sys.stderr)
-        return 1
-
-    errors = validate_entry(entry)
-    if errors:
-        reason = "; ".join(errors)
-        quarantine(json_str, reason)
-        print(f"QUARANTINED: {reason}", file=sys.stderr)
-        return 1
-
-    if VALID_RETRIEVAL_ONLY_AGENTS is not None and entry.get("source_agent") in VALID_RETRIEVAL_ONLY_AGENTS:
-        quarantine(json_str, f"{entry['source_agent']} is retrieval-only (use --step mode)")
-        print(f"ERROR: Cannot append entry. learnings.jsonl is not writable or missing.", file=sys.stderr)
-        return 1
-
-    original_fields = set(entry.keys())
-    entry = stamp_entry(entry, _get_paths().repo_root)
-
-    existing_entries = read_learnings()
-    found = False
-    for i, existing in enumerate(existing_entries):
-        if existing.get("ts") == ts:
-            old_access_count = existing.get("access_count", 0)
-            old_reinforcement_count = existing.get("reinforcement_count", 0)
-            entry["access_count"] = old_access_count
-            entry["reinforcement_count"] = old_reinforcement_count
-            
-            if "verified" not in original_fields:
-                entry["verified"] = existing.get("verified", False)
-            if "scope" not in original_fields:
-                entry["scope"] = existing.get("scope", "file")
-            if "symptoms" not in original_fields:
-                entry["symptoms"] = existing.get("symptoms", "")
-            if "debt_level" not in original_fields:
-                entry["debt_level"] = existing.get("debt_level", "proper")
-            
-            existing_entries[i] = entry
-            found = True
-            break
-
-    if not found:
-        print(f"ERROR: No entry found with ts={ts}", file=sys.stderr)
-        return 1
-
-    write_learnings(existing_entries)
-    print(f"UPDATED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
-    return 0
+    """Handle --update mode."""
+    return _h_handle_update(ts, json_str, _get_paths(), _build_ctx())
 
 
 def handle_resolve(ts):
-    """
-    Handle --resolve mode: mark existing entry as resolved (partial update).
-    
-    Note: Uses read-modify-write pattern without file locking. Safe under
-    current sequential execution model. If parallel agent execution is added,
-    implement fcntl.flock() or equivalent per-platform locking.
-    """
-    if not TS_PATTERN.match(ts):
-        print(f"ERROR: Invalid timestamp format: {ts}. Expected YYYY-MM-DDTHH:MM:SSZ", file=sys.stderr)
-        return 1
-    
-    existing_entries = read_learnings()
-    found = False
-    resolved_entry = None
-
-    for i, existing in enumerate(existing_entries):
-        if existing.get("ts") == ts:
-            existing["resolved"] = True
-            resolved_entry = existing
-            found = True
-            break
-
-    if not found:
-        print(f"ERROR: No entry found with ts={ts}", file=sys.stderr)
-        return 1
-
-    write_learnings(existing_entries)
-    print(f"RESOLVED [step-{resolved_entry['step']}, {resolved_entry['type']}, {resolved_entry['domain']}] {resolved_entry['trigger']}")
-    return 0
+    """Handle --resolve mode."""
+    return _h_handle_resolve(ts, _get_paths())
 
 
-# --- Retrieval mode (delegated to engine.retrieval) ---
+def handle_stats():
+    """Handle --stats mode."""
+    return _h_handle_stats(_get_paths())
+
 
 from engine.retrieval import (
     score_entry as _ret_score_entry,
@@ -812,152 +410,38 @@ from engine.retrieval import (
 )
 
 
-def _build_retrieval_ctx():
-    """Build ctx dict from current module globals for retrieval."""
-    return {
-        "decay_rate": DECAY_RATE,
-        "score_threshold": SCORE_THRESHOLD,
-        "component_weight": COMPONENT_WEIGHT,
-        "file_weight": FILE_WEIGHT,
-        "domain_weight": DOMAIN_WEIGHT,
-        "no_match_weight": NO_MATCH_WEIGHT,
-        "max_warnings": MAX_WARNINGS,
-        "max_patterns": MAX_PATTERNS,
-        "minor_retention": MINOR_RETENTION,
-        "major_retention": MAJOR_RETENTION,
-        "escalation_threshold": ESCALATION_THRESHOLD,
-        "max_step": MAX_STEP,
-        "domain_mappings": DOMAIN_MAPPINGS,
-    }
-
-
 def score_entry(entry, current_step, task_components, task_files, task_domain):
     """Score an entry against the current task context."""
-    return _ret_score_entry(entry, current_step, task_components, task_files, task_domain, _build_retrieval_ctx())
+    return _ret_score_entry(entry, current_step, task_components, task_files, task_domain, _build_ctx())
 
 
 def is_in_retention(entry, current_step):
     """Check if an entry is within its retention window."""
-    return _ret_is_in_retention(entry, current_step, _build_retrieval_ctx())
+    return _ret_is_in_retention(entry, current_step, _build_ctx())
 
 
 def handle_retrieval(current_step, task_components, task_files, task_domain):
     """Handle retrieval mode: score, filter, and print relevant learnings."""
-    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_retrieval_ctx(), _get_paths())
+    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_ctx(), _get_paths())
 
-
-def handle_stats():
-    """Handle --stats mode: print summary statistics about the memory system."""
-    entries = read_learnings()
-    
-    if not entries:
-        print("## MEMORY STATS")
-        print("No entries found.")
-        return 0
-    
-    total = len(entries)
-    unresolved = sum(1 for e in entries if not e.get("resolved", False))
-    resolved = total - unresolved
-    
-    avg_access = sum(e.get("access_count", 0) for e in entries) / total
-    avg_reinforcement = sum(e.get("reinforcement_count", 0) for e in entries) / total
-    
-    steps = [e.get("step", 0) for e in entries]
-    min_step = min(steps)
-    max_step = max(steps)
-    
-    severity_counts = {}
-    for e in entries:
-        sev = e.get("severity", "minor")
-        severity_counts[sev] = severity_counts.get(sev, 0) + 1
-    
-    type_counts = {}
-    for e in entries:
-        t = e.get("type", "unknown")
-        type_counts[t] = type_counts.get(t, 0) + 1
-    
-    scope_counts = {}
-    for e in entries:
-        s = e.get("scope", "file")
-        scope_counts[s] = scope_counts.get(s, 0) + 1
-    
-    debt_counts = {}
-    for e in entries:
-        d = e.get("debt_level", "proper")
-        debt_counts[d] = debt_counts.get(d, 0) + 1
-    
-    verified_count = sum(1 for e in entries if e.get("verified", False))
-    unverified_count = total - verified_count
-    
-    # Reinforcement pattern analysis
-    proven = [e for e in entries if e.get("reinforcement_count", 0) >= 5]
-    over_injected = [e for e in entries if e.get("access_count", 0) >= 10 and e.get("reinforcement_count", 0) <= 2]
-    under_retrieved = [e for e in entries if e.get("access_count", 0) <= 2 and e.get("reinforcement_count", 0) >= 5]
-    
-    print("## MEMORY STATS")
-    print(f"Total entries: {total}")
-    print(f"Unresolved: {unresolved}")
-    print(f"Resolved: {resolved}")
-    print(f"Average access_count: {avg_access:.1f}")
-    print(f"Average reinforcement_count: {avg_reinforcement:.1f}")
-    print(f"Step range: {min_step}-{max_step}")
-    print(f"\nSeverity breakdown:")
-    for sev in ["critical", "major", "minor"]:
-        count = severity_counts.get(sev, 0)
-        print(f"  {sev}: {count}")
-    print(f"\nType breakdown:")
-    for t in sorted(type_counts.keys()):
-        print(f"  {t}: {type_counts[t]}")
-    print(f"\nScope breakdown:")
-    for s in ["system", "module", "file"]:
-        count = scope_counts.get(s, 0)
-        print(f"  {s}: {count}")
-    print(f"\nDebt level breakdown:")
-    for d in ["proper", "workaround", "temporary"]:
-        count = debt_counts.get(d, 0)
-        print(f"  {d}: {count}")
-    print(f"\nVerified: {verified_count} verified, {unverified_count} unverified")
-    
-    print(f"\nReinforcement patterns:")
-    print(f"  Proven (reinforcement >= 5): {len(proven)}")
-    print(f"  Over-injected (access >= 10, reinforcement <= 2): {len(over_injected)}")
-    print(f"  Under-retrieved (access <= 2, reinforcement >= 5): {len(under_retrieved)}")
-    
-    if unresolved > 50:
-        print(f"\n## SLEEP CYCLE DUE — {unresolved} unresolved entries exceed threshold of 50")
-        print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
-    
-    return 0
-
-
-# --- Sleep Cycle (Consolidation) (delegated to engine.consolidation) ---
 
 from engine.consolidation import (
     handle_consolidate as _con_handle_consolidate,
     handle_confirm_reset as _con_handle_confirm_reset,
 )
 
-def _build_consolidation_ctx():
-    return {
-        "session_expiry_minutes": SESSION_EXPIRY_MINUTES
-    }
 
 def handle_consolidate(sprint_number=None, confirm_reset=False, force=False):
     """Handle --consolidate mode: Sleep Cycle for episodic memory."""
-    return _con_handle_consolidate(
-        sprint_number, 
-        confirm_reset, 
-        force, 
-        _get_paths(), 
-        _build_consolidation_ctx()
-    )
+    return _con_handle_consolidate(sprint_number, confirm_reset, force, _get_paths(), _build_ctx())
+
 
 def handle_confirm_reset():
     """Handle --consolidate --confirm-reset: clear learnings.jsonl after review."""
-    return _con_handle_confirm_reset(
-        _get_paths(), 
-        _build_consolidation_ctx()
-    )
+    return _con_handle_confirm_reset(_get_paths(), _build_ctx())
+
+
+from engine.git_utils import stamp_entry, check_staleness
 
 
 # --- Main ---
@@ -988,13 +472,13 @@ Examples:
     parser.add_argument("--version", action="store_true", help="Show engine version and exit")
 
     # Note: MAX_STEP help text uses default value (30) since config not loaded yet
-    # After config load, MAX_STEP may be overridden, but --version check happens first
-    if MAX_STEP is None:
+    max_step_default = _CTX["max_step"]
+    if max_step_default is None:
         step_help = "Current plan step number (no upper bound)"
-    elif MAX_STEP == 30:
+    elif max_step_default == 30:
         step_help = "Current plan step number (1-30)"
     else:
-        step_help = f"Current plan step number (1-{MAX_STEP})"
+        step_help = f"Current plan step number (1-{max_step_default})"
     parser.add_argument("--step", type=int, help=step_help)
     parser.add_argument("--components", type=str, help="Comma-separated component names")
     parser.add_argument("--files", type=str, help="Comma-separated file paths")
@@ -1005,7 +489,8 @@ Examples:
     parser.add_argument("--resolve", type=str, metavar="TS", help="Timestamp of existing entry to mark as resolved")
     parser.add_argument("--stats", action="store_true", help="Print memory system statistics")
     parser.add_argument("--review-agents", action="store_true", help="Diagnostic report on AGENTS.md section health")
-    parser.add_argument("--threshold", type=int, default=MAJOR_RETENTION, help=f"Step window for --review-agents (default: {MAJOR_RETENTION})")
+    major_ret_default = _CTX["major_retention"]
+    parser.add_argument("--threshold", type=int, default=major_ret_default, help=f"Step window for --review-agents (default: {major_ret_default})")
     parser.add_argument("--consolidate", action="store_true", help="Sleep Cycle: archive learnings, generate promotion report")
     parser.add_argument("--sprint", type=int, help="Sprint number for --consolidate (default: inferred from max step)")
     parser.add_argument("--confirm-reset", action="store_true", help="Clear learnings.jsonl after review (requires recent --consolidate)")
@@ -1030,11 +515,11 @@ Examples:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Load project-specific config and apply to module globals
+    # Load project-specific config and overlay onto _CTX (lowercased)
     try:
         config = load_config()
         if config:
-            globals().update(config)
+            _CTX.update({k.lower(): v for k, v in config.items()})
     except (TypeError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

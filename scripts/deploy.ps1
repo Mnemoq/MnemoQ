@@ -10,7 +10,7 @@ $LiveEngine = "$env:USERPROFILE\.agent-memory\engine"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
 Write-Host "Validating dev project..."
-$requiredFiles = @("src\filter.py", "src\profile.py", "src\scaffold.py", "src\update.py", "src\engine_version.py", "src\shim.py", "VERSION")
+$requiredFiles = @("src\filter.py", "src\scaffold.py", "src\update.py", "src\engine_version.py", "src\shim.py", "VERSION")
 foreach ($f in $requiredFiles) {
     if (-not (Test-Path "$DevRoot\$f")) {
         Write-Error "Missing required file: $f"
@@ -79,12 +79,12 @@ if (-not $DryRun) {
     Get-ChildItem "$LiveEngine\*.py" -ErrorAction SilentlyContinue | Copy-Item "$BackupDir\" -Force
     if (Test-Path "$LiveEngine\VERSION") { Copy-Item "$LiveEngine\VERSION" "$BackupDir\" -Force }
     if (Test-Path "$LiveEngine\templates") { Copy-Item "$LiveEngine\templates" "$BackupDir\templates" -Recurse -Force }
+    if (Test-Path "$LiveEngine\engine") { Copy-Item "$LiveEngine\engine" "$BackupDir\engine" -Recurse -Force }
 }
 
 Write-Host "Copying dev files to live engine..."
 $filesToCopy = @(
     @{ Src = "src\filter.py"; Dst = "filter.py" },
-    @{ Src = "src\profile.py"; Dst = "profile.py" },
     @{ Src = "src\scaffold.py"; Dst = "scaffold.py" },
     @{ Src = "src\update.py"; Dst = "update.py" },
     @{ Src = "src\engine_version.py"; Dst = "engine_version.py" },
@@ -105,9 +105,12 @@ foreach ($f in $filesToCopy) {
 
 if ($DryRun) {
     Write-Host "  [DRY-RUN] Would copy: templates/ -> $LiveEngine\templates\"
+    Write-Host "  [DRY-RUN] Would copy: engine/ -> $LiveEngine\engine\"
 } else {
     Copy-Item "$DevRoot\templates" "$LiveEngine\templates" -Recurse -Force
     Write-Host "  Copied: templates/"
+    Copy-Item "$DevRoot\src\engine" "$LiveEngine\engine" -Recurse -Force
+    Write-Host "  Copied: engine/"
 }
 
 Write-Host "Verifying live engine..."
@@ -117,7 +120,8 @@ if (-not $DryRun) {
         Write-Error "Verification failed. Restoring from backup..."
         Copy-Item "$BackupDir\*.py" "$LiveEngine\" -Force
         Copy-Item "$BackupDir\VERSION" "$LiveEngine\" -Force
-        Copy-Item "$BackupDir\templates" "$LiveEngine\templates" -Recurse -Force
+        if (Test-Path "$BackupDir\templates") { Copy-Item "$BackupDir\templates" "$LiveEngine\templates" -Recurse -Force }
+        if (Test-Path "$BackupDir\engine") { Copy-Item "$BackupDir\engine" "$LiveEngine\engine" -Recurse -Force }
         exit 1
     }
     Write-Host "  Verification passed."

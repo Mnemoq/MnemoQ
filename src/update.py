@@ -66,7 +66,7 @@ def migrate_to_shim(project_path, dry_run=False):
         backup_dir.mkdir(parents=True, exist_ok=True)
         
         # Backup existing files
-        for filename in ["filter.py", "profile.py"]:
+        for filename in ["filter.py"]:
             src = memory_dir / filename
             if src.exists():
                 shutil.copy2(src, backup_dir / filename)
@@ -75,7 +75,7 @@ def migrate_to_shim(project_path, dry_run=False):
     if not dry_run:
         filter_path.write_text(SHIM_TEMPLATE, encoding='utf-8')
         
-        # Remove profile.py (no longer needed)
+        # Cleanup old profile.py if it exists (now in engine/)
         profile_path = memory_dir / "profile.py"
         if profile_path.exists():
             profile_path.unlink()
@@ -222,7 +222,7 @@ def create_backup(project_path):
     
     memory_dir = project_path / "memory"
     files_to_backup = [
-        "filter.py", "profile.py", "config.json",
+        "filter.py", "config.json",
         "learnings.jsonl", "quarantine.jsonl",
         "SYSTEM_INVARIANTS.md", "HANDOFF.md", ".gitignore"
     ]
@@ -262,7 +262,7 @@ def restore_from_backup(project_path, backup_dir):
     """Restore only engine files from backup (preserve project data)."""
     memory_dir = project_path / "memory"
     
-    engine_files = ["filter.py", "profile.py"]
+    engine_files = ["filter.py"]
     
     for filename in engine_files:
         backup_file = backup_dir / filename
