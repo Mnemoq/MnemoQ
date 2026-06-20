@@ -605,7 +605,6 @@ class TestScaffoldIntegration:
         
         # Check that key files exist
         assert (memory_dir / "filter.py").exists()
-        assert not (memory_dir / "profile.py").exists()
         assert (memory_dir / "config.json").exists()
         assert (memory_dir / "learnings.jsonl").exists()
         assert (memory_dir / "quarantine.jsonl").exists()
@@ -853,8 +852,8 @@ class TestShim:
         """Test --migrate-to-shim converts full copy to shim."""
         # Copy full engine to project (memory dir already exists from fixture)
         memory_dir = temp_project / "memory"
+        # Only filter.py is copied to the local project in the test fixture
         shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
-        shutil.copy2(engine_dir / "profile.py", memory_dir / "profile.py")
         
         # Migrate
         from update import migrate_to_shim
@@ -867,9 +866,10 @@ class TestShim:
         from shim import is_shim
         assert is_shim(memory_dir / "filter.py")
         
-        # Verify profile.py removed
-        assert not (memory_dir / "profile.py").exists()
-        
+        # Verify shim replaced filter.py
+        shim_content = (memory_dir / "filter.py").read_text(encoding="utf-8")
+        assert len(shim_content.splitlines()) < 50
+        assert "AGENT_MEMORY_DIR" in shim_content
         # Verify backup created
         backups = list((memory_dir / "backups").glob("*"))
         assert len(backups) == 1
@@ -935,9 +935,9 @@ class TestShim:
     def test_profile_loads_post_migration(self, temp_project, engine_dir):
         """Test that profile.py loads from central location after migration."""
         # Copy full engine to project (memory dir already exists from fixture)
+        # Copy filter.py to project (memory dir already exists from fixture)
         memory_dir = temp_project / "memory"
         shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
-        shutil.copy2(engine_dir / "profile.py", memory_dir / "profile.py")
         
         # Migrate
         from update import migrate_to_shim
