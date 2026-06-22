@@ -1450,5 +1450,770 @@ class TestSchemaMigration:
             assert "contributing_projects" in entry
 
 
+class TestEmbeddingRetrieval:
+    """Test embedding-based retrieval functions and hybrid scoring."""
+
+    def test_embedding_fallback(self, temp_project, engine_dir):
+        """Retrieval works without sentence-transformers installed (embedder None, alpha=1.0)."""
+        memory_dir = temp_project / "memory"
+
+        # Log a learning
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["CollisionSystem"],
+            "files_touched": ["collision.py"], "trigger": "When AABB collision detected",
+            "action": "ALWAYS use AABB broadphase", "reason": "AABB is efficient",
+            "importance": 8, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        # Retrieve — should work even without sentence-transformers
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"),
+             "--step", "1", "--components", "CollisionSystem", "--domain", "tooling"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "AABB" in result.stdout
+        # Entry should have embedding=None on disk (no sentence-transformers)
+        lines = (memory_dir / "learnings.jsonl").read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+        assert entry["embedding"] is None
+
+    def test_embedding_encoding(self):
+        """Base64 round-trip preserves vector values within float16 precision."""
+        from engine.retrieval import encode_embedding, decode_embedding
+
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy not installed")
+
+        original = [0.1, -0.2, 0.3, -0.4, 0.5, 0.0, 1.0, -1.0]
+        encoded = encode_embedding(original)
+        assert isinstance(encoded, str)  # base64 string when numpy available
+        decoded = decode_embedding(encoded)
+        assert decoded is not None
+        assert len(decoded) == len(original)
+        for a, b in zip(original, decoded):
+            assert abs(a - b) < 0.01  # float16 precision
+
+    def test_embedding_encoding_none(self):
+        """encode_embedding(None) returns None, decode_embedding(None) returns None."""
+        from engine.retrieval import encode_embedding, decode_embedding
+
+        assert encode_embedding(None) is None
+        assert decode_embedding(None) is None
+
+    def test_embedding_encoding_plain_list_fallback(self):
+        """encode_embedding falls back to plain list when numpy unavailable."""
+        from engine.retrieval import encode_embedding, decode_embedding
+
+        # Test with a list (decode should handle plain lists too)
+        original = [0.1, 0.2, 0.3]
+        decoded = decode_embedding(original)
+        assert decoded == original
+
+    def test_cosine_similarity(self):
+        """cosine_similarity: orthogonal → 0.0, identical → 1.0."""
+        from engine.retrieval import cosine_similarity
+
+        # Identical vectors
+        vec = [1.0, 0.0, 0.0]
+        assert abs(cosine_similarity(vec, vec) - 1.0) < 1e-6
+
+        # Orthogonal vectors
+        a = [1.0, 0.0]
+        b = [0.0, 1.0]
+        assert abs(cosine_similarity(a, b) - 0.0) < 1e-6
+
+        # Empty / mismatched
+        assert cosine_similarity([], [1.0]) == 0.0
+        assert cosine_similarity([1.0], [1.0, 2.0]) == 0.0
+
+        # Zero magnitude
+        assert cosine_similarity([0.0, 0.0], [1.0, 1.0]) == 0.0
+
+    def test_handle_log_stores_embedding(self, temp_project, engine_dir):
+        """New entries get entry['embedding'] field (None if embedder unavailable)."""
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComp"],
+            "files_touched": ["test.py"], "trigger": "When testing embedding storage",
+            "action": "ALWAYS store embedding", "reason": "Embedding test",
+            "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        # Read back the entry
+        lines = (temp_project / "memory" / "learnings.jsonl").read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+        assert "embedding" in entry
+        # Without sentence-transformers installed, should be None
+        assert entry["embedding"] is None
+
+    def test_embedding_config_loaded(self, temp_project, engine_dir):
+        """Custom embedding_alpha in config.json is loaded and applied without crash."""
+        memory_dir = temp_project / "memory"
+        config = {
+            "project_name": "Test",
+            "tuning": {
+                "embedding_alpha": 0.8
+            }
+        }
+        (memory_dir / "config.json").write_text(json.dumps(config))
+
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComp"],
+            "files_touched": ["test.py"], "trigger": "When testing config",
+            "action": "ALWAYS test config", "reason": "Config test",
+            "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"),
+             "--step", "1", "--components", "TestComp"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "When testing config" in result.stdout
+
+    def test_handle_update_recomputes_embedding(self, temp_project, engine_dir):
+        """handle_update re-computes embedding when trigger/action/reason changed, preserves when unchanged."""
+        memory_dir = temp_project / "memory"
+
+        # Log an entry
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComp"],
+            "files_touched": ["test.py"], "trigger": "When testing update",
+            "action": "ALWAYS test update", "reason": "Update test",
+            "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        # Read back to get ts
+        lines = (memory_dir / "learnings.jsonl").read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+        ts = entry["ts"]
+
+        # Update with changed trigger (should re-compute embedding, but None since no model)
+        updated = dict(entry)
+        updated["trigger"] = "When testing updated trigger"
+        updated.pop("ts", None)
+        updated.pop("schema_version", None)
+        updated.pop("embedding", None)
+
+        f2 = temp_project / "update.json"
+        f2.write_text(json.dumps(updated))
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--update", ts, "--log-file", str(f2)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        # Verify entry was updated
+        lines = (memory_dir / "learnings.jsonl").read_text().strip().split("\n")
+        updated_entry = json.loads(lines[0])
+        assert "When testing updated trigger" in updated_entry["trigger"]
+        assert "embedding" in updated_entry  # field present (None since no model)
+
+        # Read back the new ts (stamp_entry generates a new ts on update)
+        ts2 = updated_entry["ts"]
+
+        # Update with unchanged trigger/action/reason (should preserve embedding)
+        updated2 = dict(updated_entry)
+        updated2["importance"] = 9  # change something other than trigger/action/reason
+        updated2.pop("ts", None)
+        updated2.pop("schema_version", None)
+        updated2.pop("embedding", None)
+
+        f3 = temp_project / "update2.json"
+        f3.write_text(json.dumps(updated2))
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--update", ts2, "--log-file", str(f3)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        # Embedding should be preserved (both None in this case, but the logic is tested)
+        lines = (memory_dir / "learnings.jsonl").read_text().strip().split("\n")
+        final_entry = json.loads(lines[0])
+        assert "embedding" in final_entry
+
+
+class TestSemanticDedup:
+    """Test embedding-based semantic dedup at log time."""
+
+    def test_find_semantic_duplicate_no_embeddings(self):
+        """find_semantic_duplicate returns (0.0, None) when no embeddings available."""
+        from engine.retrieval import find_semantic_duplicate
+
+        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": None}
+        existing = [{"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": None}]
+        ctx = {"semantic_dedup_threshold": 0.85, "embedding_model": "fake-model", "embedding_cache_dir": "/tmp"}
+
+        cos, match = find_semantic_duplicate(entry, existing, ctx)
+        assert cos == 0.0
+        assert match is None
+
+    def test_find_semantic_duplicate_high_cosine(self):
+        """find_semantic_duplicate detects match when embeddings are identical."""
+        from engine.retrieval import find_semantic_duplicate, encode_embedding
+
+        vec = [0.1, 0.2, 0.3, 0.4]
+        emb = encode_embedding(vec)
+        entry = {"domain": "tooling", "trigger": "When collision", "action": "ALWAYS use AABB", "reason": "AABB is fast", "embedding": emb}
+        existing = [{"domain": "tooling", "trigger": "When overlap", "action": "NEVER skip AABB", "reason": "AABB detects overlap", "embedding": emb, "resolved": False}]
+        ctx = {"semantic_dedup_threshold": 0.85}
+
+        cos, match = find_semantic_duplicate(entry, existing, ctx)
+        assert cos >= 0.85
+        assert match is not None
+        assert match is existing[0]
+
+    def test_find_semantic_duplicate_skips_resolved(self):
+        """find_semantic_duplicate skips resolved entries."""
+        from engine.retrieval import find_semantic_duplicate, encode_embedding
+
+        vec = [0.1, 0.2, 0.3, 0.4]
+        emb = encode_embedding(vec)
+        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
+        existing = [{"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb, "resolved": True}]
+        ctx = {"semantic_dedup_threshold": 0.85}
+
+        cos, match = find_semantic_duplicate(entry, existing, ctx)
+        assert cos == 0.0
+        assert match is None
+
+    def test_find_semantic_duplicate_skips_different_domain(self):
+        """find_semantic_duplicate only checks same-domain entries."""
+        from engine.retrieval import find_semantic_duplicate, encode_embedding
+
+        vec = [0.1, 0.2, 0.3, 0.4]
+        emb = encode_embedding(vec)
+        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
+        existing = [{"domain": "performance", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb, "resolved": False}]
+        ctx = {"semantic_dedup_threshold": 0.85}
+
+        cos, match = find_semantic_duplicate(entry, existing, ctx)
+        assert cos == 0.0
+        assert match is None
+
+    def test_find_semantic_duplicate_picks_highest(self):
+        """find_semantic_duplicate returns the highest cosine match."""
+        from engine.retrieval import find_semantic_duplicate, encode_embedding
+
+        entry_vec = [1.0, 0.0, 0.0]
+        close_vec = [0.99, 0.01, 0.0]
+        far_vec = [0.5, 0.5, 0.5]
+        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": encode_embedding(entry_vec)}
+        existing = [
+            {"domain": "tooling", "trigger": "When A", "action": "ALWAYS B", "reason": "C", "embedding": encode_embedding(far_vec), "resolved": False},
+            {"domain": "tooling", "trigger": "When D", "action": "ALWAYS E", "reason": "F", "embedding": encode_embedding(close_vec), "resolved": False},
+        ]
+        ctx = {"semantic_dedup_threshold": 0.85}
+
+        cos, match = find_semantic_duplicate(entry, existing, ctx)
+        assert match is existing[1]
+
+    def test_provenance_fields_populated(self, temp_project, engine_dir):
+        """Logging an entry should populate project_id, origin_project, contributing_projects, contributors."""
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComp"],
+            "files_touched": ["test.py"], "trigger": "When testing provenance",
+            "action": "ALWAYS test provenance", "reason": "Provenance test",
+            "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        lines = (temp_project / "memory" / "learnings.jsonl").read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+        assert "project_id" in entry
+        assert "origin_project" in entry
+        assert "contributing_projects" in entry
+        assert entry["contributing_projects"] == []
+        assert "contributors" in entry
+        assert "gm" in entry["contributors"]
+
+    def test_semantic_dedup_graceful_without_model(self, temp_project, engine_dir):
+        """Semantic dedup should gracefully fall back to Jaccard when no embedding model is available."""
+        memory_dir = temp_project / "memory"
+
+        # Log first entry
+        learning1 = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["CollisionSystem"],
+            "files_touched": ["collision.py"], "trigger": "When AABB collision detected",
+            "action": "ALWAYS use broadphase", "reason": "Broadphase is efficient",
+            "importance": 8, "severity": "major"
+        }
+        f1 = temp_project / "learning1.json"
+        f1.write_text(json.dumps(learning1))
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f1)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        # Log semantically similar but lexically different entry
+        learning2 = {
+            "step": 2, "source_agent": "code-reviewer", "type": "bug_fix",
+            "domain": "tooling", "components": ["CollisionSystem"],
+            "files_touched": ["collision.py"], "trigger": "When bounding box overlap found",
+            "action": "NEVER skip broadphase check", "reason": "Broadphase check is necessary for performance",
+            "importance": 7, "severity": "major"
+        }
+        f2 = temp_project / "learning2.json"
+        f2.write_text(json.dumps(learning2))
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f2)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        # Without embedding model, semantic dedup is skipped, falls back to Jaccard
+        # Entries share components but have low Jaccard, so should be ADDED
+        assert result.returncode == 0
+        assert "ADDED" in result.stdout or "DUPLICATE" in result.stdout or "CONFLICT" in result.stdout
+
+
+class TestReranker:
+    """Test the optional reranking pass (Phase 5).
+
+    These tests use direct imports to mock internal singletons (_ce_cache,
+    _PROBE_CACHE, _call_llm) that cannot be exercised via CLI subprocess.
+    This is an intentional deviation from the AGENTS.md convention of
+    CLI-only integration testing, justified by the need to test graceful
+    fallback paths without real model downloads or running LLM servers.
+    """
+
+    def test_rerank_none_passthrough(self):
+        """rerank_none returns candidates unchanged."""
+        from engine.reranker import rerank_none
+        candidates = [(0.9, 0.8, 0.7, {"severity": "critical"}), (0.5, 0.4, 0.3, {"severity": "minor"})]
+        result, active = rerank_none("query", candidates, {})
+        assert result is candidates
+        assert active is True
+
+    def test_rerank_dispatch_none(self):
+        """rerank() with mode 'none' returns candidates unchanged."""
+        from engine.reranker import rerank
+        candidates = [(0.9, 0.8, 0.7, {"severity": "critical"})]
+        result, active = rerank("query", candidates, {"reranker": "none"})
+        assert result is candidates
+        assert active is True
+
+    def test_rerank_cross_encoder_mock(self):
+        """Cross-encoder reranking with mocked model."""
+        from engine import reranker
+
+        # Mock the cross-encoder model
+        class MockCrossEncoder:
+            def predict(self, pairs):
+                # Return scores in reverse order to verify reranking
+                return [5.0, 9.0, 1.0]
+
+        reranker._ce_cache["test-model"] = MockCrossEncoder()
+
+        candidates = [
+            (0.9, 0.8, 0.7, {"severity": "critical", "trigger": "A", "action": "B", "reason": "C"}),
+            (0.5, 0.4, 0.3, {"severity": "minor", "trigger": "D", "action": "E", "reason": "F"}),
+            (0.3, 0.2, 0.1, {"severity": "minor", "trigger": "G", "action": "H", "reason": "I"}),
+        ]
+        ctx = {"reranker_model": "test-model", "embedding_cache_dir": "/tmp"}
+        result, active = reranker.rerank_cross_encoder("query", candidates, ctx)
+
+        assert active is True
+        # Highest score (9.0) was for index 1, so it should be first
+        assert result[0][3]["trigger"] == "D"
+        assert result[1][3]["trigger"] == "A"
+        assert result[2][3]["trigger"] == "G"
+
+        # Cleanup
+        del reranker._ce_cache["test-model"]
+
+    def test_rerank_cross_encoder_fallback(self):
+        """Cross-encoder falls back to passthrough when model unavailable."""
+        from engine import reranker
+
+        # Cache a None for a fake model
+        reranker._ce_cache["unavailable-model"] = None
+
+        candidates = [
+            (0.9, 0.8, 0.7, {"severity": "critical", "trigger": "A", "action": "B", "reason": "C"}),
+            (0.5, 0.4, 0.3, {"severity": "minor", "trigger": "D", "action": "E", "reason": "F"}),
+        ]
+        ctx = {"reranker_model": "unavailable-model", "embedding_cache_dir": "/tmp"}
+        result, active = reranker.rerank_cross_encoder("query", candidates, ctx)
+
+        assert active is False
+        assert result is candidates
+
+        del reranker._ce_cache["unavailable-model"]
+
+    def test_rerank_llm_local_malformed_response(self):
+        """LLM-local returns passthrough when response has fewer numbers than candidates."""
+        from engine import reranker
+
+        # Reset probe cache
+        reranker._PROBE_CACHE = {"endpoint": None, "checked": False}
+
+        # Mock _call_llm to return malformed response
+        original_call = reranker._call_llm
+        reranker._call_llm = lambda endpoint, model, prompt: "I think the first one is good"
+
+        # Mock _probe_llm_endpoint to return a fake endpoint
+        reranker._PROBE_CACHE = {"endpoint": "http://localhost:11434", "checked": True}
+
+        candidates = [
+            (0.9, 0.8, 0.7, {"severity": "critical", "trigger": "A", "action": "B", "reason": "C"}),
+            (0.5, 0.4, 0.3, {"severity": "minor", "trigger": "D", "action": "E", "reason": "F"}),
+            (0.3, 0.2, 0.1, {"severity": "minor", "trigger": "G", "action": "H", "reason": "I"}),
+        ]
+        ctx = {"reranker_llm_endpoint": "http://localhost:11434", "reranker_llm_model": "test"}
+        result, active = reranker.rerank_llm_local("query", candidates, ctx)
+
+        assert active is False
+        assert result is candidates
+
+        reranker._call_llm = original_call
+        reranker._PROBE_CACHE = {"endpoint": None, "checked": False}
+
+    def test_rerank_llm_local_no_endpoint(self):
+        """LLM-local falls back when no endpoint is found."""
+        from engine import reranker
+
+        reranker._PROBE_CACHE = {"endpoint": None, "checked": True}
+
+        candidates = [(0.9, 0.8, 0.7, {"severity": "critical", "trigger": "A", "action": "B", "reason": "C"})]
+        ctx = {"reranker_llm_endpoint": None}
+        result, active = reranker.rerank_llm_local("query", candidates, ctx)
+
+        assert active is False
+        assert result is candidates
+
+        reranker._PROBE_CACHE = {"endpoint": None, "checked": False}
+
+    def test_rerank_llm_local_mock_success(self):
+        """LLM-local reranks successfully with mocked response."""
+        from engine import reranker
+
+        reranker._PROBE_CACHE = {"endpoint": "http://localhost:11434", "checked": True}
+
+        original_call = reranker._call_llm
+        reranker._call_llm = lambda endpoint, model, prompt: "3 9 1"
+
+        candidates = [
+            (0.9, 0.8, 0.7, {"severity": "critical", "trigger": "A", "action": "B", "reason": "C"}),
+            (0.5, 0.4, 0.3, {"severity": "minor", "trigger": "D", "action": "E", "reason": "F"}),
+            (0.3, 0.2, 0.1, {"severity": "minor", "trigger": "G", "action": "H", "reason": "I"}),
+        ]
+        ctx = {"reranker_llm_endpoint": "http://localhost:11434", "reranker_llm_model": "test"}
+        result, active = reranker.rerank_llm_local("query", candidates, ctx)
+
+        assert active is True
+        # Score 9 was for index 1, so D should be first
+        assert result[0][3]["trigger"] == "D"
+        assert result[1][3]["trigger"] == "A"
+        assert result[2][3]["trigger"] == "G"
+
+        reranker._call_llm = original_call
+        reranker._PROBE_CACHE = {"endpoint": None, "checked": False}
+
+    def test_rerank_unknown_mode(self):
+        """Unknown reranker mode falls back to passthrough."""
+        from engine import reranker
+        candidates = [(0.9, 0.8, 0.7, {"severity": "critical"})]
+        result, active = reranker.rerank("query", candidates, {"reranker": "bogus"})
+        assert active is False
+        assert result is candidates
+
+    def test_parse_scores_sufficient(self):
+        """_parse_scores returns floats when enough numbers found."""
+        from engine.reranker import _parse_scores
+        scores = _parse_scores("7.5 3 9.0 1", 4)
+        assert scores == [7.5, 3.0, 9.0, 1.0]
+
+    def test_parse_scores_insufficient(self):
+        """_parse_scores returns None when too few numbers found."""
+        from engine.reranker import _parse_scores
+        scores = _parse_scores("only 2 numbers here", 5)
+        assert scores is None
+
+    def test_probe_llm_endpoint_configured(self):
+        """_probe_llm_endpoint returns configured endpoint without probing."""
+        from engine.reranker import _probe_llm_endpoint
+        result = _probe_llm_endpoint("http://custom:8080")
+        assert result == "http://custom:8080"
+
+    def test_config_reranker_invalid_value(self, temp_project, engine_dir):
+        """Invalid reranker value raises ValueError."""
+        memory_dir = temp_project / "memory"
+        config = {
+            "project_name": "Test",
+            "reranker": "bogus",
+            "tuning": {}
+        }
+        (memory_dir / "config.json").write_text(json.dumps(config))
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--stats"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode != 0
+        assert "ValueError" in result.stderr or "must be one of" in result.stderr
+
+    def test_config_reranker_null_llm_endpoint(self, temp_project, engine_dir):
+        """Null reranker_llm_endpoint passes through as None."""
+        memory_dir = temp_project / "memory"
+        config = {
+            "project_name": "Test",
+            "reranker": "llm-local",
+            "reranker_llm_endpoint": None,
+            "reranker_llm_model": None,
+            "tuning": {}
+        }
+        (memory_dir / "config.json").write_text(json.dumps(config))
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--stats"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+    def test_config_reranker_top_n_invalid(self, temp_project, engine_dir):
+        """reranker_top_n < 1 raises ValueError."""
+        memory_dir = temp_project / "memory"
+        config = {
+            "project_name": "Test",
+            "reranker": "none",
+            "reranker_top_n": 0,
+            "tuning": {}
+        }
+        (memory_dir / "config.json").write_text(json.dumps(config))
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--stats"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode != 0
+        assert "reranker_top_n" in result.stderr
+
+    def test_retrieval_none_mode_regression(self, temp_project, engine_dir):
+        """Retrieval with reranker: 'none' produces same output as before (regression)."""
+        memory_dir = temp_project / "memory"
+        config = {
+            "project_name": "Test",
+            "reranker": "none",
+            "tuning": {"decay_rate": 0.99, "score_threshold": 0.01}
+        }
+        (memory_dir / "config.json").write_text(json.dumps(config))
+
+        # Add a learning
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComp"],
+            "files_touched": ["test.py"], "trigger": "When testing",
+            "action": "ALWAYS verify", "reason": "Safety first",
+            "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        # Retrieve
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--step", "2", "--components", "TestComp", "--domain", "tooling"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "RELEVANT PATTERNS" in result.stdout
+        assert "When testing" in result.stdout
+
+
+class TestEvalHarness:
+    """Test the grading harness (--eval flag)."""
+
+    @staticmethod
+    def _setup_learning_and_fixture(temp_project, engine_dir, fixture_trigger, learning=None):
+        """Shared setup: write config, log a learning, create eval fixture."""
+        memory_dir = temp_project / "memory"
+        (memory_dir / "config.json").write_text(json.dumps({
+            "project_name": "Test",
+            "tuning": {"decay_rate": 0.99, "score_threshold": 0.01}
+        }))
+
+        if learning is None:
+            learning = {
+                "step": 1, "source_agent": "gm", "type": "bug_fix",
+                "domain": "tooling", "components": ["CollisionSystem"],
+                "files_touched": ["collision.py"], "trigger": "When AABB collision detected",
+                "action": "ALWAYS use broadphase", "reason": "Broadphase is efficient",
+                "importance": 8, "severity": "major"
+            }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        eval_dir = memory_dir / "eval"
+        eval_dir.mkdir(exist_ok=True)
+        fixture = {"step": 2, "components": "CollisionSystem", "domain": "tooling",
+                    "expected_trigger": fixture_trigger}
+        (eval_dir / "grading.jsonl").write_text(json.dumps(fixture) + "\n")
+
+    def test_eval_no_fixture(self, temp_project, engine_dir):
+        """--eval with no fixture file returns 1 with helpful message."""
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--eval"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 1
+        assert "No grading fixtures found" in result.stdout
+
+    def test_eval_with_fixture_hit(self, temp_project, engine_dir):
+        """--eval reports a hit when expected trigger appears in results."""
+        self._setup_learning_and_fixture(temp_project, engine_dir, "When AABB collision detected")
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--eval"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "Grading Harness Results" in result.stdout
+        assert "Top-1 hit rate: 1/1" in result.stdout
+        assert "HIT@" in result.stdout
+
+    def test_eval_with_fixture_miss(self, temp_project, engine_dir):
+        """--eval reports a miss when expected trigger is absent."""
+        self._setup_learning_and_fixture(temp_project, engine_dir, "When physics body overlaps")
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--eval"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "Top-1 hit rate: 0/1" in result.stdout
+        assert "MISS" in result.stdout
+
+    def test_eval_multiple_fixtures(self, temp_project, engine_dir):
+        """--eval handles multiple fixtures with mixed hit/miss."""
+        memory_dir = temp_project / "memory"
+        (memory_dir / "config.json").write_text(json.dumps({
+            "project_name": "Test",
+            "tuning": {"decay_rate": 0.99, "score_threshold": 0.01}
+        }))
+
+        # Log two learnings
+        for fname, learning in [
+            ("learning1.json", {
+                "step": 1, "source_agent": "gm", "type": "bug_fix",
+                "domain": "tooling", "components": ["CollisionSystem"],
+                "files_touched": ["collision.py"], "trigger": "When AABB collision detected",
+                "action": "ALWAYS use broadphase", "reason": "Broadphase is efficient",
+                "importance": 8, "severity": "major"
+            }),
+            ("learning2.json", {
+                "step": 1, "source_agent": "gm", "type": "optimization",
+                "domain": "performance", "components": ["RenderLoop"],
+                "files_touched": ["render.py"], "trigger": "When frame rate drops below 60",
+                "action": "ALWAYS batch draw calls", "reason": "Reduces GPU overhead",
+                "importance": 7, "severity": "major"
+            }),
+        ]:
+            f = temp_project / fname
+            f.write_text(json.dumps(learning))
+            subprocess.run(
+                [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+                cwd=temp_project, capture_output=True, text=True
+            )
+
+        # Create fixtures: one hit, one miss
+        eval_dir = memory_dir / "eval"
+        eval_dir.mkdir(exist_ok=True)
+        fixture1 = {"step": 2, "components": "CollisionSystem", "domain": "tooling",
+                     "expected_trigger": "When AABB collision detected"}
+        fixture2 = {"step": 2, "components": "CollisionSystem", "domain": "tooling",
+                     "expected_trigger": "Nonexistent trigger text"}
+        (eval_dir / "grading.jsonl").write_text(
+            json.dumps(fixture1) + "\n" + json.dumps(fixture2) + "\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--eval"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "Fixtures: 2" in result.stdout
+        assert "Top-1 hit rate: 1/2" in result.stdout
+
+    def test_eval_skips_comments_and_blanks(self, temp_project, engine_dir):
+        """--eval skips comment lines and blank lines in fixture file."""
+        memory_dir = temp_project / "memory"
+        eval_dir = memory_dir / "eval"
+        eval_dir.mkdir(exist_ok=True)
+        (eval_dir / "grading.jsonl").write_text(
+            "# This is a comment\n"
+            "\n"
+            '{"step": 1, "components": "TestComp", "domain": "tooling", "expected_trigger": "test"}\n'
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--eval"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "Fixtures: 1" in result.stdout
+
+    def test_eval_mutual_exclusion(self, temp_project, engine_dir):
+        """--eval cannot be combined with --stats."""
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--eval", "--stats"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode != 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

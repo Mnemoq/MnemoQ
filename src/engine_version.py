@@ -11,7 +11,7 @@ Resolution order:
 from pathlib import Path
 
 # Hardcoded fallback — update this when bumping version
-FALLBACK_VERSION = "1.16.0"
+FALLBACK_VERSION = "1.19.2"
 
 def get_engine_version() -> str:
     """Read engine version from VERSION file, with fallback chain."""

@@ -6,16 +6,156 @@ the ctx dict; file I/O uses the paths object.
 
 from __future__ import annotations
 
+import base64
 import math
+import os
 import re
 import time
 
 from engine.io import read_learnings, write_learnings
 from engine.metrics import log_event
 from .profile import load_profile, get_profile_context
+from .constants import EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
 
 
 _TOKEN_SPLIT = re.compile(r'[^a-z0-9]+')
+
+# --- Embedding functions ---
+
+_embedder_cache: dict[str, object | None] = {}
+
+
+def _get_embedder(model_name=EMBEDDING_MODEL, cache_dir=EMBEDDING_CACHE_DIR):
+    """Lazy singleton for sentence-transformers model, keyed by model_name.
+
+    Returns model instance or None (cached per model_name so failed loads
+    don't retry every call). If model_name changes between calls, re-initializes.
+    """
+    if model_name in _embedder_cache:
+        return _embedder_cache[model_name]
+
+    try:
+        from sentence_transformers import SentenceTransformer
+        expanded_cache = os.path.expanduser(cache_dir)
+        model = SentenceTransformer(model_name, cache_folder=expanded_cache)
+        _embedder_cache[model_name] = model
+        return model
+    except Exception:
+        _embedder_cache[model_name] = None
+        return None
+
+
+def compute_embedding(text, model_name=EMBEDDING_MODEL, cache_dir=EMBEDDING_CACHE_DIR):
+    """Compute embedding vector for text. Returns list[float] or None if model unavailable."""
+    model = _get_embedder(model_name, cache_dir)
+    if model is None:
+        return None
+    try:
+        vec = model.encode(text, convert_to_numpy=True)
+        return vec.tolist()
+    except Exception:
+        return None
+
+
+def cosine_similarity(vec_a, vec_b):
+    """Stdlib cosine similarity. No numpy required for small vectors."""
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    mag_a = math.sqrt(sum(a * a for a in vec_a))
+    mag_b = math.sqrt(sum(b * b for b in vec_b))
+    if mag_a == 0.0 or mag_b == 0.0:
+        return 0.0
+    return dot / (mag_a * mag_b)
+
+
+def embed_entry(entry, model_name=EMBEDDING_MODEL, cache_dir=EMBEDDING_CACHE_DIR):
+    """Embed entry trigger + action + reason. Returns list[float] or None."""
+    text = entry["trigger"] + " " + entry["action"] + " " + entry["reason"]
+    return compute_embedding(text, model_name, cache_dir)
+
+
+def encode_embedding(vec):
+    """Encode embedding vector to base64 float16 string for compact JSONL storage.
+
+    Falls back to plain list if numpy unavailable. Returns None if vec is None.
+    """
+    if vec is None:
+        return None
+    try:
+        import numpy as np
+        return base64.b64encode(np.array(vec, dtype=np.float16).tobytes()).decode()
+    except ImportError:
+        return vec  # plain list — larger but works
+
+
+def decode_embedding(stored):
+    """Decode embedding from base64 float16 string, plain list, or None.
+
+    Returns list[float] or None.
+    """
+    if stored is None:
+        return None
+    if isinstance(stored, list):
+        return stored
+    if isinstance(stored, str):
+        try:
+            import numpy as np
+            arr = np.frombuffer(base64.b64decode(stored), dtype=np.float16)
+            return arr.astype(np.float32).tolist()
+        except ImportError:
+            return None  # can't decode base64 float16 without numpy
+        except Exception:
+            return None
+    return None
+
+
+def find_semantic_duplicate(entry, existing_entries, ctx):
+    """Find the highest cosine similarity match among same-domain unresolved entries.
+
+    Returns (best_cosine, best_match_entry) or (0.0, None) if no match above threshold.
+    Skips entries without embeddings. Falls back to None if embedding model unavailable.
+    """
+    threshold = ctx.get("semantic_dedup_threshold", 0.85)
+    entry_domain = entry.get("domain")
+    entry_vec = decode_embedding(entry.get("embedding"))
+
+    if entry_vec is None:
+        _emb_model = ctx.get("embedding_model")
+        _emb_cache = ctx.get("embedding_cache_dir")
+        entry_vec = embed_entry(entry, _emb_model, _emb_cache)
+
+    if entry_vec is None:
+        return 0.0, None
+
+    best_cosine = 0.0
+    best_match = None
+
+    for existing in existing_entries:
+        if existing.get("resolved", False):
+            continue
+        if existing.get("domain") != entry_domain:
+            continue
+
+        existing_vec = decode_embedding(existing.get("embedding"))
+        if existing_vec is None:
+            _emb_model = ctx.get("embedding_model")
+            _emb_cache = ctx.get("embedding_cache_dir")
+            existing_vec = embed_entry(existing, _emb_model, _emb_cache)
+            if existing_vec is not None:
+                existing["embedding"] = encode_embedding(existing_vec)
+
+        if existing_vec is None:
+            continue
+
+        cos = cosine_similarity(entry_vec, existing_vec)
+        if cos > best_cosine:
+            best_cosine = cos
+            best_match = existing
+
+    if best_cosine >= threshold:
+        return best_cosine, best_match
+    return 0.0, None
 
 
 def _tokenize(text, stop_words):
@@ -117,12 +257,14 @@ def is_in_retention(entry, current_step, ctx):
 def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths):
     """Handle retrieval mode: score, filter, and print relevant learnings.
 
-    Uses three-channel fusion: tiered relevance (score_entry), BM25 lexical,
-    and RRF (Reciprocal Rank Fusion) to combine rankings.
+    Uses four-channel fusion: tiered relevance (score_entry), BM25 lexical,
+    RRF (Reciprocal Rank Fusion) to combine rankings, and optional embedding
+    cosine similarity for semantic matching.
 
     ctx keys used: score_threshold, escalation_threshold, max_warnings,
                    max_patterns, max_step, domain_mappings,
                    bm25_k1, bm25_b, rrf_k, stop_words,
+                   embedding_model, embedding_alpha, embedding_cache_dir,
                    + all keys used by score_entry and is_in_retention
     """
     _start = time.perf_counter()
@@ -192,13 +334,85 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         else:
             patterns.append((rrf, tiered_score, entry))
 
-    warnings.sort(key=lambda x: x[0], reverse=True)
-    patterns.sort(key=lambda x: x[0], reverse=True)
+    # --- Phase 4: Embedding channel (hybrid scoring) ---
+    embedding_alpha = ctx.get("embedding_alpha", 0.5)
+    embedding_model = ctx.get("embedding_model", EMBEDDING_MODEL)
+    embedding_cache_dir = ctx.get("embedding_cache_dir", EMBEDDING_CACHE_DIR)
+    embedder = _get_embedder(embedding_model, embedding_cache_dir)
+    embedding_channel_active = embedder is not None
+    top_embedding_cosine = 0.0
+
+    query_embed = None
+    if embedding_channel_active:
+        query_embed = compute_embedding(query_text, embedding_model, embedding_cache_dir)
+        if query_embed is None:
+            embedding_channel_active = False
+
+    if embedding_channel_active and query_embed is not None:
+        alpha = embedding_alpha
+        # Compute cosine for each candidate, backfill missing embeddings
+        for rrf, tiered_score, entry in warnings + patterns:
+            vec = decode_embedding(entry.get("embedding"))
+            if vec is None:
+                vec = embed_entry(entry, embedding_model, embedding_cache_dir)
+                if vec is not None:
+                    entry["embedding"] = encode_embedding(vec)
+            cos = cosine_similarity(query_embed, vec) if vec else 0.0
+            entry["_cosine"] = cos
+            if cos > top_embedding_cosine:
+                top_embedding_cosine = cos
+
+        # Normalize RRF and fuse
+        all_results = warnings + patterns
+        max_rrf = max((r for r, _, _ in all_results), default=0.0)
+        fused = []
+        for rrf, tiered_score, entry in all_results:
+            cos = entry.pop("_cosine", 0.0)
+            if max_rrf > 0:
+                final = alpha * (rrf / max_rrf) + (1 - alpha) * cos
+            else:
+                final = (1 - alpha) * cos
+            fused.append((final, rrf, tiered_score, entry))
+
+        # Re-split and re-sort by final score
+        warnings = [(f, r, t, e) for f, r, t, e in fused if e["severity"] == "critical"]
+        patterns = [(f, r, t, e) for f, r, t, e in fused if e["severity"] != "critical"]
+        warnings.sort(key=lambda x: x[0], reverse=True)
+        patterns.sort(key=lambda x: x[0], reverse=True)
+    else:
+        alpha = 1.0
+        # Convert tuples from (rrf, tiered_score, entry) to (final=rrf, rrf, tiered_score, entry)
+        warnings = [(r, r, t, e) for r, t, e in warnings]
+        patterns = [(r, r, t, e) for r, t, e in patterns]
+        warnings.sort(key=lambda x: x[0], reverse=True)
+        patterns.sort(key=lambda x: x[0], reverse=True)
+
+    # --- Phase 5: Optional reranking ---
+    reranker_mode = ctx.get("reranker", "none")
+    reranker_top_n = ctx.get("reranker_top_n", 20)
+    reranker_active = False
+    reranker_latency_ms = 0.0
+
+    if reranker_mode != "none":
+        from engine.reranker import rerank as _rerank
+        combined = warnings + patterns  # already sorted by final score
+        if len(combined) >= 3:
+            top_n = combined[:reranker_top_n]
+            rest = combined[reranker_top_n:]
+            _rr_start = time.perf_counter()
+            reranked_top, reranker_active = _rerank(query_text, top_n, ctx)
+            reranker_latency_ms = round((time.perf_counter() - _rr_start) * 1000, 2)
+            combined = reranked_top + rest
+        else:
+            reranker_active = False
+            reranker_latency_ms = 0.0
+        warnings = [t for t in combined if t[3]["severity"] == "critical"]
+        patterns = [t for t in combined if t[3]["severity"] != "critical"]
 
     warnings = warnings[:ctx["max_warnings"]]
     patterns = patterns[:ctx["max_patterns"]]
 
-    for _, _, entry in warnings + patterns:
+    for _, _, _, entry in warnings + patterns:
         entry["access_count"] = entry.get("access_count", 0) + 1
 
     if warnings or patterns:
@@ -206,7 +420,7 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
 
     print("## ⚠ WARNINGS — Read before starting")
     if warnings:
-        for _, _, entry in warnings:
+        for _, _, _, entry in warnings:
             print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
             verified_str = "verified" if entry.get("verified", False) else "unverified"
             scope_str = entry.get("scope", "file")
@@ -231,7 +445,7 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
 
     print("\n## RELEVANT PATTERNS")
     if patterns:
-        for _, _, entry in patterns:
+        for _, _, _, entry in patterns:
             print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
             verified_str = "verified" if entry.get("verified", False) else "unverified"
             scope_str = entry.get("scope", "file")
@@ -263,9 +477,10 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
 
     all_results = warnings + patterns
-    top_score = all_results[0][1] if all_results else 0.0
-    mean_score = sum(s for _, s, _ in all_results) / len(all_results) if all_results else 0.0
-    top_rrf_score = all_results[0][0] if all_results else 0.0
+    top_score = all_results[0][2] if all_results else 0.0
+    mean_score = sum(s for _, _, s, _ in all_results) / len(all_results) if all_results else 0.0
+    top_rrf_score = all_results[0][1] if all_results else 0.0
+    top_final_score = all_results[0][0] if all_results else 0.0
     top_bm25 = max((bs for bs, _ in bm25_candidates), default=0.0)
 
     log_event(paths, "retrieval",
@@ -282,6 +497,14 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         mean_score=round(mean_score, 4),
         top_bm25_score=round(top_bm25, 4),
         top_rrf_score=round(top_rrf_score, 6),
+        top_final_score=round(top_final_score, 6),
+        embedding_channel_active=embedding_channel_active,
+        embedding_alpha_used=alpha,
+        top_embedding_cosine=round(top_embedding_cosine, 6),
+        reranker_mode=reranker_mode,
+        reranker_active=reranker_active,
+        reranker_top_n=reranker_top_n,
+        reranker_latency_ms=reranker_latency_ms,
         profile_context_count=len(profile_context) if profile_context else 0,
         sleep_cycle_due=sleep_cycle_due,
         latency_ms=round((time.perf_counter() - _start) * 1000, 2),

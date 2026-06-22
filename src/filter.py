@@ -170,6 +170,11 @@ def load_config():
         
         # Step bound
         "MAX_STEP": int,                  # null in config → None in dict
+
+        # Embedding config
+        "EMBEDDING_ALPHA": float,         # Range: 0.0 <= x <= 1.0
+        "EMBEDDING_MODEL": str,           # sentence-transformers model name
+        "EMBEDDING_CACHE_DIR": str,       # path to model cache directory
     }
     
     Whitelist: Only the keys listed above are returned. All other config.json
@@ -207,6 +212,8 @@ def load_config():
         "no_match_weight": ("NO_MATCH_WEIGHT", 0.0, None, True, None),
         "bm25_k1": ("BM25_K1", 0.0, None, False, None),
         "bm25_b": ("BM25_B", 0.0, 1.0, True, True),
+        "embedding_alpha": ("EMBEDDING_ALPHA", 0.0, 1.0, True, True),
+        "semantic_dedup_threshold": ("SEMANTIC_DEDUP_THRESHOLD", 0.0, 1.0, True, True),
     }
     
     for config_key, (python_key, min_val, max_val, min_inclusive, max_inclusive) in float_params.items():
@@ -303,7 +310,52 @@ def load_config():
             result["MAX_STEP"] = value
         else:
             raise TypeError(f"max_step must be an integer or null, got {type(value).__name__}")
-    
+
+    # Top-level string params (embedding config)
+    string_params = {"embedding_model": "EMBEDDING_MODEL", "embedding_cache_dir": "EMBEDDING_CACHE_DIR"}
+    for config_key, python_key in string_params.items():
+        if config_key in config:
+            value = config[config_key]
+            if not isinstance(value, str):
+                raise TypeError(f"{config_key} must be a string, got {type(value).__name__}")
+            result[python_key] = value
+
+    # Reranker config (top-level)
+    if "reranker" in config:
+        value = config["reranker"]
+        if not isinstance(value, str):
+            raise TypeError(f"reranker must be a string, got {type(value).__name__}")
+        valid_rerankers = _CONST_DEFAULTS.get("VALID_RERANKERS", set())
+        if value not in valid_rerankers:
+            raise ValueError(f"reranker must be one of {valid_rerankers}, got '{value}'")
+        result["RERANKER"] = value
+
+    if "reranker_top_n" in config:
+        value = config["reranker_top_n"]
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError(f"reranker_top_n must be an integer, got {type(value).__name__}")
+        if value < 1:
+            raise ValueError(f"reranker_top_n must be >= 1, got {value}")
+        result["RERANKER_TOP_N"] = value
+
+    if "reranker_model" in config:
+        value = config["reranker_model"]
+        if not isinstance(value, str):
+            raise TypeError(f"reranker_model must be a string, got {type(value).__name__}")
+        result["RERANKER_MODEL"] = value
+
+    # Nullable string params (null = auto-probe / server default)
+    for config_key, python_key in [("reranker_llm_endpoint", "RERANKER_LLM_ENDPOINT"),
+                                   ("reranker_llm_model", "RERANKER_LLM_MODEL")]:
+        if config_key in config:
+            value = config[config_key]
+            if value is None:
+                result[python_key] = None
+            elif isinstance(value, str):
+                result[python_key] = value
+            else:
+                raise TypeError(f"{config_key} must be a string or null, got {type(value).__name__}")
+
     return result
 
 
@@ -501,6 +553,7 @@ Examples:
     parser.add_argument("--confirm-reset", action="store_true", help="Clear learnings.jsonl after review (requires recent --consolidate)")
     parser.add_argument("--force", action="store_true", help="Force overwrite existing archive in --consolidate")
     parser.add_argument("--migrate-schema", action="store_true", help="Run schema migration on learnings.jsonl and write updated file")
+    parser.add_argument("--eval", action="store_true", help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
     parser.add_argument("--memory-dir", type=str, help="Path to memory directory (default: <cwd>/memory)")
 
     # Metrics flags
@@ -581,9 +634,16 @@ Examples:
     if args.migrate_schema and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics]):
         parser.error("--migrate-schema cannot be combined with other operational flags")
 
+    if args.eval and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema]):
+        parser.error("--eval cannot be combined with other operational flags")
+
     if args.migrate_schema:
         from engine.migrate import run_migration
         return run_migration(_get_paths())
+
+    if args.eval:
+        from engine.eval import run_eval
+        return run_eval(_get_paths(), _build_ctx())
 
     if args.metrics:
         return _met_handle_metrics(args, _get_paths())

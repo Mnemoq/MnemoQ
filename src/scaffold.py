@@ -115,12 +115,53 @@ def prompt_tuning_defaults(template_config):
     return tuning
 
 
+def _probe_llm_inline():
+    """Inline LLM endpoint probe for scaffold (avoids cross-module import)."""
+    import urllib.request
+    targets = [
+        ("http://localhost:11434", "/api/tags"),    # Ollama
+        ("http://localhost:1234", "/v1/models"),    # LM Studio
+    ]
+    for base, path in targets:
+        try:
+            req = urllib.request.Request(base + path, method="GET")
+            urllib.request.urlopen(req, timeout=1)
+            return base
+        except Exception:
+            continue
+    return None
+
+
+def prompt_reranker():
+    """Prompt for reranker mode with auto-probe for llm-local."""
+    print("\nReranker (optional second-pass relevance scoring):")
+    print("  [1] none (default - no overhead)")
+    print("  [2] cross-encoder (ms-marco-MiniLM-L-12-v2, ~420MB download)")
+    print("  [3] llm-local (Ollama / LM Studio)")
+    choice = input("  Choose [1-3, default 1]: ").strip()
+    
+    if choice == "2":
+        return {"reranker": "cross-encoder"}
+    elif choice == "3":
+        endpoint = _probe_llm_inline()
+        if endpoint:
+            print(f"  Found local LLM at {endpoint}")
+            model = input("  Model name (e.g. llama3, qwen2.5) [optional]: ").strip() or None
+            return {"reranker": "llm-local", "reranker_llm_endpoint": endpoint, "reranker_llm_model": model}
+        else:
+            print("  No local LLM found (tried :11434 and :1234).")
+            print("  You can configure manually later in config.json.")
+            return {"reranker": "none"}
+    return {"reranker": "none"}
+
+
 def generate_config_interactive(target_name, template_config):
     """Generate config.json with interactive prompts."""
     print(f"\nScaffolding memory for: {target_name}\n")
     
     project_name = prompt_project_name(target_name)
     tuning = prompt_tuning_defaults(template_config)
+    reranker_config = prompt_reranker()
     
     config = {
         "project_name": project_name,
@@ -130,6 +171,13 @@ def generate_config_interactive(target_name, template_config):
         "valid_source_agents": None,
         "retrieval_only_agents": None,
         "domain_mappings": None,
+        "embedding_model": template_config.get("embedding_model", "all-MiniLM-L6-v2"),
+        "embedding_cache_dir": template_config.get("embedding_cache_dir", "~/.agent-memory/models/"),
+        "reranker": reranker_config.get("reranker", "none"),
+        "reranker_top_n": template_config.get("reranker_top_n", 20),
+        "reranker_model": template_config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-12-v2"),
+        "reranker_llm_endpoint": reranker_config.get("reranker_llm_endpoint"),
+        "reranker_llm_model": reranker_config.get("reranker_llm_model"),
         "tuning": tuning
     }
     
@@ -146,6 +194,13 @@ def generate_config_defaults(target_name, template_config):
         "valid_source_agents": None,
         "retrieval_only_agents": None,
         "domain_mappings": None,
+        "embedding_model": template_config.get("embedding_model", "all-MiniLM-L6-v2"),
+        "embedding_cache_dir": template_config.get("embedding_cache_dir", "~/.agent-memory/models/"),
+        "reranker": "none",
+        "reranker_top_n": template_config.get("reranker_top_n", 20),
+        "reranker_model": template_config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-12-v2"),
+        "reranker_llm_endpoint": None,
+        "reranker_llm_model": None,
         "tuning": template_config.get("tuning", {})
     }
     
@@ -195,6 +250,15 @@ IMMUTABLE during active tasks. Only updated during Sleep Cycle.
 .consolidate_session.json
 """
     (target_memory / ".gitignore").write_text(gitignore_content)
+    
+    # Eval fixture directory with template
+    eval_dir = target_memory / "eval"
+    eval_dir.mkdir(exist_ok=True)
+    template_eval = ENGINE_DIR / "templates" / "eval" / "grading.jsonl"
+    if template_eval.exists():
+        (eval_dir / "grading.jsonl").write_text(template_eval.read_text())
+    else:
+        (eval_dir / "grading.jsonl").touch()
 
 
 def register_project(target_path):

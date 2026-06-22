@@ -16,6 +16,7 @@ from engine.git_utils import stamp_entry
 from engine.agents_review import check_agents_conflict
 from engine.metrics import log_event
 from engine.migrate import CURRENT_SCHEMA_VERSION
+from engine.retrieval import embed_entry, encode_embedding, find_semantic_duplicate
 
 TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -59,6 +60,19 @@ def handle_log(json_str, paths, ctx):
     entry = stamp_entry(entry, paths.repo_root)
     entry["schema_version"] = CURRENT_SCHEMA_VERSION
 
+    # Populate provenance fields
+    from engine.metrics import _get_project_id
+    _project_id = _get_project_id(paths)
+    entry.setdefault("project_id", _project_id)
+    entry.setdefault("origin_project", _project_id)
+    entry.setdefault("contributing_projects", [])
+    entry.setdefault("contributors", [entry.get("source_agent", "unknown")])
+
+    # Compute and store embedding at log time
+    _emb_model = ctx.get("embedding_model")
+    _emb_cache = ctx.get("embedding_cache_dir")
+    entry["embedding"] = encode_embedding(embed_entry(entry, _emb_model, _emb_cache))
+
     # AGENTS.md conflict detection (informational, non-blocking)
     conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry, paths)
     if conflict_detected:
@@ -68,7 +82,6 @@ def handle_log(json_str, paths, ctx):
         print(f"  Consider: Updating existing section instead of adding new rule")
 
     existing_entries = read_learnings(paths)
-    similarity, best_match = find_best_match(entry, existing_entries)
 
     _lat = lambda: round((time.perf_counter() - _start) * 1000, 2)
     _entry_meta = lambda: {
@@ -82,9 +95,43 @@ def handle_log(json_str, paths, ctx):
         "agents_md_jaccard": round(jaccard_score, 4),
     }
 
+    # --- Semantic dedup: cosine check before Jaccard ---
+    sem_cosine, sem_match = find_semantic_duplicate(entry, existing_entries, ctx)
+    if sem_match is not None:
+        # Merge: combine access_count, keep richer description, append contributor
+        sem_match["access_count"] = sem_match.get("access_count", 0) + 1
+        sem_match["reinforcement_count"] = sem_match.get("reinforcement_count", 0) + 1
+        new_reason_len = len(entry.get("reason", ""))
+        old_reason_len = len(sem_match.get("reason", ""))
+        if new_reason_len > old_reason_len:
+            sem_match["trigger"] = entry["trigger"]
+            sem_match["action"] = entry["action"]
+            sem_match["reason"] = entry["reason"]
+        _contrib = sem_match.get("contributors", [])
+        if entry.get("source_agent") not in _contrib:
+            _contrib.append(entry.get("source_agent"))
+        sem_match["contributors"] = _contrib
+        # Backfill embedding on existing entry if new entry has one and old doesn't
+        if entry.get("embedding") is not None and sem_match.get("embedding") is None:
+            sem_match["embedding"] = entry["embedding"]
+        write_learnings(paths, existing_entries)
+        quarantine(paths, json_str, f"semantic_duplicate (cosine: {sem_cosine:.3f})")
+        print(f"SEMANTIC DUPLICATE — merged with existing entry (cosine: {sem_cosine:.3f}):")
+        print(f"  [step-{sem_match['step']}, {sem_match['domain']}, {sem_match['source_agent']}] {sem_match['trigger']}: {sem_match['action']}")
+        print(f"  access_count incremented to {sem_match['access_count']}.")
+        print(f"  contributors: {', '.join(sem_match['contributors'])}")
+        log_event(paths, "log", outcome="SEMANTIC_DUPLICATE", similarity_score=round(sem_cosine, 4),
+                  latency_ms=_lat(), **_entry_meta())
+        return 0
+
+    similarity, best_match = find_best_match(entry, existing_entries)
+
     if similarity >= 0.7:
         best_match["access_count"] = best_match.get("access_count", 0) + 1
         best_match["reinforcement_count"] = best_match.get("reinforcement_count", 0) + 1
+        # Backfill embedding on existing entry if new entry has one and old doesn't
+        if entry.get("embedding") is not None and best_match.get("embedding") is None:
+            best_match["embedding"] = entry["embedding"]
         write_learnings(paths, existing_entries)
         print(f"DUPLICATE — existing entry matches (similarity: {similarity:.2f}):")
         print(f"  [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}")
@@ -174,7 +221,18 @@ def handle_update(ts, json_str, paths, ctx):
                 entry["debt_level"] = existing.get("debt_level", "proper")
             
             entry["schema_version"] = existing.get("schema_version", CURRENT_SCHEMA_VERSION)
-            
+
+            # Re-compute embedding if trigger/action/reason changed
+            text_changed = (entry.get("trigger") != existing.get("trigger") or
+                            entry.get("action") != existing.get("action") or
+                            entry.get("reason") != existing.get("reason"))
+            if text_changed:
+                _emb_model = ctx.get("embedding_model")
+                _emb_cache = ctx.get("embedding_cache_dir")
+                entry["embedding"] = encode_embedding(embed_entry(entry, _emb_model, _emb_cache))
+            else:
+                entry["embedding"] = existing.get("embedding")
+
             existing_entries[i] = entry
             found = True
             break

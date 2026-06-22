@@ -27,6 +27,18 @@ MAJOR_RETENTION = 20
 ESCALATION_THRESHOLD = 30
 MAX_STEP = 30  # Default; overridden by config.json if present
 
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_ALPHA = 0.5
+EMBEDDING_CACHE_DIR = "~/.agent-memory/models/"
+SEMANTIC_DEDUP_THRESHOLD = 0.85
+
+RERANKER = "none"
+RERANKER_TOP_N = 20
+RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+RERANKER_LLM_ENDPOINT = None
+RERANKER_LLM_MODEL = None
+VALID_RERANKERS = {"none", "cross-encoder", "llm-local"}
+
 VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer"}
 
 # Universal schema constraints — not configurable per-project.
@@ -104,4 +116,14 @@ DEFAULTS = {
     "DOMAIN_MAPPINGS": DOMAIN_MAPPINGS,
     "STOP_WORDS": STOP_WORDS,
     "TS_PATTERN": TS_PATTERN,
+    "EMBEDDING_MODEL": EMBEDDING_MODEL,
+    "EMBEDDING_ALPHA": EMBEDDING_ALPHA,
+    "EMBEDDING_CACHE_DIR": EMBEDDING_CACHE_DIR,
+    "SEMANTIC_DEDUP_THRESHOLD": SEMANTIC_DEDUP_THRESHOLD,
+    "RERANKER": RERANKER,
+    "RERANKER_TOP_N": RERANKER_TOP_N,
+    "RERANKER_MODEL": RERANKER_MODEL,
+    "RERANKER_LLM_ENDPOINT": RERANKER_LLM_ENDPOINT,
+    "RERANKER_LLM_MODEL": RERANKER_LLM_MODEL,
+    "VALID_RERANKERS": VALID_RERANKERS,
 }
