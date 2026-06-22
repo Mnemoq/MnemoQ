@@ -47,7 +47,7 @@ def check_staleness(entry, repo_root):
     files = entry["files_touched"]
 
     try:
-        # Use repo root as cwd so git can find files like src/entities/GroundScenery.ts
+        # Use repo root as cwd so git can find files by relative path
         result = subprocess.run(
             ["git", "diff", "--stat", f"{commit}..HEAD", "--"] + files,
             capture_output=True, text=True, cwd=repo_root

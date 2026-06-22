@@ -8,8 +8,10 @@ from __future__ import annotations
 import os
 import re
 import sys
+import time
 
 from engine.io import read_learnings
+from engine.metrics import log_event
 
 
 # Stop-words for keyword extraction
@@ -176,9 +178,14 @@ def check_agents_conflict(entry, paths):
 
 def handle_review_agents(current_step, threshold, paths):
     """Handle --review-agents mode: diagnostic report on AGENTS.md section health."""
+    _start = time.perf_counter()
     sections = parse_agents_sections(paths.agents_md_path)
 
     if not sections:
+        log_event(paths, "review_agents", current_step=current_step, threshold=threshold,
+                  section_count=0, recent_learnings=0, active_sections=0,
+                  cold_sections=0, unmatched_learnings=0,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print("## AGENTS.md Section Health Report")
         print(f"(step {current_step}, threshold {threshold})")
         print()
@@ -249,5 +256,19 @@ def handle_review_agents(current_step, threshold, paths):
         for entry in unmatched_learnings:
             print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}] {entry.get('trigger', '')}")
         print()
+
+    active_count = sum(1 for c in section_ref_counts.values() if c > 0)
+    cold_count = sum(1 for c in section_ref_counts.values() if c == 0)
+
+    log_event(paths, "review_agents",
+        current_step=current_step,
+        threshold=threshold,
+        section_count=len(sections),
+        recent_learnings=len(recent_entries),
+        active_sections=active_count,
+        cold_sections=cold_count,
+        unmatched_learnings=len(unmatched_learnings),
+        latency_ms=round((time.perf_counter() - _start) * 1000, 2),
+    )
 
     return 0

@@ -12,13 +12,15 @@ import sys
 import time
 from datetime import datetime, timezone
 
+from engine.migrate import migrate_entry
 
-def read_learnings(paths):
-    """Read all entries from learnings.jsonl, skipping malformed lines."""
+
+def _read_raw_jsonl(path):
+    """Read JSONL lines, skipping malformed/empty lines. Returns list of parsed dicts."""
     entries = []
-    if not os.path.exists(paths.learnings_path):
+    if not os.path.exists(path):
         return entries
-    with open(paths.learnings_path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for i, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -26,9 +28,14 @@ def read_learnings(paths):
             try:
                 entries.append(json.loads(line))
             except json.JSONDecodeError as e:
-                print(f"WARNING: Skipping malformed line {i} in learnings.jsonl: {e}",
+                print(f"WARNING: Skipping malformed line {i} in {os.path.basename(path)}: {e}",
                       file=sys.stderr)
     return entries
+
+
+def read_learnings(paths):
+    """Read all entries from learnings.jsonl, auto-migrating each entry."""
+    return [migrate_entry(e) for e in _read_raw_jsonl(paths.learnings_path)]
 
 
 def append_learning(paths, entry):

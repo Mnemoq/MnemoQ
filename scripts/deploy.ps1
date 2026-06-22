@@ -76,7 +76,7 @@ $BackupDir = "$LiveEngine\backups\$Timestamp"
 if (-not $DryRun) {
     Write-Host "Backing up live engine to $BackupDir..."
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
-    Get-ChildItem "$LiveEngine\*.py" -ErrorAction SilentlyContinue | Copy-Item "$BackupDir\" -Force
+    Get-ChildItem "$LiveEngine\*.py" -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName "$BackupDir\" -Force }
     if (Test-Path "$LiveEngine\VERSION") { Copy-Item "$LiveEngine\VERSION" "$BackupDir\" -Force }
     if (Test-Path "$LiveEngine\templates") { Copy-Item "$LiveEngine\templates" "$BackupDir\templates" -Recurse -Force }
     if (Test-Path "$LiveEngine\engine") { Copy-Item "$LiveEngine\engine" "$BackupDir\engine" -Recurse -Force }
