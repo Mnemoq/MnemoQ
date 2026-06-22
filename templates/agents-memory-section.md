@@ -4,7 +4,7 @@
 
 **Before any task — retrieval:**
 1. Run `python memory/filter.py --step <N> --components <A,B> --files <f1,f2> --domain <d>`
-2. **Component heuristic:** Use exported class/system names from files the task touches. Example: task on `src/entities/Coin.ts` pooling → `Coin,PooledEntity,Pool`. Never use file paths as components — they endure refactoring.
+2. **Component heuristic:** Use exported class/system names from files the task touches. Example: task on `src/models/User.ts` caching → `User,UserCache,Cache`. Never use file paths as components — they endure refactoring.
 3. Treat `## ⚠ WARNINGS` as immutable constraints for the current task.
 4. If `python` command not found, try `py -3 memory/filter.py ...` (Windows launcher). If still failing, proceed with task but note the failure in `memory/HANDOFF.md`.
 5. **Optional:** Run `python memory/filter.py --stats` to inspect memory system health.

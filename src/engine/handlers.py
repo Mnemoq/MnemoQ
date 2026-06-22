@@ -8,19 +8,26 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 
 from engine.io import read_learnings, write_learnings, append_learning, quarantine
 from engine.validation import validate_entry, find_best_match, actions_oppose
 from engine.git_utils import stamp_entry
 from engine.agents_review import check_agents_conflict
+from engine.metrics import log_event
+from engine.migrate import CURRENT_SCHEMA_VERSION
 
 TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 def handle_log(json_str, paths, ctx):
     """Handle --log mode: validate, dedup-check, append."""
+    _start = time.perf_counter()
+
     try:
         entry = json.loads(json_str)
     except json.JSONDecodeError as e:
+        log_event(paths, "log", outcome="QUARANTINED", outcome_detail=f"JSON parse error: {e}",
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, f"JSON parse error: {e}")
         print(f"QUARANTINED: JSON parse error: {e}", file=sys.stderr)
         return 1
@@ -28,17 +35,29 @@ def handle_log(json_str, paths, ctx):
     errors = validate_entry(entry, ctx)
     if errors:
         reason = "; ".join(errors)
+        log_event(paths, "log", outcome="QUARANTINED", outcome_detail=reason,
+                  entry_type=entry.get("type"), entry_domain=entry.get("domain"),
+                  entry_severity=entry.get("severity"), entry_step=entry.get("step"),
+                  entry_source_agent=entry.get("source_agent"),
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, reason)
         print(f"QUARANTINED: {reason}", file=sys.stderr)
         return 1
 
     valid_retrieval_only = ctx.get("valid_retrieval_only_agents")
     if valid_retrieval_only is not None and entry.get("source_agent") in valid_retrieval_only:
-        quarantine(paths, json_str, f"{entry['source_agent']} is retrieval-only (use --step mode)")
+        detail = f"{entry['source_agent']} is retrieval-only (use --step mode)"
+        log_event(paths, "log", outcome="QUARANTINED", outcome_detail=detail,
+                  entry_type=entry.get("type"), entry_domain=entry.get("domain"),
+                  entry_severity=entry.get("severity"), entry_step=entry.get("step"),
+                  entry_source_agent=entry.get("source_agent"),
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
+        quarantine(paths, json_str, detail)
         print(f"QUARANTINED: {entry['source_agent']} is retrieval-only", file=sys.stderr)
         return 1
 
     entry = stamp_entry(entry, paths.repo_root)
+    entry["schema_version"] = CURRENT_SCHEMA_VERSION
 
     # AGENTS.md conflict detection (informational, non-blocking)
     conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry, paths)
@@ -51,6 +70,18 @@ def handle_log(json_str, paths, ctx):
     existing_entries = read_learnings(paths)
     similarity, best_match = find_best_match(entry, existing_entries)
 
+    _lat = lambda: round((time.perf_counter() - _start) * 1000, 2)
+    _entry_meta = lambda: {
+        "entry_type": entry.get("type"),
+        "entry_domain": entry.get("domain"),
+        "entry_severity": entry.get("severity"),
+        "entry_step": entry.get("step"),
+        "entry_source_agent": entry.get("source_agent"),
+        "agents_md_conflict": conflict_detected,
+        "agents_md_section": best_section,
+        "agents_md_jaccard": round(jaccard_score, 4),
+    }
+
     if similarity >= 0.7:
         best_match["access_count"] = best_match.get("access_count", 0) + 1
         best_match["reinforcement_count"] = best_match.get("reinforcement_count", 0) + 1
@@ -59,6 +90,8 @@ def handle_log(json_str, paths, ctx):
         print(f"  [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}")
         print(f"  access_count incremented to {best_match['access_count']}.")
         print(f"  reinforcement_count incremented to {best_match['reinforcement_count']}.")
+        log_event(paths, "log", outcome="DUPLICATE", similarity_score=round(similarity, 4),
+                  latency_ms=_lat(), **_entry_meta())
         return 0
 
     if 0.4 <= similarity < 0.7:
@@ -69,22 +102,32 @@ def handle_log(json_str, paths, ctx):
             print(f"  Your entry proposes an opposing action for the same trigger.")
             print(f"  Follow the Challenge Protocol: re-submit with type 'architectural_pattern' and")
             print(f"  explain in the reason why the old rule no longer applies.")
+            log_event(paths, "log", outcome="CONFLICT", similarity_score=round(similarity, 4),
+                      latency_ms=_lat(), **_entry_meta())
             return 0
         else:
             append_learning(paths, entry)
             print(f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
+            log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
+                      latency_ms=_lat(), **_entry_meta())
             return 0
 
     append_learning(paths, entry)
     print(f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
+    log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
+              latency_ms=_lat(), **_entry_meta())
     return 0
 
 
 def handle_update(ts, json_str, paths, ctx):
     """Handle --update mode: amend existing entry."""
+    _start = time.perf_counter()
+
     try:
         entry = json.loads(json_str)
     except json.JSONDecodeError as e:
+        log_event(paths, "update", outcome="QUARANTINED", outcome_detail=f"JSON parse error: {e}",
+                  target_ts=ts, latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, f"JSON parse error: {e}")
         print(f"QUARANTINED: JSON parse error: {e}", file=sys.stderr)
         return 1
@@ -92,14 +135,21 @@ def handle_update(ts, json_str, paths, ctx):
     errors = validate_entry(entry, ctx)
     if errors:
         reason = "; ".join(errors)
+        log_event(paths, "update", outcome="QUARANTINED", outcome_detail=reason,
+                  target_ts=ts, entry_type=entry.get("type"), entry_domain=entry.get("domain"),
+                  entry_severity=entry.get("severity"),
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, reason)
         print(f"QUARANTINED: {reason}", file=sys.stderr)
         return 1
 
     valid_retrieval_only = ctx.get("valid_retrieval_only_agents")
     if valid_retrieval_only is not None and entry.get("source_agent") in valid_retrieval_only:
-        quarantine(paths, json_str, f"{entry['source_agent']} is retrieval-only (use --step mode)")
-        print(f"ERROR: Cannot append entry. learnings.jsonl is not writable or missing.", file=sys.stderr)
+        detail = f"{entry['source_agent']} is retrieval-only (use --step mode)"
+        log_event(paths, "update", outcome="QUARANTINED", outcome_detail=detail,
+                  target_ts=ts, latency_ms=round((time.perf_counter() - _start) * 1000, 2))
+        quarantine(paths, json_str, detail)
+        print(f"QUARANTINED: {detail}", file=sys.stderr)
         return 1
 
     original_fields = set(entry.keys())
@@ -123,16 +173,24 @@ def handle_update(ts, json_str, paths, ctx):
             if "debt_level" not in original_fields:
                 entry["debt_level"] = existing.get("debt_level", "proper")
             
+            entry["schema_version"] = existing.get("schema_version", CURRENT_SCHEMA_VERSION)
+            
             existing_entries[i] = entry
             found = True
             break
 
     if not found:
+        log_event(paths, "update", outcome="NOT_FOUND", target_ts=ts,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print(f"ERROR: No entry found with ts={ts}", file=sys.stderr)
         return 1
 
     write_learnings(paths, existing_entries)
     print(f"UPDATED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
+    log_event(paths, "update", outcome="UPDATED", target_ts=ts,
+              entry_type=entry.get("type"), entry_domain=entry.get("domain"),
+              entry_severity=entry.get("severity"),
+              latency_ms=round((time.perf_counter() - _start) * 1000, 2))
     return 0
 
 
@@ -144,7 +202,11 @@ def handle_resolve(ts, paths):
     current sequential execution model. If parallel agent execution is added,
     implement fcntl.flock() or equivalent per-platform locking.
     """
+    _start = time.perf_counter()
+
     if not TS_PATTERN.match(ts):
+        log_event(paths, "resolve", outcome="INVALID_TS", target_ts=ts,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print(f"ERROR: Invalid timestamp format: {ts}. Expected YYYY-MM-DDTHH:MM:SSZ", file=sys.stderr)
         return 1
     
@@ -160,19 +222,29 @@ def handle_resolve(ts, paths):
             break
 
     if not found:
+        log_event(paths, "resolve", outcome="NOT_FOUND", target_ts=ts,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print(f"ERROR: No entry found with ts={ts}", file=sys.stderr)
         return 1
 
     write_learnings(paths, existing_entries)
     print(f"RESOLVED [step-{resolved_entry['step']}, {resolved_entry['type']}, {resolved_entry['domain']}] {resolved_entry['trigger']}")
+    log_event(paths, "resolve", outcome="RESOLVED", target_ts=ts,
+              entry_step=resolved_entry.get("step"),
+              entry_domain=resolved_entry.get("domain"),
+              entry_type=resolved_entry.get("type"),
+              latency_ms=round((time.perf_counter() - _start) * 1000, 2))
     return 0
 
 
 def handle_stats(paths):
     """Handle --stats mode: print summary statistics about the memory system."""
+    _start = time.perf_counter()
     entries = read_learnings(paths)
     
     if not entries:
+        log_event(paths, "stats", total_entries=0, unresolved=0, resolved=0,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print("## MEMORY STATS")
         print("No entries found.")
         return 0
@@ -248,5 +320,16 @@ def handle_stats(paths):
     if unresolved > 50:
         print(f"\n## SLEEP CYCLE DUE — {unresolved} unresolved entries exceed threshold of 50")
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
-    
+
+    log_event(paths, "stats",
+        total_entries=total, unresolved=unresolved, resolved=resolved,
+        avg_access_count=round(avg_access, 2), avg_reinforcement_count=round(avg_reinforcement, 2),
+        step_range=[min_step, max_step],
+        severity_breakdown=severity_counts, type_breakdown=type_counts,
+        scope_breakdown=scope_counts, debt_breakdown=debt_counts,
+        verified=verified_count, unverified=unverified_count,
+        proven=len(proven), over_injected=len(over_injected), under_retrieved=len(under_retrieved),
+        latency_ms=round((time.perf_counter() - _start) * 1000, 2),
+    )
+
     return 0

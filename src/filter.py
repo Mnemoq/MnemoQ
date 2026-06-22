@@ -205,6 +205,8 @@ def load_config():
         "file_weight": ("FILE_WEIGHT", 0.0, None, True, None),
         "domain_weight": ("DOMAIN_WEIGHT", 0.0, None, True, None),
         "no_match_weight": ("NO_MATCH_WEIGHT", 0.0, None, True, None),
+        "bm25_k1": ("BM25_K1", 0.0, None, False, None),
+        "bm25_b": ("BM25_B", 0.0, 1.0, True, True),
     }
     
     for config_key, (python_key, min_val, max_val, min_inclusive, max_inclusive) in float_params.items():
@@ -235,6 +237,7 @@ def load_config():
         "minor_retention": ("MINOR_RETENTION", 0, None),
         "major_retention": ("MAJOR_RETENTION", 0, None),
         "escalation_threshold": ("ESCALATION_THRESHOLD", 0, None),
+        "rrf_k": ("RRF_K", 1, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
@@ -430,6 +433,8 @@ from engine.consolidation import (
     handle_confirm_reset as _con_handle_confirm_reset,
 )
 
+from engine.metrics import handle_metrics as _met_handle_metrics
+
 
 def handle_consolidate(sprint_number=None, confirm_reset=False, force=False):
     """Handle --consolidate mode: Sleep Cycle for episodic memory."""
@@ -495,7 +500,19 @@ Examples:
     parser.add_argument("--sprint", type=int, help="Sprint number for --consolidate (default: inferred from max step)")
     parser.add_argument("--confirm-reset", action="store_true", help="Clear learnings.jsonl after review (requires recent --consolidate)")
     parser.add_argument("--force", action="store_true", help="Force overwrite existing archive in --consolidate")
+    parser.add_argument("--migrate-schema", action="store_true", help="Run schema migration on learnings.jsonl and write updated file")
     parser.add_argument("--memory-dir", type=str, help="Path to memory directory (default: <cwd>/memory)")
+
+    # Metrics flags
+    parser.add_argument("--metrics", action="store_true", help="Print metrics summary report")
+    parser.add_argument("--metrics-retrieval", action="store_true", help="Deep-dive on retrieval effectiveness")
+    parser.add_argument("--metrics-logging", action="store_true", help="Deep-dive on logging patterns")
+    parser.add_argument("--metrics-consolidation", action="store_true", help="Consolidation history")
+    parser.add_argument("--metrics-trend", action="store_true", help="Time-series trend (last 30 days)")
+    parser.add_argument("--metrics-all-projects", action="store_true", help="Cross-project comparison across all registered projects")
+    parser.add_argument("--metrics-json", action="store_true", help="Output metrics as JSON (for piping to jq/scripts)")
+    parser.add_argument("--metrics-since", type=str, metavar="YYYY-MM-DD", help="Only include events on or after this date")
+    parser.add_argument("--metrics-export", type=str, metavar="PATH", help="Export raw metrics events to a file (JSONL format)")
 
     args = parser.parse_args()
 
@@ -554,6 +571,22 @@ Examples:
 
     if args.confirm_reset and not args.consolidate:
         parser.error("--confirm-reset requires --consolidate")
+
+    if args.metrics and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats]):
+        parser.error("--metrics cannot be combined with operational flags")
+
+    if any([args.metrics_retrieval, args.metrics_logging, args.metrics_consolidation, args.metrics_trend]) and not args.metrics:
+        parser.error("--metrics-* deep-dive flags require --metrics")
+
+    if args.migrate_schema and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics]):
+        parser.error("--migrate-schema cannot be combined with other operational flags")
+
+    if args.migrate_schema:
+        from engine.migrate import run_migration
+        return run_migration(_get_paths())
+
+    if args.metrics:
+        return _met_handle_metrics(args, _get_paths())
 
     if args.review_agents:
         return handle_review_agents(args.step, args.threshold)

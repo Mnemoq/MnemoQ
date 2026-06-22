@@ -18,12 +18,16 @@ NO_MATCH_WEIGHT = 0.1
 MAX_WARNINGS = 5
 MAX_PATTERNS = 15
 
+BM25_K1 = 1.5   # term frequency saturation
+BM25_B = 0.75   # document length normalization
+RRF_K = 60      # reciprocal rank fusion constant
+
 MINOR_RETENTION = 5
 MAJOR_RETENTION = 20
 ESCALATION_THRESHOLD = 30
 MAX_STEP = 30  # Default; overridden by config.json if present
 
-VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "phaser-scout", "asset-scout", "plan-reviewer", "basic-reviewer", "pro-reviewer"}
+VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer"}
 
 # Universal schema constraints — not configurable per-project.
 #
@@ -40,7 +44,7 @@ VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "phaser-scout", "as
 # If each project has custom schema, sharing breaks (a learning with type
 # "feature_request" from Project A would fail validation in Project B).
 VALID_TYPES = {"bug_fix", "optimization", "architectural_pattern"}
-VALID_DOMAINS = {"physics", "ui", "audio", "data", "tooling", "entities", "scenes", "spawner", "performance", "mobile", "testing", "phaser_api", "asset_pipeline"}
+VALID_DOMAINS = {"ui", "data", "tooling", "performance", "testing", "security", "api", "backend", "frontend", "database", "deployment", "documentation"}
 VALID_SEVERITIES = {"minor", "major", "critical"}
 VALID_SCOPES = {"file", "module", "system"}
 VALID_DEBT_LEVELS = {"proper", "workaround", "temporary"}
@@ -83,6 +87,9 @@ DEFAULTS = {
     "NO_MATCH_WEIGHT": NO_MATCH_WEIGHT,
     "MAX_WARNINGS": MAX_WARNINGS,
     "MAX_PATTERNS": MAX_PATTERNS,
+    "BM25_K1": BM25_K1,
+    "BM25_B": BM25_B,
+    "RRF_K": RRF_K,
     "MINOR_RETENTION": MINOR_RETENTION,
     "MAJOR_RETENTION": MAJOR_RETENTION,
     "ESCALATION_THRESHOLD": ESCALATION_THRESHOLD,

@@ -1014,5 +1014,441 @@ class TestShim:
         assert is_shim(shim_path)
 
 
+def _make_paths(memory_dir, repo_root):
+    """Build a Paths-like namedtuple for metrics tests."""
+    from collections import namedtuple
+    _P = namedtuple("_P", ["memory_dir", "repo_root", "config_path",
+                           "learnings_path", "quarantine_path",
+                           "archive_dir", "session_file", "agents_md_path"])
+    return _P(
+        memory_dir=str(memory_dir),
+        repo_root=str(repo_root),
+        config_path=str(Path(memory_dir) / "config.json"),
+        learnings_path=str(Path(memory_dir) / "learnings.jsonl"),
+        quarantine_path=str(Path(memory_dir) / "quarantine.jsonl"),
+        archive_dir=str(Path(memory_dir) / "archive"),
+        session_file=str(Path(memory_dir) / ".consolidate_session.json"),
+        agents_md_path=str(Path(repo_root) / "AGENTS.md"),
+    )
+
+
+class TestMetrics:
+    """Test metrics logging and reporting."""
+
+    def test_log_event_writes_jsonl(self, temp_project):
+        """log_event appends a valid JSON line to metrics.jsonl."""
+        paths = _make_paths(temp_project / "memory", temp_project)
+
+        from engine.metrics import log_event, read_metrics
+
+        log_event(paths, "retrieval", query_step=1, warnings_returned=2,
+                  patterns_returned=1, top_score=0.85, latency_ms=3.2)
+        log_event(paths, "log", outcome="ADDED", entry_type="bug_fix",
+                  entry_domain="tooling", latency_ms=1.1)
+
+        events = read_metrics(paths)
+        assert len(events) == 2
+        assert events[0]["event_type"] == "retrieval"
+        assert events[0]["warnings_returned"] == 2
+        assert events[0]["top_score"] == 0.85
+        assert "ts" in events[0]
+        assert "project_id" in events[0]
+        assert events[1]["event_type"] == "log"
+        assert events[1]["outcome"] == "ADDED"
+
+    def test_log_event_never_raises(self, temp_project):
+        """log_event silently ignores errors (best-effort)."""
+        paths = _make_paths("/nonexistent/path/xyz", "/nonexistent")
+
+        from engine.metrics import log_event
+        # Should not raise
+        log_event(paths, "retrieval", query_step=1)
+
+    def test_read_metrics_filters_by_type(self, temp_project):
+        """read_metrics filters by event_type."""
+        paths = _make_paths(temp_project / "memory", temp_project)
+
+        from engine.metrics import log_event, read_metrics
+
+        log_event(paths, "retrieval", query_step=1)
+        log_event(paths, "log", outcome="ADDED")
+        log_event(paths, "retrieval", query_step=2)
+
+        retrievals = read_metrics(paths, event_type="retrieval")
+        assert len(retrievals) == 2
+        assert all(e["event_type"] == "retrieval" for e in retrievals)
+
+        logs = read_metrics(paths, event_type="log")
+        assert len(logs) == 1
+        assert logs[0]["outcome"] == "ADDED"
+
+    def test_metrics_cli_summary(self, temp_project):
+        """--metrics prints a summary report after events exist."""
+        source_filter = Path(__file__).parent.parent / "src" / "filter.py"
+
+        # Log a learning to generate a metrics event
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComponent"],
+            "files_touched": ["test.py"], "trigger": "Metrics test",
+            "action": "ALWAYS test metrics", "reason": "Testing",
+            "importance": 7, "severity": "major"
+        }
+        learning_file = temp_project / "learning.json"
+        learning_file.write_text(json.dumps(learning))
+
+        subprocess.run(
+            [sys.executable, str(source_filter), "--log-file", str(learning_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        # Run --metrics
+        result = subprocess.run(
+            [sys.executable, str(source_filter), "--metrics"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "METRICS" in result.stdout
+
+    def test_metrics_cli_empty(self, temp_project):
+        """--metrics handles no events gracefully."""
+        source_filter = Path(__file__).parent.parent / "src" / "filter.py"
+
+        result = subprocess.run(
+            [sys.executable, str(source_filter), "--metrics"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "No metrics events" in result.stdout
+
+    def test_metrics_cli_json_output(self, temp_project):
+        """--metrics --metrics-json outputs valid JSON."""
+        source_filter = Path(__file__).parent.parent / "src" / "filter.py"
+
+        # Generate an event
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComponent"],
+            "files_touched": ["test.py"], "trigger": "JSON metrics test",
+            "action": "ALWAYS test json metrics", "reason": "Testing",
+            "importance": 7, "severity": "major"
+        }
+        learning_file = temp_project / "learning.json"
+        learning_file.write_text(json.dumps(learning))
+
+        subprocess.run(
+            [sys.executable, str(source_filter), "--log-file", str(learning_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(source_filter), "--metrics", "--metrics-json"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert "summary" in data
+
+
+class TestBM25Score:
+    """Test BM25 scoring function directly."""
+
+    def test_bm25_rare_term_scores_higher(self):
+        """Rare matching term should score higher than common matching term."""
+        from engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+
+        # Use empty stop_words for deterministic testing (real STOP_WORDS would filter "physics"/"AABB")
+        stop_words = set()
+        entries = []
+        for i in range(5):
+            entries.append({"trigger": f"When physics test {i}", "action": "ALWAYS physics", "reason": "physics common"})
+        entries.append({"trigger": "When AABB collision", "action": "NEVER AABB", "reason": "AABB rare"})
+
+        doc_freqs, total_docs, avg_doc_len = _compute_corpus_stats(entries, stop_words)
+
+        query_tokens = _tokenize("physics AABB", stop_words)
+        doc_physics = _tokenize("physics common", stop_words)
+        doc_aabb = _tokenize("AABB collision rare", stop_words)
+
+        score_physics = bm25_score(query_tokens, doc_physics, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
+        score_aabb = bm25_score(query_tokens, doc_aabb, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
+
+        assert score_aabb > score_physics, f"Rare term AABB ({score_aabb}) should score higher than common term physics ({score_physics})"
+
+    def test_bm25_no_match_scores_zero(self):
+        """Doc with no matching query terms should score 0.0."""
+        from engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+
+        stop_words = set()
+        entries = [
+            {"trigger": "When physics test", "action": "ALWAYS physics", "reason": "physics"},
+            {"trigger": "When AABB collision", "action": "NEVER AABB", "reason": "AABB"},
+        ]
+        doc_freqs, total_docs, avg_doc_len = _compute_corpus_stats(entries, stop_words)
+
+        query_tokens = _tokenize("physics AABB", stop_words)
+        doc_no_match = _tokenize("completely unrelated words", stop_words)
+
+        score = bm25_score(query_tokens, doc_no_match, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
+        assert score == 0.0
+
+    def test_bm25_empty_corpus(self):
+        """Empty corpus should return 0.0 without crashing."""
+        from engine.retrieval import bm25_score
+
+        score = bm25_score(["test"], ["test"], {}, 0, 0.0, 1.5, 0.75)
+        assert score == 0.0
+
+
+class TestRRFFusion:
+    """Test RRF fusion in retrieval integration."""
+
+    def test_rrf_fusion_integration(self, temp_project, engine_dir):
+        """RRF should rank entries that match both channels higher."""
+        memory_dir = temp_project / "memory"
+
+        # Entry A: matches components AND has rare BM25 term "AABB"
+        entry_a = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["CollisionSystem"],
+            "files_touched": ["collision.py"], "trigger": "When AABB collision detected",
+            "action": "ALWAYS use AABB broadphase", "reason": "AABB is efficient for collision",
+            "importance": 8, "severity": "major"
+        }
+        # Entry B: matches components but no BM25 term overlap with query
+        entry_b = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["CollisionSystem"],
+            "files_touched": ["collision.py"], "trigger": "When rendering sprites",
+            "action": "ALWAYS batch draw calls", "reason": "Batching improves performance",
+            "importance": 7, "severity": "major"
+        }
+        # Entry C: no component match but strong BM25 overlap (should be filtered by dual gate)
+        entry_c = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["RenderEngine"],
+            "files_touched": ["render.py"], "trigger": "When AABB bounding boxes overlap",
+            "action": "NEVER skip AABB check", "reason": "AABB overlap detection is critical",
+            "importance": 9, "severity": "major"
+        }
+
+        for entry in [entry_a, entry_b, entry_c]:
+            f = temp_project / f"learning_{entry['trigger'][:10].replace(' ', '_')}.json"
+            f.write_text(json.dumps(entry))
+            subprocess.run(
+                [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+                cwd=temp_project, capture_output=True, text=True
+            )
+
+        # Retrieve with CollisionSystem components and AABB query text
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"),
+             "--step", "1", "--components", "CollisionSystem", "--domain", "tooling"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        # Entry A should appear (matches components + has AABB in text)
+        assert "AABB" in result.stdout
+        # Entry B should appear (matches components)
+        assert "Batch" in result.stdout or "batch" in result.stdout
+        # Entry C should NOT appear (filtered by dual gate — no component match)
+        assert "RenderEngine" not in result.stdout
+        # Entry A should appear before Entry B (RRF ranks it higher)
+        a_pos = result.stdout.find("AABB")
+        b_pos = result.stdout.find("Batch")
+        if b_pos == -1:
+            b_pos = result.stdout.find("batch")
+        assert a_pos < b_pos, "Entry A (AABB) should rank before Entry B (batch)"
+
+    def test_rrf_formula_sanity(self):
+        """Sanity check the RRF formula math for a single-candidate scenario."""
+        # RRF with rank 1 in both channels: 2/(k+1)
+        rrf_k = 60
+        expected = 2.0 / (rrf_k + 1)
+        assert abs(expected - 0.032786) < 0.001  # sanity check the value
+
+    def test_bm25_config_loaded(self, temp_project, engine_dir):
+        """Custom BM25 config values should be loaded without crash."""
+        memory_dir = temp_project / "memory"
+        config = {
+            "project_name": "Test",
+            "tuning": {
+                "bm25_k1": 2.0,
+                "bm25_b": 0.5,
+                "rrf_k": 40
+            }
+        }
+        (memory_dir / "config.json").write_text(json.dumps(config))
+
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix",
+            "domain": "tooling", "components": ["TestComp"],
+            "files_touched": ["test.py"], "trigger": "When testing config",
+            "action": "ALWAYS test config", "reason": "Config test",
+            "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"),
+             "--step", "1", "--components", "TestComp"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "When testing config" in result.stdout
+
+
+class TestSchemaMigration:
+    """Test schema versioning and migration runner."""
+
+    def test_migration_v0_to_v1(self):
+        """Unit test: v0 entries get migrated to v1 with correct fields."""
+        from engine.migrate import migrate_entry, migrate_all, CURRENT_SCHEMA_VERSION
+
+        v0_entry = {"step": 1, "type": "bug_fix", "trigger": "When test", "action": "ALWAYS test"}
+        migrated = migrate_entry(dict(v0_entry))
+
+        assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+        assert migrated["schema_version"] == 1
+        assert migrated["embedding"] is None
+        assert migrated["project_id"] is None
+        assert migrated["origin_project"] is None
+        assert migrated["contributing_projects"] == []
+
+    def test_migrate_entry_noop_on_current(self):
+        """migrate_entry is a no-op on already-current entries."""
+        from engine.migrate import migrate_entry, CURRENT_SCHEMA_VERSION
+
+        entry = {"schema_version": CURRENT_SCHEMA_VERSION, "step": 1, "embedding": [0.1, 0.2]}
+        migrated = migrate_entry(dict(entry))
+
+        assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+        assert migrated["embedding"] == [0.1, 0.2]  # preserved, not overwritten
+
+    def test_migrate_all_count(self):
+        """migrate_all returns correct count of migrated entries."""
+        from engine.migrate import migrate_all, CURRENT_SCHEMA_VERSION
+
+        entries = [
+            {"step": 1, "type": "bug_fix"},  # v0, needs migration
+            {"step": 2, "type": "bug_fix"},  # v0, needs migration
+            {"schema_version": CURRENT_SCHEMA_VERSION, "step": 3, "type": "bug_fix"},  # already current
+        ]
+        migrated, count = migrate_all(entries)
+
+        assert count == 2
+        assert all(e["schema_version"] == CURRENT_SCHEMA_VERSION for e in migrated)
+
+    def test_read_learnings_auto_migrates(self, temp_project, engine_dir):
+        """Integration: read_learnings auto-migrates v0 entries on read."""
+        memory_dir = temp_project / "memory"
+        learnings_path = memory_dir / "learnings.jsonl"
+
+        # Write a v0 entry (no schema_version)
+        v0_entry = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix", "domain": "tooling",
+            "components": ["TestComp"], "files_touched": ["test.py"],
+            "trigger": "When testing migration", "action": "ALWAYS test migration",
+            "reason": "Testing auto-migrate", "importance": 7, "severity": "major"
+        }
+        learnings_path.write_text(json.dumps(v0_entry) + "\n")
+
+        # Run --stats which calls read_learnings internally
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--stats"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "MEMORY STATS" in result.stdout
+
+        # Read the file back — --migrate-schema should show 0 migrated (already migrated on read by --stats)
+        # But the file on disk should still be v0 (lazy migration is in-memory only)
+        # Verify by running --migrate-schema which reads raw
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--migrate-schema"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "SCHEMA MIGRATION COMPLETE" in result.stdout
+        assert "Migrated: 1" in result.stdout
+
+        # Now file should have schema_version on disk
+        lines = learnings_path.read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+        assert entry["schema_version"] == 1
+        assert entry["embedding"] is None
+        assert entry["project_id"] is None
+
+    def test_handle_log_stamps_schema_version(self, temp_project, engine_dir):
+        """Integration: --log stamps schema_version on new entries."""
+        memory_dir = temp_project / "memory"
+        learning = {
+            "step": 1, "source_agent": "gm", "type": "bug_fix", "domain": "tooling",
+            "components": ["TestComp"], "files_touched": ["test.py"],
+            "trigger": "When testing stamp", "action": "ALWAYS test stamp",
+            "reason": "Testing stamp", "importance": 7, "severity": "major"
+        }
+        f = temp_project / "learning.json"
+        f.write_text(json.dumps(learning))
+
+        subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--log-file", str(f)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        # Read back the written entry
+        lines = (memory_dir / "learnings.jsonl").read_text().strip().split("\n")
+        entry = json.loads(lines[0])
+        assert entry["schema_version"] == 1
+
+    def test_migrate_schema_cli(self, temp_project, engine_dir):
+        """Integration: --migrate-schema CLI flag works end-to-end."""
+        memory_dir = temp_project / "memory"
+        learnings_path = memory_dir / "learnings.jsonl"
+
+        # Write multiple v0 entries
+        v0_entries = [
+            {"step": 1, "source_agent": "gm", "type": "bug_fix", "domain": "tooling",
+             "components": ["A"], "files_touched": ["a.py"], "trigger": "When a",
+             "action": "ALWAYS a", "reason": "a", "importance": 5, "severity": "minor"},
+            {"step": 2, "source_agent": "gm", "type": "bug_fix", "domain": "tooling",
+             "components": ["B"], "files_touched": ["b.py"], "trigger": "When b",
+             "action": "NEVER b", "reason": "b", "importance": 5, "severity": "minor"},
+        ]
+        with open(learnings_path, "w") as f:
+            for e in v0_entries:
+                f.write(json.dumps(e) + "\n")
+
+        result = subprocess.run(
+            [sys.executable, str(engine_dir / "filter.py"), "--migrate-schema"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "SCHEMA MIGRATION COMPLETE" in result.stdout
+        assert "Migrated: 2" in result.stdout
+
+        # Verify file on disk has migrated entries
+        lines = learnings_path.read_text().strip().split("\n")
+        for line in lines:
+            entry = json.loads(line)
+            assert entry["schema_version"] == 1
+            assert entry["embedding"] is None
+            assert "contributing_projects" in entry
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

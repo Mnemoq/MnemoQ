@@ -42,8 +42,8 @@ Treat `memory/SYSTEM_INVARIANTS.md` as immutable constraints. Any code violating
 
 ### Components
 Derive from files in the diff. Use exported class/system names, not file paths:
-- Example: `src/entities/Coin.ts` → `Coin`, `CoinSpawner`
-- Example: `src/scenes/GameScene.ts` → `GameScene`, `GameDirector`
+- Example: `src/models/Coin.ts` → `Coin`, `CoinFactory`
+- Example: `src/controllers/AppController.ts` → `AppController`, `Router`
 
 ### Config-Driven Validation
 Before logging, check `memory/config.json` for `valid_domains` and `valid_source_agents`. Use those values. If config.json doesn't exist or the fields are `null`, accept any non-empty string (no validation guardrail — this is intentional for non-standard stacks).

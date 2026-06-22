@@ -94,6 +94,10 @@ def validate_entry(entry, ctx):
         if entry["debt_level"] not in ctx["valid_debt_levels"]:
             errors.append(f"debt_level must be one of: {', '.join(sorted(ctx['valid_debt_levels']))}")
 
+    if "schema_version" in entry:
+        if not isinstance(entry["schema_version"], int) or isinstance(entry["schema_version"], bool):
+            errors.append("schema_version must be an integer")
+
     return errors
 
 

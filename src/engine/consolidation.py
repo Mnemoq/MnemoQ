@@ -9,10 +9,43 @@ import json
 import math
 import os
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 
 from engine.io import read_learnings
 from engine.git_utils import check_staleness
+from engine.metrics import log_event, read_metrics
+
+
+def _sprint_metrics(paths):
+    """Return a 3-line metrics snapshot string for the consolidate report, or None."""
+    try:
+        events = read_metrics(paths)
+        if not events:
+            return None
+
+        retrievals = [e for e in events if e.get("event_type") == "retrieval"]
+        logs = [e for e in events if e.get("event_type") == "log"]
+
+        lines = []
+        if retrievals:
+            hits = sum(1 for e in retrievals
+                       if (e.get("warnings_returned", 0) or 0) + (e.get("patterns_returned", 0) or 0) > 0)
+            avg_lat = sum(e.get("latency_ms", 0) or 0 for e in retrievals) / len(retrievals)
+            lines.append(f"  Retrieval: {len(retrievals)} calls, {hits/len(retrievals):.0%} hit rate, {avg_lat:.0f}ms avg")
+
+        if logs:
+            dups = sum(1 for e in logs if e.get("outcome") == "DUPLICATE")
+            quars = sum(1 for e in logs if e.get("outcome") == "QUARANTINED")
+            lines.append(f"  Logging: {len(logs)} entries, {dups/len(logs):.0%} dup, {quars/len(logs):.0%} quarantined")
+
+        all_lat = [e.get("latency_ms", 0) or 0 for e in events if e.get("latency_ms")]
+        if all_lat:
+            lines.append(f"  Overall: {len(events)} events, {sum(all_lat)/len(all_lat):.0f}ms avg latency")
+
+        return "\n".join(lines) if lines else None
+    except Exception:
+        return None
 
 
 def score_for_promotion(entry, current_step, ctx):
@@ -184,9 +217,12 @@ def clear_session(paths):
 
 def handle_confirm_reset(paths, ctx):
     """Handle --consolidate --confirm-reset: clear learnings.jsonl after review."""
+    _start = time.perf_counter()
     ts, sprint = load_session(paths, ctx)
 
     if ts is None:
+        log_event(paths, "consolidate", outcome="NO_SESSION", confirm_reset=True,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print("ERROR: No recent --consolidate session found.")
         print("  Run --consolidate first, then --confirm-reset within 10 minutes.")
         return 1
@@ -200,6 +236,10 @@ def handle_confirm_reset(paths, ctx):
 
     clear_session(paths)
 
+    log_event(paths, "consolidate", outcome="RESET", confirm_reset=True,
+              sprint_number=sprint,
+              latency_ms=round((time.perf_counter() - _start) * 1000, 2))
+
     return 0
 
 
@@ -208,10 +248,13 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     if confirm_reset:
         return handle_confirm_reset(paths, ctx)
 
+    _start = time.perf_counter()
     entries = read_learnings(paths)
     unresolved = [e for e in entries if not e.get("resolved", False)]
 
     if not unresolved:
+        log_event(paths, "consolidate", outcome="NO_ENTRIES",
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print("âš  No unresolved entries to consolidate. Archive not created.")
         return 0
 
@@ -221,6 +264,8 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     archive_path = os.path.join(paths.archive_dir, f"sprint-{sprint_number}.jsonl")
 
     if os.path.exists(archive_path) and not force:
+        log_event(paths, "consolidate", outcome="ARCHIVE_EXISTS", sprint_number=sprint_number,
+                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         print(f"âš  Warning: {archive_path} already exists.")
         print("  Use --force to overwrite, or specify a different sprint number.")
         return 1
@@ -347,6 +392,15 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
             print(f"  â†’ Suggests reviewing AGENTS.md for potential updates")
         print()
 
+    # Metrics snapshot for this sprint
+    _metrics_summary = _sprint_metrics(paths)
+    if _metrics_summary:
+        print("=" * 60)
+        print("## SPRINT METRICS")
+        print("=" * 60)
+        print(_metrics_summary)
+        print()
+
     print("=" * 60)
     print("## NEXT STEPS")
     print("=" * 60)
@@ -359,5 +413,20 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     save_session(sprint_number, paths)
     expiry = ctx.get("session_expiry_minutes", 10)
     print(f"âœ“ Session saved. Run --confirm-reset within {expiry} minutes to clear learnings.jsonl.")
+
+    log_event(paths, "consolidate",
+        outcome="REPORTED",
+        sprint_number=sprint_number,
+        total_entries=len(entries),
+        unresolved_entries=len(unresolved),
+        archived=len(unresolved),
+        promotion_candidates=len(candidates),
+        contradictions=len(contradictions),
+        quarantine_count=quarantine_count,
+        stale_entries=stale_count,
+        stale_errors=error_count,
+        agents_md_suggestions=len(agents_suggestions),
+        latency_ms=round((time.perf_counter() - _start) * 1000, 2),
+    )
 
     return 0
