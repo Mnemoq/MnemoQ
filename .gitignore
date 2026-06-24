@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -7,7 +8,35 @@ dist/
 build/
 .venv/
 venv/
-.coverage
-htmlcov/
 .mypy_cache/
 .ruff_cache/
+*.whl
+*.tar.gz
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDEs
+.idea/
+.vscode/
+
+# Node
+node_modules/
+
+# Deploy artifacts
+%USERPROFILE%/
+
+# Runtime memory data
+memory/learnings.jsonl
+memory/metrics.jsonl

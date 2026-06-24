@@ -10,8 +10,8 @@ import re
 import sys
 import time
 
-from engine.io import read_learnings
-from engine.metrics import log_event
+from agent_memory.engine.io import read_learnings
+from agent_memory.engine.metrics import log_event
 
 
 # Stop-words for keyword extraction

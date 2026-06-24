@@ -12,10 +12,10 @@ import os
 import re
 import time
 
-from engine.io import read_learnings, write_learnings
-from engine.metrics import log_event
-from .profile import load_profile, get_profile_context
-from .constants import EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
+from agent_memory.engine.io import read_learnings, write_learnings
+from agent_memory.engine.metrics import log_event
+from agent_memory.engine.profile import load_profile, get_profile_context
+from agent_memory.engine.constants import EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
 
 
 _TOKEN_SPLIT = re.compile(r'[^a-z0-9]+')
@@ -382,7 +382,7 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     reranker_latency_ms = 0.0
 
     if reranker_mode != "none":
-        from engine.reranker import rerank as _rerank
+        from agent_memory.engine.reranker import rerank as _rerank
         combined = warnings + patterns
         if len(combined) >= 3:
             top_n = combined[:reranker_top_n]

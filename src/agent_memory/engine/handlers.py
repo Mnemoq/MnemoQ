@@ -10,13 +10,13 @@ import re
 import sys
 import time
 
-from engine.io import read_learnings, write_learnings, append_learning, quarantine
-from engine.validation import validate_entry, find_best_match, actions_oppose
-from engine.git_utils import stamp_entry
-from engine.agents_review import check_agents_conflict
-from engine.metrics import log_event
-from engine.migrate import CURRENT_SCHEMA_VERSION
-from engine.retrieval import embed_entry, encode_embedding, find_semantic_duplicate
+from agent_memory.engine.io import read_learnings, write_learnings, append_learning, quarantine
+from agent_memory.engine.validation import validate_entry, find_best_match, actions_oppose
+from agent_memory.engine.git_utils import stamp_entry
+from agent_memory.engine.agents_review import check_agents_conflict
+from agent_memory.engine.metrics import log_event
+from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
+from agent_memory.engine.retrieval import embed_entry, encode_embedding, find_semantic_duplicate
 
 TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -65,7 +65,7 @@ def log_core(json_str, paths, ctx):
     entry["schema_version"] = CURRENT_SCHEMA_VERSION
 
     # Populate provenance fields
-    from engine.metrics import _get_project_id
+    from agent_memory.engine.metrics import _get_project_id
     _project_id = _get_project_id(paths)
     entry.setdefault("project_id", _project_id)
     entry.setdefault("origin_project", _project_id)

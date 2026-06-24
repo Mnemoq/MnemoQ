@@ -61,10 +61,7 @@ def run_eval(paths, ctx):
         print('    {"step": 5, "components": "Player,Collision", "files": "", "domain": "gameplay", "expected_trigger": "When AABB collision detected"}')
         return 1
 
-    engine_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    filter_py = os.path.join(engine_dir, "filter.py")
-    if not os.path.exists(filter_py):
-        filter_py = os.path.join(os.path.dirname(sys.argv[0]), "filter.py")
+    # ponytail: invoke the installed cli module directly; replaces old src/filter.py path math
     python_exe = sys.executable
 
     total = len(fixtures)
@@ -79,7 +76,7 @@ def run_eval(paths, ctx):
         domain = fx.get("domain", "")
         expected = fx.get("expected_trigger", "")
 
-        cmd = [python_exe, filter_py, "--step", str(step), "--memory-dir", paths.memory_dir]
+        cmd = [python_exe, "-m", "agent_memory.cli", "--step", str(step), "--memory-dir", paths.memory_dir]
         if components:
             cmd += ["--components", components]
         if files:

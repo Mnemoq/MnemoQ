@@ -1,7 +1,7 @@
 """Agent Memory Python SDK."""
 
-from sdk.client import AsyncMemoryClient, MemoryClient
-from sdk.exceptions import (
+from agent_memory.sdk.client import AsyncMemoryClient, MemoryClient
+from agent_memory.sdk.exceptions import (
     APIError,
     ConflictError,
     MemoryError,

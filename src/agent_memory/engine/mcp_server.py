@@ -23,12 +23,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from engine.handlers import log_core, resolve_core, stats_core
-from engine.retrieval import retrieve_core
-from engine.consolidation import consolidate_core
-from engine.io import read_learnings
-from engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
-from engine.constants import DEFAULTS as _CONST_DEFAULTS
+from agent_memory.engine.handlers import log_core, resolve_core, stats_core
+from agent_memory.engine.retrieval import retrieve_core
+from agent_memory.engine.consolidation import consolidate_core
+from agent_memory.engine.io import read_learnings
+from agent_memory.engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
+from agent_memory.engine.constants import DEFAULTS as _CONST_DEFAULTS
 
 
 # ---------------------------------------------------------------------------
@@ -295,8 +295,10 @@ def _read_resource(uri: str, paths: _Paths) -> dict:
 # JSON-RPC protocol over stdio
 # ---------------------------------------------------------------------------
 
+from agent_memory.engine_version import get_engine_version
+
 _PROTOCOL_VERSION = "2024-11-05"
-_SERVER_INFO = {"name": "agent-memory-engine", "version": "1.20.1"}
+_SERVER_INFO = {"name": "agent-memory-engine", "version": get_engine_version()}
 _CAPABILITIES = {
     "tools": {"listChanged": False},
     "resources": {"listChanged": False, "subscribe": False},

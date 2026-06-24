@@ -1,14 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "agent-memory-engine"
-version = "1.20.4"
-description = "Episodic memory system for AI agents"
+name = "mnemoq"
+dynamic = ["version"]
+description = "Local-first memory engine for AI agents — MCP-native, graph-linked, spaced repetition"
 requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = ["pydantic>=2.0", "httpx>=0.28.0"]
+authors = [{name = "Mnemoq"}]
+readme = "README.md"
+keywords = ["memory", "agent", "llm", "mcp", "ai", "episodic-memory"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Developers",
+]
 
 [project.optional-dependencies]
-dev = ["pytest-cov>=4.0", "pytest-xdist>=3.0"]
+dev = ["pytest-cov>=4.0", "pytest-xdist>=3.0", "ruff>=0.1.0"]
 embeddings = ["sentence-transformers"]
 api = ["fastapi>=0.100", "uvicorn>=0.23"]
+
+[project.scripts]
+mnemoq = "agent_memory.cli:main"
+mnemoq-scaffold = "agent_memory.scaffold:main"
+mnemoq-update = "agent_memory.update:main"
+mnemoq-mcp = "agent_memory.mcp_main:main"
+
+[project.urls]
+Homepage = "https://github.com/Mnemoq/MnemoQ"
+Repository = "https://github.com/Mnemoq/MnemoQ"
+Issues = "https://github.com/Mnemoq/MnemoQ/issues"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"agent_memory.dashboard" = ["static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

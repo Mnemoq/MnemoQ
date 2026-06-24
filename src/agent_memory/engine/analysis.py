@@ -13,14 +13,14 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from engine.metrics import (
+from agent_memory.engine.metrics import (
     read_metrics,
     _retrieval_stats,
     _logging_stats,
     _consolidation_stats,
     _ProjectPaths,
 )
-from engine.models import ErrorResponse
+from agent_memory.engine.models import ErrorResponse
 
 
 # -- Metrics cache (only used by dashboard endpoints) --
