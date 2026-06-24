@@ -52,7 +52,7 @@ def migrate_all(entries):
 def run_migration(paths):
     """CLI handler: read raw learnings.jsonl, migrate all, write back, print summary."""
     # Function-level import to avoid circular dependency (io.py imports migrate_entry)
-    from engine.io import _read_raw_jsonl, write_learnings
+    from agent_memory.engine.io import _read_raw_jsonl, write_learnings
 
     # Raw read — NOT via io.read_learnings (which auto-migrates and would hide the count)
     entries = _read_raw_jsonl(paths.learnings_path)

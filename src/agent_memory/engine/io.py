@@ -12,7 +12,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from engine.migrate import migrate_entry
+from agent_memory.engine.migrate import migrate_entry
 
 
 def _read_raw_jsonl(path):

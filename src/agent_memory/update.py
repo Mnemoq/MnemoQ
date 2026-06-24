@@ -20,8 +20,8 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from engine_version import get_engine_version
-from shim import SHIM_TEMPLATE, is_shim
+from agent_memory.engine_version import get_engine_version
+from agent_memory.shim import SHIM_TEMPLATE, is_shim
 
 
 RETRY_ATTEMPTS = 3

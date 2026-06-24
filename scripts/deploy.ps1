@@ -10,7 +10,7 @@ $LiveEngine = "$env:USERPROFILE\.agent-memory\engine"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
 Write-Host "Validating dev project..."
-$requiredFiles = @("src\filter.py", "src\scaffold.py", "src\update.py", "src\engine_version.py", "src\shim.py", "VERSION")
+$requiredFiles = @("src\agent_memory\cli.py", "src\agent_memory\scaffold.py", "src\agent_memory\update.py", "src\agent_memory\engine_version.py", "src\agent_memory\shim.py", "pyproject.toml", "VERSION")
 foreach ($f in $requiredFiles) {
     if (-not (Test-Path "$DevRoot\$f")) {
         Write-Error "Missing required file: $f"
@@ -38,7 +38,7 @@ $totalLine = $testOutput | Where-Object { $_ -match "^TOTAL\s+" } | Select-Objec
 if ($totalLine -match "(\d+)\s*%") {
     $currentCoverage = [int]$Matches[1]
     Write-Host "  Coverage: $currentCoverage%"
-    
+
     # Read baseline
     $baselinePath = "$DevRoot\coverage-baseline.txt"
     if (Test-Path $baselinePath) {
@@ -48,7 +48,7 @@ if ($totalLine -match "(\d+)\s*%") {
             if ($baselineTotalLine -match "(\d+)\s*%") {
                 $baselineCoverage = [int]$Matches[1]
                 $regression = $baselineCoverage - $currentCoverage
-                
+
                 if ($regression -gt 5) {
                     Write-Error "Coverage regression: $baselineCoverage% -> $currentCoverage% ($regression point drop)"
                     Write-Error "Deploy aborted. Improve tests before deploying."
@@ -79,38 +79,71 @@ if (-not $DryRun) {
     Get-ChildItem "$LiveEngine\*.py" -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName "$BackupDir\" -Force }
     if (Test-Path "$LiveEngine\VERSION") { Copy-Item "$LiveEngine\VERSION" "$BackupDir\" -Force }
     if (Test-Path "$LiveEngine\templates") { Copy-Item "$LiveEngine\templates" "$BackupDir\templates" -Recurse -Force }
-    if (Test-Path "$LiveEngine\engine") { Copy-Item "$LiveEngine\engine" "$BackupDir\engine" -Recurse -Force }
+    if (Test-Path "$LiveEngine\agent_memory") { Copy-Item "$LiveEngine\agent_memory" "$BackupDir\agent_memory" -Recurse -Force }
 }
 
 Write-Host "Copying dev files to live engine..."
-$filesToCopy = @(
-    @{ Src = "src\filter.py"; Dst = "filter.py" },
-    @{ Src = "src\scaffold.py"; Dst = "scaffold.py" },
-    @{ Src = "src\update.py"; Dst = "update.py" },
-    @{ Src = "src\engine_version.py"; Dst = "engine_version.py" },
-    @{ Src = "src\shim.py"; Dst = "shim.py" },
-    @{ Src = "VERSION"; Dst = "VERSION" }
+# ponytail: agent_memory package + thin backward-compat wrappers around the new entry points.
+# Wrappers let existing shim-based projects keep exec'ing ~/.agent-memory/engine/filter.py.
+$filterWrapper = @'
+#!/usr/bin/env python3
+"""Backward-compat wrapper - delegates to installed agent_memory package."""
+import sys
+from agent_memory.cli import main
+if __name__ == "__main__":
+    sys.exit(main())
+'@
+
+$scaffoldWrapper = @'
+#!/usr/bin/env python3
+"""Backward-compat wrapper - delegates to installed agent_memory package."""
+import sys
+from agent_memory.scaffold import main
+if __name__ == "__main__":
+    sys.exit(main())
+'@
+
+$updateWrapper = @'
+#!/usr/bin/env python3
+"""Backward-compat wrapper - delegates to installed agent_memory package."""
+import sys
+from agent_memory.update import main
+if __name__ == "__main__":
+    sys.exit(main())
+'@
+
+$wrappers = @(
+    @{ Name = "filter.py";   Body = $filterWrapper },
+    @{ Name = "scaffold.py"; Body = $scaffoldWrapper },
+    @{ Name = "update.py";  Body = $updateWrapper }
 )
 
-foreach ($f in $filesToCopy) {
-    $srcPath = "$DevRoot\$($f.Src)"
-    $dstPath = "$LiveEngine\$($f.Dst)"
-    if ($DryRun) {
-        Write-Host "  [DRY-RUN] Would copy: $srcPath -> $dstPath"
-    } else {
-        Copy-Item $srcPath $dstPath -Force
-        Write-Host "  Copied: $($f.Dst)"
-    }
-}
-
 if ($DryRun) {
-    Write-Host "  [DRY-RUN] Would copy: templates/ -> $LiveEngine\templates\"
-    Write-Host "  [DRY-RUN] Would copy: engine/ -> $LiveEngine\engine\"
+    Write-Host "  [DRY-RUN] Would copy: src\agent_memory\ -> $LiveEngine\agent_memory\"
+    Write-Host "  [DRY-RUN] Would write wrappers: filter.py, scaffold.py, update.py"
+    Write-Host "  [DRY-RUN] Would copy: VERSION -> $LiveEngine\VERSION"
+    Write-Host "  [DRY-RUN] Would copy: templates\ -> $LiveEngine\templates\"
 } else {
+    # Fresh copy of the agent_memory package
+    if (Test-Path "$LiveEngine\agent_memory") { Remove-Item "$LiveEngine\agent_memory" -Recurse -Force }
+    Copy-Item "$DevRoot\src\agent_memory" "$LiveEngine\agent_memory" -Recurse -Force
+    Write-Host "  Copied: agent_memory/"
+
+    # Clean stale flat files that the package layout has absorbed (engine/, engine_version.py, shim.py)
+    foreach ($stale in @("engine", "engine_version.py", "shim.py")) {
+        $stalePath = Join-Path $LiveEngine $stale
+        if (Test-Path $stalePath) { Remove-Item $stalePath -Recurse -Force }
+    }
+
+    foreach ($w in $wrappers) {
+        Set-Content -Path "$LiveEngine\$($w.Name)" -Value $w.Body -Encoding utf8
+        Write-Host "  Wrote wrapper: $($w.Name)"
+    }
+
+    Copy-Item "$DevRoot\VERSION" "$LiveEngine\VERSION" -Force
+    Write-Host "  Copied: VERSION"
     Copy-Item "$DevRoot\templates" "$LiveEngine\templates" -Recurse -Force
     Write-Host "  Copied: templates/"
-    Copy-Item "$DevRoot\src\engine" "$LiveEngine\engine" -Recurse -Force
-    Write-Host "  Copied: engine/"
 }
 
 Write-Host "Verifying live engine..."
@@ -118,10 +151,10 @@ if (-not $DryRun) {
     $result = python "$LiveEngine\filter.py" --stats 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Verification failed. Restoring from backup..."
-        Copy-Item "$BackupDir\*.py" "$LiveEngine\" -Force
-        Copy-Item "$BackupDir\VERSION" "$LiveEngine\" -Force
+        if (Test-Path "$BackupDir\agent_memory") { Copy-Item "$BackupDir\agent_memory" "$LiveEngine\agent_memory" -Recurse -Force }
+        Get-ChildItem "$BackupDir\*.py" -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName "$LiveEngine\" -Force }
+        if (Test-Path "$BackupDir\VERSION") { Copy-Item "$BackupDir\VERSION" "$LiveEngine\" -Force }
         if (Test-Path "$BackupDir\templates") { Copy-Item "$BackupDir\templates" "$LiveEngine\templates" -Recurse -Force }
-        if (Test-Path "$BackupDir\engine") { Copy-Item "$BackupDir\engine" "$LiveEngine\engine" -Recurse -Force }
         exit 1
     }
     Write-Host "  Verification passed."

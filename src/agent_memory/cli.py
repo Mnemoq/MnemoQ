@@ -32,7 +32,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from engine_version import get_engine_version
+from agent_memory.engine_version import get_engine_version
 
 # --- Paths Dataclass ---
 
@@ -64,7 +64,7 @@ def _get_paths() -> Paths:
 
 
 # Import defaults from engine.constants
-from engine.constants import DEFAULTS as _CONST_DEFAULTS
+from agent_memory.engine.constants import DEFAULTS as _CONST_DEFAULTS
 
 # Module-level ctx dict: seeded from DEFAULTS (lowercased), overlaid by load_config() in main()
 # Engine modules expect lowercase keys; DEFAULTS and load_config() use UPPERCASE.
@@ -373,7 +373,7 @@ def _build_ctx():
 # --- Delegate wrappers ---
 # Each delegates to the engine module, passing paths and ctx.
 
-from engine.io import (
+from agent_memory.engine.io import (
     read_learnings as _io_read_learnings,
     append_learning as _io_append_learning,
     write_learnings as _io_write_learnings,
@@ -401,7 +401,7 @@ def quarantine(raw_input, reason):
     _io_quarantine(_get_paths(), raw_input, reason)
 
 
-from engine.validation import (
+from agent_memory.engine.validation import (
     validate_entry as _val_validate_entry,
     jaccard_similarity,
     actions_oppose,
@@ -414,7 +414,7 @@ def validate_entry(entry):
     return _val_validate_entry(entry, _build_ctx())
 
 
-from engine.agents_review import (
+from agent_memory.engine.agents_review import (
     check_agents_conflict as _ar_check_agents_conflict,
     handle_review_agents as _ar_handle_review_agents,
 )
@@ -430,7 +430,7 @@ def handle_review_agents(current_step, threshold):
     return _ar_handle_review_agents(current_step, threshold, _get_paths())
 
 
-from engine.handlers import (
+from agent_memory.engine.handlers import (
     handle_log as _h_handle_log,
     handle_update as _h_handle_update,
     handle_resolve as _h_handle_resolve,
@@ -458,7 +458,7 @@ def handle_stats():
     return _h_handle_stats(_get_paths())
 
 
-from engine.retrieval import (
+from agent_memory.engine.retrieval import (
     score_entry as _ret_score_entry,
     is_in_retention as _ret_is_in_retention,
     handle_retrieval as _ret_handle_retrieval,
@@ -480,12 +480,12 @@ def handle_retrieval(current_step, task_components, task_files, task_domain):
     return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_ctx(), _get_paths())
 
 
-from engine.consolidation import (
+from agent_memory.engine.consolidation import (
     handle_consolidate as _con_handle_consolidate,
     handle_confirm_reset as _con_handle_confirm_reset,
 )
 
-from engine.metrics import handle_metrics as _met_handle_metrics
+from agent_memory.engine.metrics import handle_metrics as _met_handle_metrics
 
 
 def handle_consolidate(sprint_number=None, confirm_reset=False, force=False):
@@ -498,7 +498,7 @@ def handle_confirm_reset():
     return _con_handle_confirm_reset(_get_paths(), _build_ctx())
 
 
-from engine.git_utils import stamp_entry, check_staleness
+from agent_memory.engine.git_utils import stamp_entry, check_staleness
 
 
 # --- Main ---
@@ -650,15 +650,15 @@ Examples:
         parser.error("--mcp cannot be combined with other operational flags")
 
     if args.migrate_schema:
-        from engine.migrate import run_migration
+        from agent_memory.engine.migrate import run_migration
         return run_migration(_get_paths())
 
     if args.eval:
-        from engine.eval import run_eval
+        from agent_memory.engine.eval import run_eval
         return run_eval(_get_paths(), _build_ctx())
 
     if args.mcp:
-        from engine.mcp_server import run_server
+        from agent_memory.engine.mcp_server import run_server
         run_server(args.memory_dir)
         return 0
 
@@ -669,7 +669,7 @@ Examples:
             print("ERROR: --serve requires the [api] optional dependencies.", file=sys.stderr)
             print("Install with: pip install agent-memory[api]", file=sys.stderr)
             return 1
-        from engine.server import create_app
+        from agent_memory.engine.server import create_app
         api_key = _CTX.get("api_key") or None
         app = create_app(_get_paths(), _build_ctx(), api_key=api_key, dashboard=args.dashboard)
         url = f"http://127.0.0.1:{args.port}"

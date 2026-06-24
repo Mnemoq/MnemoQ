@@ -12,9 +12,9 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 
-from engine.io import read_learnings
-from engine.git_utils import check_staleness
-from engine.metrics import log_event, read_metrics
+from agent_memory.engine.io import read_learnings
+from agent_memory.engine.git_utils import check_staleness
+from agent_memory.engine.metrics import log_event, read_metrics
 
 
 def _sprint_metrics(paths):

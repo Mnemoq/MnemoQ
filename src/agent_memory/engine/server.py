@@ -19,11 +19,11 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from engine.handlers import log_core, update_core, resolve_core, stats_core
-from engine.retrieval import retrieve_core
-from engine.consolidation import consolidate_core
-from engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
-from engine.models import (
+from agent_memory.engine.handlers import log_core, update_core, resolve_core, stats_core
+from agent_memory.engine.retrieval import retrieve_core
+from agent_memory.engine.consolidation import consolidate_core
+from agent_memory.engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
+from agent_memory.engine.models import (
     LogRequest,
     UpdateRequest,
     ResolveRequest,
@@ -102,7 +102,7 @@ class EventHub:
         ponytail: uses broadcast() which deduplicates against events already
         pushed instantly by the API post-call hooks.
         """
-        from engine.metrics import _metrics_path
+        from agent_memory.engine.metrics import _metrics_path
 
         state = {"size": 0, "mtime": 0.0}
         mp = _metrics_path(paths)
@@ -147,7 +147,7 @@ class EventHub:
 async def _check_and_broadcast_alerts(paths, event_hub):
     """Check for new alerts after a write op and broadcast any new ones via WS."""
     try:
-        from engine.analysis import alerts_list, get_metrics_data
+        from agent_memory.engine.analysis import alerts_list, get_metrics_data
         stats = stats_core(paths, emit_event=False)
         stats.pop("exit_code", None)
         stats.pop("status", None)
@@ -176,18 +176,10 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         api_key: optional API key for authentication
         dashboard: if True, mount static dashboard files at /
     """
-    _version_cache: dict[str, str] = {}
+    from agent_memory.engine_version import get_engine_version
 
     def _read_version() -> str:
-        if "version" in _version_cache:
-            return _version_cache["version"]
-        version_file = Path(__file__).resolve().parents[2] / "VERSION"
-        try:
-            version = version_file.read_text().strip().splitlines()[0]
-        except Exception:
-            version = "unknown"
-        _version_cache["version"] = version
-        return version
+        return get_engine_version()
 
     event_hub = EventHub()
 
@@ -212,7 +204,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
 
     # Cache invalidation — no-op when dashboard is off
     if dashboard:
-        from engine.analysis import invalidate_metrics_cache
+        from agent_memory.engine.analysis import invalidate_metrics_cache
     else:
         def invalidate_metrics_cache():
             pass
@@ -419,7 +411,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
     # -- Dashboard router + static files --
 
     if dashboard:
-        from engine.dashboard_api import create_dashboard_router
+        from agent_memory.engine.dashboard_api import create_dashboard_router
         router = create_dashboard_router(paths, ctx, event_hub, invalidate_metrics_cache)
         app.include_router(router)
 

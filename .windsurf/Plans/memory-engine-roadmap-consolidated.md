@@ -45,6 +45,67 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 ---
 
+## Phase 0 — Legal & Packaging Foundation (v1.16.x)
+
+**Goal**: Establish the legal and packaging infrastructure before any feature work. This protects the project for open-core commercialization and enables distribution via PyPI and Homebrew.
+
+### 0.1 Open-Core Licensing (v1.16.0)
+**Problem**: No license means "all rights reserved" — nobody can legally use the code. Need copyleft that protects against SaaS appropriation while enabling future commercial dual-licensing.
+
+- AGPL v3 license on core engine (✅ done — `LICENSE` file created)
+- Contributor License Agreement (✅ done — `CLA.md` created, grants relicensing rights)
+- SPDX license identifier in `pyproject.toml` (✅ done — `license = "AGPL-3.0-or-later"`)
+- `CONTRIBUTING.md` — references CLA, states that submitting a PR = accepting the CLA, documents contribution workflow
+- Copyright headers in source files (optional but reinforces ownership)
+
+**Files**: `CONTRIBUTING.md` (new), source files (optional headers)
+
+### 0.2 AGPL §13 Source Link (v1.16.1)
+**Problem**: AGPL v3 §13 requires that users interacting with the software over a network can access the source code. The web dashboard (once built in 2.3) must provide this.
+
+- Add a visible "Source" link in the dashboard UI footer or header
+- Links to the GitHub repo (or source archive for specific versions)
+- Required before any network-accessible deployment (including self-hosted dashboards exposed beyond localhost)
+- Can be deferred until dashboard (2.3) is built, but track as a compliance requirement
+
+**Files**: `src/dashboard/` (when built in 2.3)
+
+### 0.3 Build System & PyPI Publishing (v1.16.2)
+**Problem**: `pyproject.toml` is missing `[build-system]`, has no entry points, and version is out of sync with `VERSION` file. Can't build or publish without these.
+
+- Add `[build-system]` section (hatchling backend)
+- Configure package discovery for `src/` layout
+- Add `[project.scripts]` entry point: `agent-memory = "src.cli:main"`
+- Sync version: either hardcode in `pyproject.toml` or use dynamic versioning from `VERSION` file
+- GitHub Actions workflow: on tag push (`v*`), build wheel + sdist, upload to PyPI via `twine` / `uv publish`
+- PyPI API token stored as GitHub secret (`PYPI_API_TOKEN`)
+- First publish to TestPyPI for validation, then PyPI
+
+**Files**: `pyproject.toml`, new `.github/workflows/publish.yml`, new `src/cli.py` (thin entry point)
+
+### 0.4 Homebrew Distribution (v1.16.3)
+**Problem**: Non-Python users want `brew install` rather than `pip install`.
+
+- Create a `homebrew-tap` GitHub repo (e.g. `AstroBleep/homebrew-tap`)
+- Formula: `agent-memory-engine.rb` — installs Python, pip-installs from PyPI via `virtualenv_install_with_resources`
+- Alternatively, document `pipx install agent-memory-engine` as the recommended path (simpler, no formula maintenance)
+- Formula auto-updates via GitHub Action that watches PyPI for new releases and PRs version bumps to the tap repo
+
+**Files**: new `homebrew-tap` repo, `Formula/agent-memory-engine.rb`
+
+### 0.5 Open-Core Boundary Documentation (v1.16.4)
+**Problem**: Need a clear boundary between AGPL-licensed core and future proprietary Pro tier code.
+
+- Document which modules are AGPL core (engine, CLI, local storage, MCP server, local dashboard)
+- Document that Pro tier cloud sync code (sync server, multi-tenant layer, hosted dashboard backend) goes in a **separate private repo**
+- The `src/engine/sync.py` client (local-side sync) can be AGPL — it talks to the proprietary server
+- The server-side sync code (`src/cloud/`) stays proprietary and is never published to the AGPL repo
+- This separation preserves the AGPL moat: competitors can't use the sync client without also open-sourcing their server
+
+**Files**: `CONTRIBUTING.md` (section on open-core boundary), `docs/open-core-architecture.md` (new)
+
+---
+
 ## Phase 1 — Retrieval Quality (v1.17 – v1.19)
 
 **Goal**: Make retrieval genuinely semantic. This is the core product — if retrieval isn't good, nothing else matters.
@@ -391,8 +452,9 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Local SQLite store is source of truth; cloud is a derived replica
 - Offline-first: all operations work without network; sync queues changes
 - Auth: API key per user, OAuth for team management
+- **Open-core boundary**: `src/engine/sync.py` (local sync client) is AGPL-licensed in this repo. The server-side sync code (`src/cloud/`) lives in a **separate private repo** — never published to the AGPL repo. See Phase 0.5.
 
-**Files**: new `src/engine/sync.py`, new `src/cloud/` (server-side), `config.json`
+**Files**: new `src/engine/sync.py` (AGPL, this repo), `src/cloud/` (proprietary, separate private repo), `config.json`
 
 > 📊 Dashboard: Dashboard header — sync status indicator; Settings — sync config; WebSocket — sync events
 
@@ -614,6 +676,11 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 | Phase | Effort | Impact | Revenue | Dependencies | Order |
 |-------|--------|--------|---------|-------------|-------|
+| 0.1 AGPL Licensing | Low | Critical | Legal foundation | None | 0th |
+| 0.2 AGPL Source Link | Low | Essential | Compliance | 2.3 | 0a |
+| 0.3 Build & PyPI | Medium | Critical | Distribution | None | 0b |
+| 0.4 Homebrew Tap | Low | Medium | Distribution | 0.3 | 0c |
+| 0.5 Open-Core Boundary | Low | High | Commercial strategy | None | 0d |
 | 1.1 BM25 | Low | High | Free tier quality | None | 1st |
 | 1.2 Embedding Retrieval | Medium | High | Free tier quality | Schema versioning | 2nd |
 | 1.3 Embedding Dedup | Medium | High | Free tier quality | 1.2 | 3rd |
@@ -660,6 +727,7 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 | Version | Theme | Ships With | Revenue Impact |
 |---------|-------|-----------|----------------|
+| v1.16 | Legal & packaging foundation | 0.1–0.5 | Distribution + legal |
 | v1.17 | BM25 retrieval | 1.1 | Free tier quality |
 | v1.18 | Semantic retrieval | 1.2 + schema versioning | Free tier quality |
 | v1.19 | Dedup + reranking + grading | 1.3, 1.4, 1.5 | Free tier quality |

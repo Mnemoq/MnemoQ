@@ -14,15 +14,15 @@ from collections import Counter
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from engine.handlers import stats_core
-from engine.consolidation import (
+from agent_memory.engine.handlers import stats_core
+from agent_memory.engine.consolidation import (
     is_promotion_candidate,
     detect_contradictions,
     review_quarantine,
     check_staleness,
 )
-from engine.io import _read_raw_jsonl, read_learnings
-from engine.metrics import (
+from agent_memory.engine.io import _read_raw_jsonl, read_learnings
+from agent_memory.engine.metrics import (
     read_metrics,
     _retrieval_stats,
     _logging_stats,
@@ -34,7 +34,7 @@ from engine.metrics import (
     _load_project_paths,
     _get_project_id,
 )
-from engine.analysis import (
+from agent_memory.engine.analysis import (
     get_metrics_data,
     parse_since,
     make_project_paths,
@@ -42,7 +42,7 @@ from engine.analysis import (
     recommendations,
     alerts_list,
 )
-from engine.models import ErrorResponse
+from agent_memory.engine.models import ErrorResponse
 
 
 def _validate_config_update(body):

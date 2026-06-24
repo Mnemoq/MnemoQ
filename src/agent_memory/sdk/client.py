@@ -19,24 +19,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from datetime import datetime
 from typing import Any
 
-from sdk.exceptions import APIError, ConflictError, NotFoundError, ValidationError
+from agent_memory.sdk.exceptions import APIError, ConflictError, NotFoundError, ValidationError
 
-# ponytail: sys.path hack for running from source — removed in 2.5 pip packaging
-_repo_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _repo_src not in sys.path:
-    sys.path.insert(0, _repo_src)
-
-import filter
-from engine.constants import DEFAULTS
-from engine.consolidation import consolidate_core
-from engine.handlers import log_core, resolve_core, stats_core, update_core
-from engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
-from engine.models import LearningEntry
-from engine.retrieval import retrieve_core
+from agent_memory import cli as filter
+from agent_memory.engine.constants import DEFAULTS
+from agent_memory.engine.consolidation import consolidate_core
+from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
+from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
+from agent_memory.engine.models import LearningEntry
+from agent_memory.engine.retrieval import retrieve_core
 
 
 # ---------------------------------------------------------------------------

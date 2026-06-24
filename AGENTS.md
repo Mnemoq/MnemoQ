@@ -1,7 +1,7 @@
 # Agent Guidelines
 
 ## Architecture
-filter.py is a thin dispatcher — all logic lives in src/engine/ modules.
+cli.py is a thin dispatcher — all logic lives in src/agent_memory/engine/ modules.
 Always pass ctx dict and Paths to engine functions; never read module globals directly.
 
 ## Data
@@ -14,8 +14,8 @@ VALID_DOMAINS and VALID_SOURCE_AGENTS constrain what entries are accepted.
 
 ## Testing
 Run `python -m pytest tests/` before committing. Tests live in tests/test_memory.py.
-Engine modules are tested via filter.py CLI integration, not direct imports.
-Exception: `tests/test_server.py` may import `engine.server.create_app` directly to exercise the HTTP API surface.
+Engine modules are tested via cli.py CLI integration, not direct imports.
+Exception: `tests/test_server.py` may import `agent_memory.engine.server.create_app` directly to exercise the HTTP API surface.
 
 ## Deployment
 Bump VERSION file, then run scripts/deploy.ps1. Deploy copies to ~/.agent-memory/engine/.

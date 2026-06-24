@@ -2,6 +2,12 @@
 
 Local-first memory engine for AI agents — MCP-native, graph-linked, spaced repetition.
 
+```
+Agent ──log──▶ MnemoQ Engine ──store──▶ learnings.jsonl
+Agent ◀──retrieve── MnemoQ Engine ◀──read── learnings.jsonl
+Agent ──MCP──▶ mnemoq-mcp ──read/write──▶ learnings.jsonl
+```
+
 [![PyPI version](https://img.shields.io/pypi/v/mnemoq.svg)](https://pypi.org/project/mnemoq/)
 [![Python versions](https://img.shields.io/pypi/pyversions/mnemoq.svg)](https://pypi.org/project/mnemoq/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Mnemoq/MnemoQ/ci.yml?branch=main)](https://github.com/Mnemoq/MnemoQ/actions/workflows/ci.yml)
@@ -81,6 +87,14 @@ pytest
 - `docs/` — Architecture documentation
 - `scripts/` — Deploy scripts
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+## Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for current status and planned features.
+
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE) for details.
@@ -88,3 +102,7 @@ AGPL-3.0-or-later. See [LICENSE](LICENSE) for details.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Submitting a PR constitutes acceptance of the [CLA](CLA.md).
+
+## Security
+
+Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/Mnemoq/MnemoQ/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.

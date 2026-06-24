@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 fastapi = pytest.importorskip("fastapi")
 import httpx
-from engine.server import create_app
+from agent_memory.engine.server import create_app
 
 
 def _make_client(app):
@@ -41,7 +41,7 @@ def temp_project():
 
 def _make_paths(project_dir):
     """Build a Paths-like object matching filter.py's dataclass."""
-    from filter import Paths
+    from agent_memory.cli import Paths
     memory_dir = str(project_dir / "memory")
     return Paths(
         memory_dir=memory_dir,
@@ -344,7 +344,7 @@ class TestFleet:
         paths = _make_paths(temp_project)
         ctx = _make_ctx()
         # Stub project discovery to return the temp project only
-        monkeypatch.setattr("engine.dashboard_api._load_project_paths", lambda: [temp_project])
+        monkeypatch.setattr("agent_memory.engine.dashboard_api._load_project_paths", lambda: [temp_project])
         app = create_app(paths, ctx, api_key=None, dashboard=True)
         async with _make_client(app) as c:
             resp = await c.get("/api/fleet")
@@ -364,7 +364,7 @@ class TestFleet:
     async def test_project_metrics_summary(self, temp_project, monkeypatch):
         paths = _make_paths(temp_project)
         ctx = _make_ctx()
-        monkeypatch.setattr("engine.dashboard_api._load_project_paths", lambda: [temp_project])
+        monkeypatch.setattr("agent_memory.engine.dashboard_api._load_project_paths", lambda: [temp_project])
         app = create_app(paths, ctx, api_key=None, dashboard=True)
         async with _make_client(app) as c:
             fleet_resp = await c.get("/api/fleet")
@@ -459,7 +459,7 @@ class TestHealthVersion:
 class TestWebSocketDedup:
     async def test_eventhub_dedup(self):
         """Verify EventHub skips duplicate keys and broadcasts distinct ones."""
-        from engine.server import EventHub
+        from agent_memory.engine.server import EventHub
         hub = EventHub()
         received = []
 
@@ -476,7 +476,7 @@ class TestWebSocketDedup:
 
     async def test_watcher_dedup_against_api_hook(self):
         """File watcher re-read of a metrics.jsonl line must not produce a second WS broadcast."""
-        from engine.server import EventHub
+        from agent_memory.engine.server import EventHub
         hub = EventHub()
         received = []
 

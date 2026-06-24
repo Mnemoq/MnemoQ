@@ -9,18 +9,27 @@ The recommended build order across all three plan files. Each step references wh
 
 ---
 
-## Tier 1 — Free Tier Quality Foundation (v1.17 – v1.19)
+## Tier 0 — Legal & Packaging Foundation (v1.16.x)
 
-These improve the core product before any distribution work. No deps, high impact.
+Legal infrastructure and distribution pipeline. Must happen before any public release. Items 0a–0d have no feature dependencies and can be done in parallel.
 
 | # | Step | Plan | Section | Version | Deps |
 |---|------|------|---------|---------|------|
-| 1 | BM25 Lexical Retrieval | Roadmap | 1.1 | v1.17.0 | None |
-| 2 | Schema versioning field + migration runner | Roadmap | 1.2 (prerequisite) | v1.18.0 | None |
-| 3 | Embedding-Based Retrieval | Roadmap | 1.2 | v1.18.0 | Step 2 |
-| 4 | Embedding-Based Dedup | Roadmap | 1.3 | v1.19.0 | Step 3 |
-| 5 | Reranking Pass | Roadmap | 1.4 | v1.19.1 | Step 3 |
-| 6 | Grading Harness | Roadmap | 1.5 | v1.19.2 | None |## Tier 1 — Free Tier Quality Foundation (v1.17 – v1.19)
+| 0 | Open-Core Licensing (AGPL + CLA + CONTRIBUTING.md) | Roadmap | 0.1 | v1.16.0 | None |
+| 0a | AGPL §13 Source Link in dashboard | Roadmap | 0.2 | v1.16.1 | Step 9 (dashboard) |
+| 0b | Build System & PyPI Publishing | Roadmap | 0.3 | v1.16.2 | None |
+| 0c | Homebrew Distribution | Roadmap | 0.4 | v1.16.3 | Step 0b |
+| 0d | Open-Core Boundary Documentation | Roadmap | 0.5 | v1.16.4 | None |
+
+> **Status**: AGPL v3 license, CLA, and SPDX identifier are ✅ done. Remaining: `CONTRIBUTING.md`, build system (`[build-system]` + entry points + version sync), GitHub Actions publish workflow, Homebrew tap repo, open-core boundary docs.
+
+> **0a timing**: The source link (AGPL §13) can't be added until the web dashboard exists (step 9). Track it as a compliance checklist item for when 2.3 is built.
+
+> **0b is critical-path**: PyPI publishing unblocks Homebrew (0c), the SDK (step 11), and `pip install agent-memory-engine` as the primary distribution method. Do this before or in parallel with Tier 1.
+
+---
+
+## Tier 1 — Free Tier Quality Foundation (v1.17 – v1.19)
 
 These improve the core product before any distribution work. No deps, high impact.
 
@@ -152,20 +161,27 @@ Some steps have no dependencies and can be developed in parallel. Key paralleliz
 ```
 Track A (retrieval):  1 → 2 → 3 → 4 → 5
 Track B (API):        7 → {8, 9 in parallel}
-Track C (packaging):  10, 11 (both depend only on 7)
+Track C (packaging):  0b → 0c, 10, 11 (0b unblocks PyPI; 10/11 depend on 7)
 Track D (storage):    12 → 13
 Track E (graph):      17 → 18 → {19, 20 in parallel}
 Track F (metrics):    38 (can start anytime, but most useful after Tier 1-2)
-Track G (standalone): 6, 14, 15, 16, 21, 22, 33, 34, 35, 36, 37, 39
+Track G (standalone): 0, 0d, 6, 14, 15, 16, 21, 22, 33, 34, 35, 36, 37, 39
+Track H (legal):      0 → 0a (after step 9) → 0d
 ```
 
-**Recommended**: Run Track A and Track B in parallel during v1.17–v1.20. Track A improves the engine; Track B builds the distribution layer. They converge at step 9 (web dashboard needs FastAPI from step 7). Track G items have no deps and can be slotted in anytime — pick them up between higher-priority tracks to keep multiple developers busy.
+**Recommended**: Run Track A and Track B in parallel during v1.17–v1.20. Track A improves the engine; Track B builds the distribution layer. They converge at step 9 (web dashboard needs FastAPI from step 7). Track C (packaging) should start immediately — 0b (PyPI) has no deps and unblocks all distribution. Track G items have no deps and can be slotted in anytime — pick them up between higher-priority tracks to keep multiple developers busy. Track H (legal) items 0 and 0d can be done immediately; 0a waits for the dashboard.
 
 ---
 
 ## Dependency Graph (simplified)
 
 ```
+0.1 Licensing (no deps — do immediately)
+0.3 Build & PyPI (no deps — do immediately, unblocks all distribution)
+0.4 Homebrew (depends on 0.3)
+0.5 Open-Core Boundary (no deps — document anytime)
+0.2 AGPL Source Link (depends on 2.3 dashboard)
+
 1.1 BM25 (no deps — build first but nothing depends on it)
 
 1.2 Schema → 1.2 Embeddings → 1.3 Dedup → 5.4 Cross-Project ──┐

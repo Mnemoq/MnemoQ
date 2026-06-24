@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 
-from engine.mcp_server import run_server
+from agent_memory.engine.mcp_server import run_server
 
 
 def main():

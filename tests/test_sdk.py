@@ -16,9 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 httpx = pytest.importorskip("httpx")
 fastapi = pytest.importorskip("fastapi")
 
-from engine.server import create_app  # noqa: E402
-from sdk import AsyncMemoryClient, MemoryClient  # noqa: E402
-from sdk.exceptions import APIError, NotFoundError, ValidationError  # noqa: E402
+from agent_memory.engine.server import create_app  # noqa: E402
+from agent_memory.sdk import AsyncMemoryClient, MemoryClient  # noqa: E402
+from agent_memory.sdk.exceptions import APIError, NotFoundError, ValidationError  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ def temp_project():
 
 def _make_paths(project_dir):
     """Build a Paths dataclass matching filter.py."""
-    from filter import Paths
+    from agent_memory.cli import Paths
 
     memory_dir = str(project_dir / "memory")
     return Paths(
@@ -280,6 +280,6 @@ class TestAsyncClient:
 
 def _sdk_async_http_transport(http_client):
     """Wrap an existing httpx.AsyncClient into the SDK async HTTP transport."""
-    from sdk.client import _AsyncHTTPTransport
+    from agent_memory.sdk.client import _AsyncHTTPTransport
 
     return _AsyncHTTPTransport._with_client(http_client)

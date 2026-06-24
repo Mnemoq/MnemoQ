@@ -13,6 +13,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+# ponytail: surface src/ to subprocesses so `python -m agent_memory.cli` resolves without a pip install.
+_SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
+if "PYTHONPATH" in os.environ:
+    if _SRC_DIR not in os.environ["PYTHONPATH"].split(os.pathsep):
+        os.environ["PYTHONPATH"] = _SRC_DIR + os.pathsep + os.environ["PYTHONPATH"]
+else:
+    os.environ["PYTHONPATH"] = _SRC_DIR
+
 
 @pytest.fixture
 def temp_project():
@@ -592,9 +600,10 @@ class TestScaffoldIntegration:
         # Use source dir, not deployed engine dir (scaffold.py is not deployed)
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, str(source_dir / "scaffold.py"), str(fresh_project), "--defaults"],
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults"],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=str(source_dir)
         )
         
         assert result.returncode == 0
@@ -614,9 +623,10 @@ class TestScaffoldIntegration:
         # Use source dir, not deployed engine dir (scaffold.py is not deployed)
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, str(source_dir / "scaffold.py"), str(fresh_project), "--defaults", "--opencode"],
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--opencode"],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=str(source_dir)
         )
         
         assert result.returncode == 0
@@ -642,7 +652,7 @@ class TestUpdateHygiene:
     
     def test_is_temp_path_detects_temp(self):
         """is_temp_path returns True for paths under system temp dir."""
-        from update import is_temp_path
+        from agent_memory.update import is_temp_path
         
         temp_dir = Path(tempfile.gettempdir())
         assert is_temp_path(temp_dir) is True
@@ -653,7 +663,7 @@ class TestUpdateHygiene:
     
     def test_is_temp_path_rejects_non_temp(self):
         """is_temp_path returns False for paths not under system temp dir."""
-        from update import is_temp_path
+        from agent_memory.update import is_temp_path
         
         assert is_temp_path(Path("C:/Projects/magpie-swoop")) is False
         assert is_temp_path(Path("/home/user/projects/foo")) is False
@@ -661,13 +671,13 @@ class TestUpdateHygiene:
     
     def test_is_temp_path_handles_nonexistent(self):
         """is_temp_path returns False for non-existent paths (doesn't crash)."""
-        from update import is_temp_path
+        from agent_memory.update import is_temp_path
         
         assert is_temp_path(Path("Z:/nonexistent/path")) is False
     
     def test_load_projects_prunes_temp_entries(self, tmp_path, monkeypatch):
         """load_projects auto-prunes temp entries with backup."""
-        import update
+        from agent_memory import update
         
         # Setup: create a fake ENGINE_DIR with projects.txt
         engine_dir = tmp_path / "engine"
@@ -702,7 +712,7 @@ class TestUpdateHygiene:
     
     def test_load_projects_dry_run_no_prune(self, tmp_path, monkeypatch):
         """load_projects with dry_run=True does not modify projects.txt."""
-        import update
+        from agent_memory import update
         
         engine_dir = tmp_path / "engine"
         engine_dir.mkdir()
@@ -734,7 +744,7 @@ class TestResolver:
     
     def test_resolve_memory_dir_priority(self, monkeypatch, tmp_path):
         """Test resolve_memory_dir() honors priority: --memory-dir > env > cwd/memory."""
-        from filter import resolve_memory_dir
+        from agent_memory.cli import resolve_memory_dir
         
         # Test 1: --memory-dir takes priority
         memory_dir = tmp_path / "memory"
@@ -757,7 +767,7 @@ class TestResolver:
     
     def test_resolve_memory_dir_errors(self, monkeypatch, tmp_path):
         """Test resolve_memory_dir() raises ValueError on invalid paths."""
-        from filter import resolve_memory_dir
+        from agent_memory.cli import resolve_memory_dir
         
         # Test 1: Invalid --memory-dir raises ValueError
         with pytest.raises(ValueError, match="--memory-dir path does not exist"):
@@ -786,7 +796,7 @@ class TestResolver:
         Safe here because no other test calls filter.main() in-process.
         If future tests do, use a fixture to save/restore PATHS.
         """
-        import filter
+        from agent_memory import cli as filter
         old_paths = filter.PATHS
         try:
             filter.PATHS = None
@@ -801,7 +811,7 @@ class TestShim:
     
     def test_shim_delegates_to_engine(self, temp_project, engine_dir):
         """Test that shim correctly delegates to central engine."""
-        from shim import SHIM_TEMPLATE
+        from agent_memory.shim import SHIM_TEMPLATE
         
         # Write shim to project (memory dir already exists from fixture)
         memory_dir = temp_project / "memory"
@@ -822,7 +832,7 @@ class TestShim:
     
     def test_shim_memory_dir_override(self, temp_project, engine_dir, tmp_path):
         """Test that --memory-dir CLI flag overrides AGENT_MEMORY_DIR set by shim."""
-        from shim import SHIM_TEMPLATE
+        from agent_memory.shim import SHIM_TEMPLATE
         
         # Write shim to project (memory dir already exists from fixture)
         memory_dir = temp_project / "memory"
@@ -856,14 +866,14 @@ class TestShim:
         shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
         
         # Migrate
-        from update import migrate_to_shim
+        from agent_memory.update import migrate_to_shim
         success, msg = migrate_to_shim(temp_project)
         
         assert success
         assert "Migrated" in msg
         
         # Verify shim
-        from shim import is_shim
+        from agent_memory.shim import is_shim
         assert is_shim(memory_dir / "filter.py")
         
         # Verify shim replaced filter.py
@@ -881,7 +891,7 @@ class TestShim:
         shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
         
         # Migrate once
-        from update import migrate_to_shim
+        from agent_memory.update import migrate_to_shim
         success1, msg1 = migrate_to_shim(temp_project)
         assert success1
         assert "Migrated" in msg1
@@ -900,7 +910,7 @@ class TestShim:
     
     def test_shim_missing_engine(self, temp_project, tmp_path):
         """Test shim handles missing engine gracefully."""
-        from shim import SHIM_TEMPLATE
+        from agent_memory.shim import SHIM_TEMPLATE
         
         # Use a custom shim pointing to a non-existent engine path so we do not
         # disturb the real engine directory (avoiding races with parallel tests).
@@ -936,7 +946,7 @@ class TestShim:
         shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
         
         # Migrate
-        from update import migrate_to_shim
+        from agent_memory.update import migrate_to_shim
         migrate_to_shim(temp_project)
         
         # Run shim with retrieval
@@ -963,14 +973,15 @@ class TestShim:
         shutil.copy2(engine_dir / "filter.py", memory_dir / "filter.py")
         
         # Verify it's not a shim yet
-        from shim import is_shim
+        from agent_memory.shim import is_shim
         assert not is_shim(memory_dir / "filter.py")
         
         # Run scaffold with --force from source directory
         result = subprocess.run(
-            [sys.executable, str(source_dir / "scaffold.py"), str(fresh_project), "--defaults", "--force"],
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--force"],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=str(source_dir)
         )
         
         assert result.returncode == 0
@@ -980,7 +991,7 @@ class TestShim:
     
     def test_scaffold_idempotent(self, fresh_project, engine_dir):
         """Test that scaffold.py is idempotent when already a shim."""
-        from shim import SHIM_TEMPLATE, is_shim
+        from agent_memory.shim import SHIM_TEMPLATE, is_shim
         
         # Use source directory, not deployed engine
         source_dir = Path(__file__).parent.parent / "src"
@@ -998,7 +1009,7 @@ class TestShim:
         # But copy_engine_files() should still be idempotent if called
         # So we test the copy_engine_files() function directly
         sys.path.insert(0, str(source_dir))
-        from scaffold import copy_engine_files
+        from agent_memory.scaffold import copy_engine_files
         
         copy_engine_files(memory_dir, force=False)
         
@@ -1035,7 +1046,7 @@ class TestMetrics:
         """log_event appends a valid JSON line to metrics.jsonl."""
         paths = _make_paths(temp_project / "memory", temp_project)
 
-        from engine.metrics import log_event, read_metrics
+        from agent_memory.engine.metrics import log_event, read_metrics
 
         log_event(paths, "retrieval", query_step=1, warnings_returned=2,
                   patterns_returned=1, top_score=0.85, latency_ms=3.2)
@@ -1056,7 +1067,7 @@ class TestMetrics:
         """log_event silently ignores errors (best-effort)."""
         paths = _make_paths("/nonexistent/path/xyz", "/nonexistent")
 
-        from engine.metrics import log_event
+        from agent_memory.engine.metrics import log_event
         # Should not raise
         log_event(paths, "retrieval", query_step=1)
 
@@ -1064,7 +1075,7 @@ class TestMetrics:
         """read_metrics filters by event_type."""
         paths = _make_paths(temp_project / "memory", temp_project)
 
-        from engine.metrics import log_event, read_metrics
+        from agent_memory.engine.metrics import log_event, read_metrics
 
         log_event(paths, "retrieval", query_step=1)
         log_event(paths, "log", outcome="ADDED")
@@ -1080,7 +1091,7 @@ class TestMetrics:
 
     def test_metrics_cli_summary(self, temp_project):
         """--metrics prints a summary report after events exist."""
-        source_filter = Path(__file__).parent.parent / "src" / "filter.py"
+        source_filter = ["-m", "agent_memory.cli"]
 
         # Log a learning to generate a metrics event
         learning = {
@@ -1094,13 +1105,13 @@ class TestMetrics:
         learning_file.write_text(json.dumps(learning))
 
         subprocess.run(
-            [sys.executable, str(source_filter), "--log-file", str(learning_file)],
+            [sys.executable, *source_filter, "--log-file", str(learning_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
         # Run --metrics
         result = subprocess.run(
-            [sys.executable, str(source_filter), "--metrics"],
+            [sys.executable, *source_filter, "--metrics"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -1109,10 +1120,10 @@ class TestMetrics:
 
     def test_metrics_cli_empty(self, temp_project):
         """--metrics handles no events gracefully."""
-        source_filter = Path(__file__).parent.parent / "src" / "filter.py"
+        source_filter = ["-m", "agent_memory.cli"]
 
         result = subprocess.run(
-            [sys.executable, str(source_filter), "--metrics"],
+            [sys.executable, *source_filter, "--metrics"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -1121,7 +1132,7 @@ class TestMetrics:
 
     def test_metrics_cli_json_output(self, temp_project):
         """--metrics --metrics-json outputs valid JSON."""
-        source_filter = Path(__file__).parent.parent / "src" / "filter.py"
+        source_filter = ["-m", "agent_memory.cli"]
 
         # Generate an event
         learning = {
@@ -1135,12 +1146,12 @@ class TestMetrics:
         learning_file.write_text(json.dumps(learning))
 
         subprocess.run(
-            [sys.executable, str(source_filter), "--log-file", str(learning_file)],
+            [sys.executable, *source_filter, "--log-file", str(learning_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
         result = subprocess.run(
-            [sys.executable, str(source_filter), "--metrics", "--metrics-json"],
+            [sys.executable, *source_filter, "--metrics", "--metrics-json"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -1154,7 +1165,7 @@ class TestBM25Score:
 
     def test_bm25_rare_term_scores_higher(self):
         """Rare matching term should score higher than common matching term."""
-        from engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+        from agent_memory.engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
 
         # Use empty stop_words for deterministic testing (real STOP_WORDS would filter "physics"/"AABB")
         stop_words = set()
@@ -1176,7 +1187,7 @@ class TestBM25Score:
 
     def test_bm25_no_match_scores_zero(self):
         """Doc with no matching query terms should score 0.0."""
-        from engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+        from agent_memory.engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
 
         stop_words = set()
         entries = [
@@ -1193,7 +1204,7 @@ class TestBM25Score:
 
     def test_bm25_empty_corpus(self):
         """Empty corpus should return 0.0 without crashing."""
-        from engine.retrieval import bm25_score
+        from agent_memory.engine.retrieval import bm25_score
 
         score = bm25_score(["test"], ["test"], {}, 0, 0.0, 1.5, 0.75)
         assert score == 0.0
@@ -1310,7 +1321,7 @@ class TestSchemaMigration:
 
     def test_migration_v0_to_v1(self):
         """Unit test: v0 entries get migrated to v1 with correct fields."""
-        from engine.migrate import migrate_entry, migrate_all, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import migrate_entry, migrate_all, CURRENT_SCHEMA_VERSION
 
         v0_entry = {"step": 1, "type": "bug_fix", "trigger": "When test", "action": "ALWAYS test"}
         migrated = migrate_entry(dict(v0_entry))
@@ -1324,7 +1335,7 @@ class TestSchemaMigration:
 
     def test_migrate_entry_noop_on_current(self):
         """migrate_entry is a no-op on already-current entries."""
-        from engine.migrate import migrate_entry, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import migrate_entry, CURRENT_SCHEMA_VERSION
 
         entry = {"schema_version": CURRENT_SCHEMA_VERSION, "step": 1, "embedding": [0.1, 0.2]}
         migrated = migrate_entry(dict(entry))
@@ -1334,7 +1345,7 @@ class TestSchemaMigration:
 
     def test_migrate_all_count(self):
         """migrate_all returns correct count of migrated entries."""
-        from engine.migrate import migrate_all, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import migrate_all, CURRENT_SCHEMA_VERSION
 
         entries = [
             {"step": 1, "type": "bug_fix"},  # v0, needs migration
@@ -1486,7 +1497,7 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding(self):
         """Base64 round-trip preserves vector values within float16 precision."""
-        from engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
 
         try:
             import numpy as np
@@ -1504,14 +1515,14 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding_none(self):
         """encode_embedding(None) returns None, decode_embedding(None) returns None."""
-        from engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
 
         assert encode_embedding(None) is None
         assert decode_embedding(None) is None
 
     def test_embedding_encoding_plain_list_fallback(self):
         """encode_embedding falls back to plain list when numpy unavailable."""
-        from engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
 
         # Test with a list (decode should handle plain lists too)
         original = [0.1, 0.2, 0.3]
@@ -1520,7 +1531,7 @@ class TestEmbeddingRetrieval:
 
     def test_cosine_similarity(self):
         """cosine_similarity: orthogonal → 0.0, identical → 1.0."""
-        from engine.retrieval import cosine_similarity
+        from agent_memory.engine.retrieval import cosine_similarity
 
         # Identical vectors
         vec = [1.0, 0.0, 0.0]
@@ -1675,7 +1686,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_no_embeddings(self):
         """find_semantic_duplicate returns (0.0, None) when no embeddings available."""
-        from engine.retrieval import find_semantic_duplicate
+        from agent_memory.engine.retrieval import find_semantic_duplicate
 
         entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": None}
         existing = [{"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": None}]
@@ -1687,7 +1698,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_high_cosine(self):
         """find_semantic_duplicate detects match when embeddings are identical."""
-        from engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -1702,7 +1713,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_resolved(self):
         """find_semantic_duplicate skips resolved entries."""
-        from engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -1716,7 +1727,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_different_domain(self):
         """find_semantic_duplicate only checks same-domain entries."""
-        from engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -1730,7 +1741,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_picks_highest(self):
         """find_semantic_duplicate returns the highest cosine match."""
-        from engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
 
         entry_vec = [1.0, 0.0, 0.0]
         close_vec = [0.99, 0.01, 0.0]
@@ -1824,7 +1835,7 @@ class TestReranker:
 
     def test_rerank_none_passthrough(self):
         """rerank_none returns candidates unchanged."""
-        from engine.reranker import rerank_none
+        from agent_memory.engine.reranker import rerank_none
         candidates = [(0.9, 0.8, 0.7, {"severity": "critical"}), (0.5, 0.4, 0.3, {"severity": "minor"})]
         result, active = rerank_none("query", candidates, {})
         assert result is candidates
@@ -1832,7 +1843,7 @@ class TestReranker:
 
     def test_rerank_dispatch_none(self):
         """rerank() with mode 'none' returns candidates unchanged."""
-        from engine.reranker import rerank
+        from agent_memory.engine.reranker import rerank
         candidates = [(0.9, 0.8, 0.7, {"severity": "critical"})]
         result, active = rerank("query", candidates, {"reranker": "none"})
         assert result is candidates
@@ -1840,7 +1851,7 @@ class TestReranker:
 
     def test_rerank_cross_encoder_mock(self):
         """Cross-encoder reranking with mocked model."""
-        from engine import reranker
+        from agent_memory.engine import reranker
 
         # Mock the cross-encoder model
         class MockCrossEncoder:
@@ -1869,7 +1880,7 @@ class TestReranker:
 
     def test_rerank_cross_encoder_fallback(self):
         """Cross-encoder falls back to passthrough when model unavailable."""
-        from engine import reranker
+        from agent_memory.engine import reranker
 
         # Cache a None for a fake model
         reranker._ce_cache["unavailable-model"] = None
@@ -1888,7 +1899,7 @@ class TestReranker:
 
     def test_rerank_llm_local_malformed_response(self):
         """LLM-local returns passthrough when response has fewer numbers than candidates."""
-        from engine import reranker
+        from agent_memory.engine import reranker
 
         # Reset probe cache
         reranker._PROBE_CACHE = {"endpoint": None, "checked": False}
@@ -1916,7 +1927,7 @@ class TestReranker:
 
     def test_rerank_llm_local_no_endpoint(self):
         """LLM-local falls back when no endpoint is found."""
-        from engine import reranker
+        from agent_memory.engine import reranker
 
         reranker._PROBE_CACHE = {"endpoint": None, "checked": True}
 
@@ -1931,7 +1942,7 @@ class TestReranker:
 
     def test_rerank_llm_local_mock_success(self):
         """LLM-local reranks successfully with mocked response."""
-        from engine import reranker
+        from agent_memory.engine import reranker
 
         reranker._PROBE_CACHE = {"endpoint": "http://localhost:11434", "checked": True}
 
@@ -1957,7 +1968,7 @@ class TestReranker:
 
     def test_rerank_unknown_mode(self):
         """Unknown reranker mode falls back to passthrough."""
-        from engine import reranker
+        from agent_memory.engine import reranker
         candidates = [(0.9, 0.8, 0.7, {"severity": "critical"})]
         result, active = reranker.rerank("query", candidates, {"reranker": "bogus"})
         assert active is False
@@ -1965,19 +1976,19 @@ class TestReranker:
 
     def test_parse_scores_sufficient(self):
         """_parse_scores returns floats when enough numbers found."""
-        from engine.reranker import _parse_scores
+        from agent_memory.engine.reranker import _parse_scores
         scores = _parse_scores("7.5 3 9.0 1", 4)
         assert scores == [7.5, 3.0, 9.0, 1.0]
 
     def test_parse_scores_insufficient(self):
         """_parse_scores returns None when too few numbers found."""
-        from engine.reranker import _parse_scores
+        from agent_memory.engine.reranker import _parse_scores
         scores = _parse_scores("only 2 numbers here", 5)
         assert scores is None
 
     def test_probe_llm_endpoint_configured(self):
         """_probe_llm_endpoint returns configured endpoint without probing."""
-        from engine.reranker import _probe_llm_endpoint
+        from agent_memory.engine.reranker import _probe_llm_endpoint
         result = _probe_llm_endpoint("http://custom:8080")
         assert result == "http://custom:8080"
 
