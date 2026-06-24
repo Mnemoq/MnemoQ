@@ -33,6 +33,8 @@ These improve the core product before any distribution work. No deps, high impac
 | 5 | Reranking Pass | Roadmap | 1.4 | v1.19.1 | Step 3 |
 | 6 | Grading Harness | Roadmap | 1.5 | v1.19.2 | None |
 
+> 📊 Dashboard: Step 1 — Retrieval Explorer: 3-channel fusion score breakdown. Step 3 — Retrieval Explorer: hybrid score split (lexical vs semantic); Settings: alpha config; Learnings detail: embedding status. Step 4 — Metrics > Dedup: semantic duplicate stats; Quarantine: new reason category; Learnings detail: contributors field. Step 5 — Settings: reranker config; Retrieval Explorer: pre/post-rerank ordering. Step 6 — Metrics: new "Retrieval Grading" sub-tab (top-1/top-3 hit rates); Settings: run eval button.
+
 ---
 
 ## Tier 2 — Distribution & Access (v1.20 – v1.21)
@@ -50,6 +52,8 @@ Make the engine accessible from any tool. This unlocks the GUI dashboard and SDK
 > **Step 9 detail**: Follow GUI plan Phase 1 in order — 1.1 FastAPI backend, 1.2 web frontend (SPA), 1.3 server integration (`--dashboard` flag), 1.4 WebSocket live event feed. The dashboard's Metrics Deep-Dive page will show basic metrics from existing `metrics.py` until Tier 5 (Advanced Metrics) is built.
 
 > **Why here**: API + MCP + dashboard + pip = the product is installable and usable from any tool. This is the distribution milestone.
+
+> 📊 Dashboard: Step 9 is the dashboard itself — no additional dashboard notes needed for Tier 2 (the web dashboard is being built in this tier).
 
 ---
 
@@ -75,6 +79,8 @@ Storage scaling and memory intelligence features that differentiate from competi
 
 > **Why this order**: SQLite (12) before incremental index (13) since index needs a DB. Entity extraction (17) before link graph (18) before cue-tag graph (19) — each builds on the previous graph layer. Cross-project transfer (24) needs embedding dedup (step 4) for import validation.
 
+> 📊 Dashboard: Step 12 — Settings: storage backend selector; Dashboard: latency indicator. Step 14 — Consolidation Console: auto-archive status; Settings: threshold config; Alerts: auto-archive notification. Step 15 — Learnings detail: SM-2 schedule; Metrics > Lifecycle: review schedule; Consolidation: "Due for Review" section. Step 16 — Retrieval Explorer: "as-of" step input; Learnings: valid_from/valid_until + supersession chain; Consolidation: supersession history. Step 17 — Learnings detail: extracted entities; Retrieval Explorer: entity match indicator; new entity filter. Step 18 — Learnings detail: linked entries with link type; Retrieval Explorer: expanded results from graph; new graph visualization. Step 19 — Retrieval Explorer: tag traversal path; new tag map visualization. Step 20 — Metrics: new "Graph Stats" sub-tab; Consolidation Console: graph consolidation report. Step 21 — Learnings: new type filter + specialized procedure detail panel; Retrieval Explorer: "Suggested Procedure" card; Consolidation: low success-rate flag. Step 22 — Learnings detail: observed_by/verified_by; Retrieval Explorer: trusted-agents filter; Metrics > Agents: enhanced breakdown. Step 23 — Consolidation Console: proposed supersessions with approve/reject; WebSocket: supersession event; Settings: auto-resolve toggle. Step 24 — Fleet: export/import/promote buttons; Learnings: "Shared Learnings" filter; Consolidation: cross-project promotion suggestions.
+
 ---
 
 ## Tier 4 — Pro Tier Launch (v2.0 – v2.2)
@@ -91,6 +97,8 @@ Cloud sync, team sharing, and Pro-tier UI. This is the revenue milestone.
 > **Step 27 detail**: Deploy the same FastAPI dashboard app from step 9 to cloud. Add OAuth login, PostgreSQL-backed historical metrics, multi-project fleet view. See GUI plan Phase 1 (same UI, cloud-hosted).
 
 > **Step 28 detail**: Follow GUI plan Phase 2 — Tauri 2.x setup, native enhancements (OS notifications, system tray, auto-start), packaging (.msi/.dmg/.AppImage).
+
+> 📊 Dashboard: Step 25 — Dashboard header: sync status indicator; Settings: sync config; WebSocket: sync events. Step 26 — Learnings: scope filter (local/team/global); Fleet: team scope selector. Step 27 — New login page (OAuth); Dashboard: historical metrics charts; Fleet: multi-project across synced projects; Settings: user/team management. Step 28 — Theme toggle (dark/light); OS-native notifications; system tray — no content changes.
 
 ---
 
@@ -122,6 +130,8 @@ Research-grade features and the full metrics system.
 >
 > Once complete, the web dashboard's Metrics Deep-Dive page (step 9) populates with full analysis data via `/api/metrics/*` endpoints. The TUI (step 30) gets the same data.
 
+> 📊 Dashboard: Step 29 — Learnings: level filter (L0/L1/L2); Retrieval Explorer: level-weighted results; new "Memory Hierarchy" view. Step 31 — Retrieval Explorer: show detected query type + routing; Settings: adaptive retrieval toggle. Step 32 — New "Dreaming" tab/sub-tab in Consolidation Console: proposals with approve/reject; WebSocket: dreaming events; Settings: mode toggle. Step 33 — Learnings: content type filter + specialized rendering (code/diff/image); Retrieval Explorer: format by content type. Step 35 — Settings: schema version display + migration preview/apply. Step 36 — Settings: backup/restore buttons + history + auto-backup toggle. Step 37 — New "Plugins" tab or Settings sub-tab: enable/disable, config, installed list. Step 38 — Metrics Deep-Dive: all sub-tabs enriched; Dashboard: real health score; Fleet: full cross-project analysis. **Biggest single dashboard update**.
+
 ---
 
 ## Tier 6 — Production Scale (v2.8 – v3.0)
@@ -130,6 +140,8 @@ Research-grade features and the full metrics system.
 |---|------|------|---------|---------|------|
 | 39 | Structured Error Handling | Roadmap | 8.6 | v2.8.0 | None |
 | 40 | Multi-Tenant Architecture | Roadmap | 8.7 | v3.0.0 | Step 25 |
+
+> 📊 Dashboard: Step 39 — Dashboard: error toasts show code + suggested_action. Step 40 — New auth UI; Dashboard header: scope selector; Learnings: scope filter; Settings: tenant management; Fleet: cross-tenant view (admin).
 
 ---
 

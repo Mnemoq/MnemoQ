@@ -254,18 +254,20 @@ def is_in_retention(entry, current_step, ctx):
     return False
 
 
-def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths):
-    """Handle retrieval mode: score, filter, and print relevant learnings.
+def retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths):
+    """Shared logic for retrieval mode. Returns dict, no printing.
 
-    Uses four-channel fusion: tiered relevance (score_entry), BM25 lexical,
-    RRF (Reciprocal Rank Fusion) to combine rankings, and optional embedding
-    cosine similarity for semantic matching.
-
-    ctx keys used: score_threshold, escalation_threshold, max_warnings,
-                   max_patterns, max_step, domain_mappings,
-                   bm25_k1, bm25_b, rrf_k, stop_words,
-                   embedding_model, embedding_alpha, embedding_cache_dir,
-                   + all keys used by score_entry and is_in_retention
+    Returns:
+        {
+            "warnings": list[dict],      # scored warning entries
+            "patterns": list[dict],      # scored pattern entries
+            "escalations": list[dict],
+            "total_entries": int,
+            "unresolved_count": int,
+            "sleep_cycle_due": bool,
+            "profile_context": list[dict] | None,
+            "scores": {...},             # top/mean scores for metrics
+        }
     """
     _start = time.perf_counter()
     entries = read_learnings(paths)
@@ -276,20 +278,17 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     rrf_k = ctx.get("rrf_k", 60)
 
     # --- Phase 1: Filter + tiered scoring (dual gate) ---
-    candidates = []        # list of (tiered_score, entry)
+    candidates = []
     escalations = []
-    retained = []          # all retained entries (for corpus stats)
+    retained = []
 
     for entry in entries:
         if entry.get("resolved", False):
             continue
-
         if not is_in_retention(entry, current_step, ctx):
             continue
-
         retained.append(entry)
         score = score_entry(entry, current_step, task_components, task_files, task_domain, ctx)
-
         if entry["severity"] == "critical" or score >= ctx["score_threshold"]:
             candidates.append((score, entry))
             if entry["severity"] == "critical":
@@ -302,7 +301,7 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     query_text = " ".join(task_components + ([task_domain] if task_domain else []) + task_files)
     query_tokens = _tokenize(query_text, stop_words)
 
-    bm25_candidates = []   # list of (bm25_score, entry)
+    bm25_candidates = []
     for tiered_score, entry in candidates:
         entry_text = entry["trigger"] + " " + entry["action"] + " " + entry["reason"]
         doc_tokens = _tokenize(entry_text, stop_words)
@@ -310,20 +309,13 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         bm25_candidates.append((bm25, entry))
 
     # --- Phase 3: RRF fusion ---
-    # Rank by tiered score (desc), tie-break by timestamp (oldest first)
     tiered_ranked = sorted(candidates, key=lambda x: (-x[0], x[1].get("ts", "")))
-    tiered_ranks = {}
-    for rank, (score, entry) in enumerate(tiered_ranked, 1):
-        tiered_ranks[id(entry)] = rank
+    tiered_ranks = {id(e): r for r, (_, e) in enumerate(tiered_ranked, 1)}
 
-    # Rank by BM25 score (desc), tie-break by timestamp (oldest first)
     bm25_ranked = sorted(bm25_candidates, key=lambda x: (-x[0], x[1].get("ts", "")))
-    bm25_ranks = {}
-    for rank, (score, entry) in enumerate(bm25_ranked, 1):
-        bm25_ranks[id(entry)] = rank
+    bm25_ranks = {id(e): r for r, (_, e) in enumerate(bm25_ranked, 1)}
 
-    # Compute RRF scores and split by severity
-    warnings = []   # (rrf_score, tiered_score, entry)
+    warnings = []
     patterns = []
     for tiered_score, entry in candidates:
         t_rank = tiered_ranks[id(entry)]
@@ -350,7 +342,6 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
 
     if embedding_channel_active and query_embed is not None:
         alpha = embedding_alpha
-        # Compute cosine for each candidate, backfill missing embeddings
         for rrf, tiered_score, entry in warnings + patterns:
             vec = decode_embedding(entry.get("embedding"))
             if vec is None:
@@ -362,7 +353,6 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
             if cos > top_embedding_cosine:
                 top_embedding_cosine = cos
 
-        # Normalize RRF and fuse
         all_results = warnings + patterns
         max_rrf = max((r for r, _, _ in all_results), default=0.0)
         fused = []
@@ -374,14 +364,12 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
                 final = (1 - alpha) * cos
             fused.append((final, rrf, tiered_score, entry))
 
-        # Re-split and re-sort by final score
         warnings = [(f, r, t, e) for f, r, t, e in fused if e["severity"] == "critical"]
         patterns = [(f, r, t, e) for f, r, t, e in fused if e["severity"] != "critical"]
         warnings.sort(key=lambda x: x[0], reverse=True)
         patterns.sort(key=lambda x: x[0], reverse=True)
     else:
         alpha = 1.0
-        # Convert tuples from (rrf, tiered_score, entry) to (final=rrf, rrf, tiered_score, entry)
         warnings = [(r, r, t, e) for r, t, e in warnings]
         patterns = [(r, r, t, e) for r, t, e in patterns]
         warnings.sort(key=lambda x: x[0], reverse=True)
@@ -395,7 +383,7 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
 
     if reranker_mode != "none":
         from engine.reranker import rerank as _rerank
-        combined = warnings + patterns  # already sorted by final score
+        combined = warnings + patterns
         if len(combined) >= 3:
             top_n = combined[:reranker_top_n]
             rest = combined[reranker_top_n:]
@@ -418,63 +406,18 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     if warnings or patterns:
         write_learnings(paths, entries)
 
-    print("## ⚠ WARNINGS — Read before starting")
-    if warnings:
-        for _, _, _, entry in warnings:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
-            verified_str = "verified" if entry.get("verified", False) else "unverified"
-            scope_str = entry.get("scope", "file")
-            debt_str = entry.get("debt_level", "proper")
-            symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
-            if symptoms_str:
-                print(f"  Symptoms: {symptoms_str}")
-    else:
-        print("(none)")
-
     profile = load_profile()
-    # Pass config-provided domain_mappings (may be None if not in config)
     profile_context = get_profile_context(profile, task_domain, domain_mappings=ctx.get("domain_mappings"))
-    print("\n## 🎯 DEVELOPER PREFERENCES")
-    if profile_context:
-        for pref in profile_context:
-            print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
-            print(f"  Reason: {pref['reason']}")
-    else:
-        print("(none)")
-
-    print("\n## RELEVANT PATTERNS")
-    if patterns:
-        for _, _, _, entry in patterns:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
-            verified_str = "verified" if entry.get("verified", False) else "unverified"
-            scope_str = entry.get("scope", "file")
-            debt_str = entry.get("debt_level", "proper")
-            symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
-            if symptoms_str:
-                print(f"  Symptoms: {symptoms_str}")
-    else:
-        print("(none)")
-
-    if escalations:
-        print("\n## ⚡ ESCALATION — Critical entries unresolved for 30+ steps")
-        for entry in escalations:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']}")
 
     unresolved_count = sum(1 for e in entries if not e.get("resolved", False))
-
-    print(f"\n## STATS: {len(entries)} total entries, {unresolved_count} unresolved")
-
     max_step = ctx.get("max_step")
     sleep_cycle_steps = {10, 20, max_step} if max_step is not None else {10, 20}
     sleep_cycle_due = unresolved_count > 50 or current_step in sleep_cycle_steps
-    if sleep_cycle_due:
-        if unresolved_count > 50:
-            print(f"\n## SLEEP CYCLE DUE — {unresolved_count} unresolved entries exceed threshold of 50")
-        if current_step in sleep_cycle_steps:
-            print(f"\n## SLEEP CYCLE DUE — Sprint boundary at step {current_step} ({unresolved_count} unresolved entries)")
-        print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
+    sleep_cycle_reasons = []
+    if unresolved_count > 50:
+        sleep_cycle_reasons.append("threshold")
+    if current_step in sleep_cycle_steps:
+        sleep_cycle_reasons.append("sprint_boundary")
 
     all_results = warnings + patterns
     top_score = all_results[0][2] if all_results else 0.0
@@ -509,5 +452,89 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         sleep_cycle_due=sleep_cycle_due,
         latency_ms=round((time.perf_counter() - _start) * 1000, 2),
     )
+
+    # Strip tuple wrapper, return plain entries with scores
+    def _unwrap(results):
+        out = []
+        for final, rrf, tiered, entry in results:
+            out.append({**entry, "_final_score": round(final, 6), "_rrf_score": round(rrf, 6), "_tiered_score": round(tiered, 4)})
+        return out
+
+    return {
+        "warnings": _unwrap(warnings),
+        "patterns": _unwrap(patterns),
+        "escalations": escalations,
+        "total_entries": len(entries),
+        "unresolved_count": unresolved_count,
+        "sleep_cycle_due": sleep_cycle_due,
+        "sleep_cycle_reasons": sleep_cycle_reasons,
+        "profile_context": profile_context,
+        "scores": {
+            "top_score": round(top_score, 4),
+            "mean_score": round(mean_score, 4),
+            "top_bm25_score": round(top_bm25, 4),
+            "top_rrf_score": round(top_rrf_score, 6),
+            "top_final_score": round(top_final_score, 6),
+            "top_embedding_cosine": round(top_embedding_cosine, 6),
+            "embedding_channel_active": embedding_channel_active,
+            "reranker_active": reranker_active,
+        },
+    }
+
+
+def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths):
+    """Handle retrieval mode: score, filter, and print relevant learnings. CLI wrapper."""
+    result = retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths)
+
+    print("## ⚠ WARNINGS — Read before starting")
+    if result["warnings"]:
+        for entry in result["warnings"]:
+            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
+            verified_str = "verified" if entry.get("verified", False) else "unverified"
+            scope_str = entry.get("scope", "file")
+            debt_str = entry.get("debt_level", "proper")
+            symptoms_str = entry.get("symptoms", "")
+            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
+            if symptoms_str:
+                print(f"  Symptoms: {symptoms_str}")
+    else:
+        print("(none)")
+
+    print("\n## 🎯 DEVELOPER PREFERENCES")
+    if result["profile_context"]:
+        for pref in result["profile_context"]:
+            print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
+            print(f"  Reason: {pref['reason']}")
+    else:
+        print("(none)")
+
+    print("\n## RELEVANT PATTERNS")
+    if result["patterns"]:
+        for entry in result["patterns"]:
+            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
+            verified_str = "verified" if entry.get("verified", False) else "unverified"
+            scope_str = entry.get("scope", "file")
+            debt_str = entry.get("debt_level", "proper")
+            symptoms_str = entry.get("symptoms", "")
+            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
+            if symptoms_str:
+                print(f"  Symptoms: {symptoms_str}")
+    else:
+        print("(none)")
+
+    if result["escalations"]:
+        print("\n## ⚡ ESCALATION — Critical entries unresolved for 30+ steps")
+        for entry in result["escalations"]:
+            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']}")
+
+    print(f"\n## STATS: {result['total_entries']} total entries, {result['unresolved_count']} unresolved")
+
+    if result["sleep_cycle_due"]:
+        reasons = result.get("sleep_cycle_reasons", [])
+        if "threshold" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} unresolved entries exceed threshold of 50")
+        if "sprint_boundary" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — Sprint boundary at step {current_step} ({result['unresolved_count']} unresolved entries)")
+        print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
 
     return 0

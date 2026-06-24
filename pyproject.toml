@@ -1,16 +1,20 @@
 [project]
 name = "agent-memory-engine"
-version = "1.18.0"
+version = "1.20.4"
 description = "Episodic memory system for AI agents"
 requires-python = ">=3.10"
+dependencies = ["pydantic>=2.0", "httpx>=0.28.0"]
 
 [project.optional-dependencies]
-dev = ["pytest-cov>=4.0"]
+dev = ["pytest-cov>=4.0", "pytest-xdist>=3.0"]
 embeddings = ["sentence-transformers"]
+api = ["fastapi>=0.100", "uvicorn>=0.23"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+asyncio_mode = "auto"
+addopts = "-n auto"
 
 [tool.coverage.run]
 source = ["src"]

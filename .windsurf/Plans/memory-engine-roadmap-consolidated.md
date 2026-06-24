@@ -58,6 +58,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `retrieval.py`, `constants.py`, `config.json`
 
+> 📊 Dashboard: Retrieval Explorer — show 3-channel fusion score breakdown
+
 ### 1.2 Embedding-Based Retrieval (v1.18.0)
 **Problem**: Lexical matching misses semantic matches ("collision" vs "overlap").
 
@@ -69,6 +71,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `retrieval.py`, `validation.py`, `io.py`, `constants.py`, new `src/engine/migrate.py`, `config.json`
 
+> 📊 Dashboard: Retrieval Explorer — hybrid score split (lexical vs semantic); Settings — alpha config; Learnings detail — embedding status
+
 ### 1.3 Embedding-Based Dedup (v1.19.0)
 **Problem**: "Same lesson, different wording" creates duplicate entries.
 
@@ -78,6 +82,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Requires provenance fields: add `project_id`, `origin_project`, `contributing_projects` to schema
 
 **Files**: `handlers.py`, `validation.py`, `io.py`, `migrate.py`
+
+> 📊 Dashboard: Metrics > Dedup — semantic duplicate stats; Quarantine — new reason category; Learnings detail — contributors field
 
 ### 1.4 Reranking Pass (v1.19.1)
 **Problem**: First-stage retrieval returns right candidates in wrong order.
@@ -90,6 +96,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `retrieval.py`, `constants.py`, `config.json`
 
+> 📊 Dashboard: Settings — reranker config; Retrieval Explorer — pre/post-rerank ordering
+
 ### 1.5 Grading Harness (v1.19.2)
 **Problem**: No way to measure retrieval quality objectively.
 
@@ -99,6 +107,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - This becomes the real "retrieval relevance" metric — replaces guessed numbers
 
 **Files**: new `src/engine/eval.py`, `filter.py`
+
+> 📊 Dashboard: Metrics — new "Retrieval Grading" sub-tab (top-1/top-3 hit rates); Settings — run eval button
 
 ---
 
@@ -200,6 +210,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: new `src/engine/storage.py`, `io.py`, `filter.py`, `config.json`
 
+> 📊 Dashboard: Settings — storage backend selector; Dashboard — latency indicator
+
 ### 3.2 Incremental Index Updates (v1.22.1)
 **Problem**: Every retrieval re-reads and re-scores all entries.
 
@@ -220,6 +232,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `handlers.py`, `consolidation.py`, `constants.py`
 
+> 📊 Dashboard: Consolidation Console — auto-archive status; Settings — threshold config; Alerts — auto-archive notification
+
 ---
 
 ## Phase 4 — Memory Intelligence (v1.24 – v1.26)
@@ -237,6 +251,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `retrieval.py`, `consolidation.py`, `validation.py`, `constants.py`
 
+> 📊 Dashboard: Learnings detail — SM-2 schedule; Metrics > Lifecycle — review schedule; Consolidation — "Due for Review" section
+
 ### 4.2 Bi-Temporal Timestamps (v1.24.1)
 **Problem**: Single `ts` field conflates "when learned" with "when relevant." No "as-of" queries.
 
@@ -246,6 +262,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Enables temporal debugging: "what did we know at step 15?"
 
 **Files**: `validation.py`, `handlers.py`, `retrieval.py`, `consolidation.py`, `migrate.py`
+
+> 📊 Dashboard: Retrieval Explorer — "as-of" step input; Learnings — valid_from/valid_until + supersession chain; Consolidation — supersession history
 
 ### 4.3 Entity Extraction & Linking (v1.25.0)
 **Problem**: Component matching is exact string. "Player" and "PlayerEntity" don't match.
@@ -258,6 +276,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: new `src/engine/entities.py`, `validation.py`, `retrieval.py`, `handlers.py`, `storage.py`
 
+> 📊 Dashboard: Learnings detail — extracted entities; Retrieval Explorer — entity match indicator; new entity filter
+
 ### 4.4 Memory Link Graph (v1.25.1)
 **Problem**: Entries are isolated. No way to traverse from one learning to related ones.
 
@@ -268,6 +288,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Inspired by A-Mem's Zettelkasten links and GAAMA's graph-augmented retrieval
 
 **Files**: new `src/engine/graph.py`, `handlers.py`, `retrieval.py`, `storage.py`
+
+> 📊 Dashboard: Learnings detail — linked entries with link type; Retrieval Explorer — expanded results from graph; new graph visualization
 
 ### 4.5 Cue-Tag-Content Graph (v1.26.0)
 **Problem**: Flat keyword matching can't do multi-hop reasoning.
@@ -280,6 +302,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `graph.py`, `retrieval.py`
 
+> 📊 Dashboard: Retrieval Explorer — tag traversal path; new tag map visualization
+
 ### 4.6 Graph Consolidation (v1.26.1)
 **Problem**: Graph grows fragmented over time.
 
@@ -290,6 +314,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Inspired by SwiftMem's co-consolidation
 
 **Files**: `graph.py`, `consolidation.py`
+
+> 📊 Dashboard: Metrics — new "Graph Stats" sub-tab; Consolidation Console — graph consolidation report
 
 ---
 
@@ -308,6 +334,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `constants.py`, `validation.py`, `retrieval.py`, `handlers.py`, `consolidation.py`
 
+> 📊 Dashboard: Learnings — new type filter + specialized procedure detail panel; Retrieval Explorer — "Suggested Procedure" card; Consolidation — low success-rate flag
+
 ### 5.2 Actor-Aware Attribution (v1.27.1)
 **Problem**: `source_agent` records who logged, but not who observed or verified.
 
@@ -317,6 +345,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Inspired by Mem0's actor-aware memory
 
 **Files**: `validation.py`, `retrieval.py`, `metrics.py`, `constants.py`
+
+> 📊 Dashboard: Learnings detail — observed_by/verified_by; Retrieval Explorer — trusted-agents filter; Metrics > Agents — enhanced breakdown
 
 ### 5.3 Auto Conflict Resolution (v1.28.0)
 **Problem**: Conflict detection is informational only — requires manual Challenge Protocol.
@@ -330,6 +360,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `handlers.py`, `consolidation.py`, `metrics.py`
 
+> 📊 Dashboard: Consolidation Console — proposed supersessions with approve/reject; WebSocket — supersession event; Settings — auto-resolve toggle
+
 ### 5.4 Cross-Project Learning Transfer (v1.28.1)
 **Problem**: Each project's memory is isolated. Learnings about general patterns can't be shared.
 
@@ -341,6 +373,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Auto-promotion suggestions during Sleep Cycle: project-agnostic entries with ≥2 reinforcements
 
 **Files**: new `src/engine/transfer.py`, `filter.py`, `retrieval.py`, `consolidation.py`
+
+> 📊 Dashboard: Fleet — export/import/promote buttons; Learnings — "Shared Learnings" filter; Consolidation — cross-project promotion suggestions
 
 ---
 
@@ -360,6 +394,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: new `src/engine/sync.py`, new `src/cloud/` (server-side), `config.json`
 
+> 📊 Dashboard: Dashboard header — sync status indicator; Settings — sync config; WebSocket — sync events
+
 ### 6.2 Team Shared Learnings (v2.1.0)
 **Problem**: Team members can't share learnings across their individual stores.
 
@@ -369,6 +405,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Builds on cross-project transfer (5.4) with cloud-backed sync
 
 **Files**: `transfer.py`, `sync.py`, `filter.py`, `retrieval.py`, `consolidation.py`
+
+> 📊 Dashboard: Learnings — scope filter (local/team/global); Fleet — team scope selector
 
 ### 6.3 Cloud-Hosted Dashboard (v2.2.0)
 **Problem**: Local web dashboard (2.3) only works on the machine running the engine. Pro tier users need browser access from anywhere.
@@ -382,6 +420,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `src/dashboard/` (existing, deployed to cloud), `src/cloud/dashboard.py`
 
+> 📊 Dashboard: New login page (OAuth); Dashboard — historical metrics charts; Fleet — multi-project across synced projects; Settings — user/team management
+
 ### 6.4 Tauri Desktop Wrapper (v2.2.1)
 **Problem**: Web dashboard requires a browser tab. Desktop users want a native app feel.
 
@@ -394,6 +434,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Full architecture in `memory-engine-gui-686f76.md` Phase 2
 
 **Files**: new `src/desktop/` (Tauri project)
+
+> 📊 Dashboard: Theme toggle (dark/light); OS-native notifications; system tray — no content changes
 
 ---
 
@@ -412,6 +454,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `consolidation.py`, `retrieval.py`, `validation.py`, `constants.py`
 
+> 📊 Dashboard: Learnings — level filter (L0/L1/L2); Retrieval Explorer — level-weighted results; new "Memory Hierarchy" view
+
 ### 7.2 Adaptive Retrieval (v2.4.0)
 **Problem**: Every retrieval uses the same strategy regardless of query type.
 
@@ -422,6 +466,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Inspired by SwiftMem's query-aware DAG-tag indexing
 
 **Files**: `retrieval.py`, `storage.py`, new `src/engine/router.py`
+
+> 📊 Dashboard: Retrieval Explorer — show detected query type + routing; Settings — adaptive retrieval toggle
 
 ### 7.3 Background Consolidation / "Dreaming" (v2.5.0)
 **Problem**: Consolidation is manual. Memory grows stale between Sleep Cycles.
@@ -436,6 +482,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: new `src/engine/dreaming.py`, `consolidation.py`
 
+> 📊 Dashboard: New "Dreaming" tab/sub-tab in Consolidation Console — proposals with approve/reject; WebSocket — dreaming events; Settings — mode toggle
+
 ### 7.4 Multi-Modal Memory (v2.5.1)
 **Problem**: Only text-based learnings. Can't store code snippets, diffs, or image references.
 
@@ -447,6 +495,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Code entries can be executed as sanity checks during consolidation
 
 **Files**: `validation.py`, `retrieval.py`, `handlers.py`, `constants.py`
+
+> 📊 Dashboard: Learnings — content type filter + specialized rendering (code/diff/image); Retrieval Explorer — format by content type
 
 ### 7.5 Textual TUI Dashboard (v2.3.1)
 **Problem**: Web dashboard requires a browser. Terminal users need inline exploration.
@@ -488,6 +538,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: new `src/engine/migrations.py`, `io.py`, `validation.py`
 
+> 📊 Dashboard: Settings — schema version display + migration preview/apply
+
 ### 8.3 Backup & Recovery (v2.6.2)
 **Problem**: No general-purpose backup/restore for data files.
 
@@ -499,6 +551,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: new `src/engine/backup.py`, `filter.py`
 
+> 📊 Dashboard: Settings — backup/restore buttons + history + auto-backup toggle
+
 ### 8.4 Plugin Architecture (v2.7.0)
 **Problem**: All logic hardcoded. Can't extend without modifying engine source.
 
@@ -509,6 +563,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Third-party plugins via pip: `pip install agent-memory-graph-plugin`
 
 **Files**: new `src/engine/plugins.py`, `filter.py`, `config.json`
+
+> 📊 Dashboard: New "Plugins" tab or Settings sub-tab — enable/disable, config, installed list
 
 ### 8.5 Advanced Metrics & Analytics System (v2.7.1)
 **Problem**: Metrics are raw event logs. No derived insights, health scoring, or alerts.
@@ -525,6 +581,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 
 **Files**: `metrics.py`, `constants.py`, `config.json`, new `src/engine/snapshot.py`, `src/engine/health.py`, `src/engine/analysis.py`, `src/engine/recommendations.py`, `src/engine/visualize.py`, `src/engine/export.py`
 
+> 📊 Dashboard: Metrics Deep-Dive — all sub-tabs enriched; Dashboard — real health score; Fleet — full cross-project analysis. **Biggest single dashboard update**
+
 ### 8.6 Structured Error Handling (v2.8.0)
 **Problem**: Errors are unparseable strings. Hard to handle programmatically.
 
@@ -534,6 +592,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - SDK exposes typed exceptions for programmatic handling
 
 **Files**: new `src/engine/exceptions.py`, all engine modules
+
+> 📊 Dashboard: Dashboard — error toasts show code + suggested_action
 
 ### 8.7 Multi-Tenant Architecture (v3.0.0)
 **Problem**: Cloud sync needs tenant isolation for Pro tier.
@@ -545,6 +605,8 @@ A phased roadmap to evolve the Agent Memory Engine from a JSONL-based episodic m
 - Data residency: choose region for cloud sync
 
 **Files**: `validation.py`, `retrieval.py`, `sync.py`, new `src/cloud/tenant.py`
+
+> 📊 Dashboard: New auth UI; Dashboard header — scope selector; Learnings — scope filter; Settings — tenant management; Fleet — cross-tenant view (admin)
 
 ---
 

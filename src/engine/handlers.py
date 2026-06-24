@@ -20,42 +20,46 @@ from engine.retrieval import embed_entry, encode_embedding, find_semantic_duplic
 
 TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
-def handle_log(json_str, paths, ctx):
-    """Handle --log mode: validate, dedup-check, append."""
+def log_core(json_str, paths, ctx):
+    """Shared logic for --log mode. Returns dict, no printing.
+
+    Returns:
+        {"exit_code": int, "status": str, "message": str, ...}
+    """
     _start = time.perf_counter()
 
     try:
         entry = json.loads(json_str)
     except json.JSONDecodeError as e:
         log_event(paths, "log", outcome="QUARANTINED", outcome_detail=f"JSON parse error: {e}",
+                  entry_ts=None,
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, f"JSON parse error: {e}")
-        print(f"QUARANTINED: JSON parse error: {e}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "quarantined", "message": f"QUARANTINED: JSON parse error: {e}"}
 
     errors = validate_entry(entry, ctx)
     if errors:
         reason = "; ".join(errors)
         log_event(paths, "log", outcome="QUARANTINED", outcome_detail=reason,
+                  entry_ts=entry.get("ts"),
                   entry_type=entry.get("type"), entry_domain=entry.get("domain"),
                   entry_severity=entry.get("severity"), entry_step=entry.get("step"),
                   entry_source_agent=entry.get("source_agent"),
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, reason)
-        print(f"QUARANTINED: {reason}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "quarantined", "message": f"QUARANTINED: {reason}"}
 
     valid_retrieval_only = ctx.get("valid_retrieval_only_agents")
     if valid_retrieval_only is not None and entry.get("source_agent") in valid_retrieval_only:
         detail = f"{entry['source_agent']} is retrieval-only (use --step mode)"
         log_event(paths, "log", outcome="QUARANTINED", outcome_detail=detail,
+                  entry_ts=entry.get("ts"),
                   entry_type=entry.get("type"), entry_domain=entry.get("domain"),
                   entry_severity=entry.get("severity"), entry_step=entry.get("step"),
                   entry_source_agent=entry.get("source_agent"),
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, detail)
-        print(f"QUARANTINED: {entry['source_agent']} is retrieval-only", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "quarantined", "message": f"QUARANTINED: {detail}"}
 
     entry = stamp_entry(entry, paths.repo_root)
     entry["schema_version"] = CURRENT_SCHEMA_VERSION
@@ -75,16 +79,20 @@ def handle_log(json_str, paths, ctx):
 
     # AGENTS.md conflict detection (informational, non-blocking)
     conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry, paths)
+    agents_warning = None
     if conflict_detected:
-        print(f"WARNING: Learning may overlap with AGENTS.md section '{best_section}'")
-        print(f"  Jaccard: {jaccard_score:.2f}, Containment hits: {containment_hits}")
-        print(f"  Learning: {entry['trigger']}: {entry['action']}")
-        print(f"  Consider: Updating existing section instead of adding new rule")
+        agents_warning = (
+            f"WARNING: Learning may overlap with AGENTS.md section '{best_section}'\n"
+            f"  Jaccard: {jaccard_score:.2f}, Containment hits: {containment_hits}\n"
+            f"  Learning: {entry['trigger']}: {entry['action']}\n"
+            f"  Consider: Updating existing section instead of adding new rule"
+        )
 
     existing_entries = read_learnings(paths)
 
     _lat = lambda: round((time.perf_counter() - _start) * 1000, 2)
     _entry_meta = lambda: {
+        "entry_ts": entry.get("ts"),
         "entry_type": entry.get("type"),
         "entry_domain": entry.get("domain"),
         "entry_severity": entry.get("severity"),
@@ -116,13 +124,15 @@ def handle_log(json_str, paths, ctx):
             sem_match["embedding"] = entry["embedding"]
         write_learnings(paths, existing_entries)
         quarantine(paths, json_str, f"semantic_duplicate (cosine: {sem_cosine:.3f})")
-        print(f"SEMANTIC DUPLICATE — merged with existing entry (cosine: {sem_cosine:.3f}):")
-        print(f"  [step-{sem_match['step']}, {sem_match['domain']}, {sem_match['source_agent']}] {sem_match['trigger']}: {sem_match['action']}")
-        print(f"  access_count incremented to {sem_match['access_count']}.")
-        print(f"  contributors: {', '.join(sem_match['contributors'])}")
+        msg = (
+            f"SEMANTIC DUPLICATE — merged with existing entry (cosine: {sem_cosine:.3f}):\n"
+            f"  [step-{sem_match['step']}, {sem_match['domain']}, {sem_match['source_agent']}] {sem_match['trigger']}: {sem_match['action']}\n"
+            f"  access_count incremented to {sem_match['access_count']}.\n"
+            f"  contributors: {', '.join(sem_match['contributors'])}"
+        )
         log_event(paths, "log", outcome="SEMANTIC_DUPLICATE", similarity_score=round(sem_cosine, 4),
                   latency_ms=_lat(), **_entry_meta())
-        return 0
+        return {"exit_code": 0, "status": "semantic_duplicate", "message": msg, "matched_entry": sem_match, "similarity": round(sem_cosine, 4)}
 
     similarity, best_match = find_best_match(entry, existing_entries)
 
@@ -133,41 +143,56 @@ def handle_log(json_str, paths, ctx):
         if entry.get("embedding") is not None and best_match.get("embedding") is None:
             best_match["embedding"] = entry["embedding"]
         write_learnings(paths, existing_entries)
-        print(f"DUPLICATE — existing entry matches (similarity: {similarity:.2f}):")
-        print(f"  [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}")
-        print(f"  access_count incremented to {best_match['access_count']}.")
-        print(f"  reinforcement_count incremented to {best_match['reinforcement_count']}.")
+        msg = (
+            f"DUPLICATE — existing entry matches (similarity: {similarity:.2f}):\n"
+            f"  [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}\n"
+            f"  access_count incremented to {best_match['access_count']}.\n"
+            f"  reinforcement_count incremented to {best_match['reinforcement_count']}."
+        )
         log_event(paths, "log", outcome="DUPLICATE", similarity_score=round(similarity, 4),
                   latency_ms=_lat(), **_entry_meta())
-        return 0
+        return {"exit_code": 0, "status": "duplicate", "message": msg, "matched_entry": best_match, "similarity": round(similarity, 4)}
 
     if 0.4 <= similarity < 0.7:
         if actions_oppose(entry["action"], best_match["action"]):
             append_learning(paths, entry)
-            print(f"CONFLICT — potential contradiction detected (similarity: {similarity:.2f}):")
-            print(f"  Existing: [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}")
-            print(f"  Your entry proposes an opposing action for the same trigger.")
-            print(f"  Follow the Challenge Protocol: re-submit with type 'architectural_pattern' and")
-            print(f"  explain in the reason why the old rule no longer applies.")
+            msg = (
+                f"CONFLICT — potential contradiction detected (similarity: {similarity:.2f}):\n"
+                f"  Existing: [step-{best_match['step']}, {best_match['domain']}, {best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}\n"
+                f"  Your entry proposes an opposing action for the same trigger.\n"
+                f"  Follow the Challenge Protocol: re-submit with type 'architectural_pattern' and\n"
+                f"  explain in the reason why the old rule no longer applies."
+            )
             log_event(paths, "log", outcome="CONFLICT", similarity_score=round(similarity, 4),
+                      matched_source_agent=best_match.get("source_agent", "unknown"),
                       latency_ms=_lat(), **_entry_meta())
-            return 0
+            return {"exit_code": 0, "status": "conflict", "message": msg, "entry": entry, "matched_entry": best_match, "similarity": round(similarity, 4)}
         else:
             append_learning(paths, entry)
-            print(f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
+            msg = f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}"
             log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
                       latency_ms=_lat(), **_entry_meta())
-            return 0
+            return {"exit_code": 0, "status": "added", "message": msg, "entry": entry, "similarity": round(similarity, 4)}
 
     append_learning(paths, entry)
-    print(f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
+    msg = f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}"
     log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
               latency_ms=_lat(), **_entry_meta())
-    return 0
+    return {"exit_code": 0, "status": "added", "message": msg, "entry": entry, "similarity": round(similarity, 4)}
 
 
-def handle_update(ts, json_str, paths, ctx):
-    """Handle --update mode: amend existing entry."""
+def handle_log(json_str, paths, ctx):
+    """Handle --log mode: validate, dedup-check, append. CLI wrapper."""
+    result = log_core(json_str, paths, ctx)
+    if result["exit_code"] != 0:
+        print(result["message"], file=sys.stderr)
+    else:
+        print(result["message"])
+    return result["exit_code"]
+
+
+def update_core(ts, json_str, paths, ctx):
+    """Shared logic for --update mode. Returns dict, no printing."""
     _start = time.perf_counter()
 
     try:
@@ -176,8 +201,7 @@ def handle_update(ts, json_str, paths, ctx):
         log_event(paths, "update", outcome="QUARANTINED", outcome_detail=f"JSON parse error: {e}",
                   target_ts=ts, latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, f"JSON parse error: {e}")
-        print(f"QUARANTINED: JSON parse error: {e}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "quarantined", "message": f"QUARANTINED: JSON parse error: {e}"}
 
     errors = validate_entry(entry, ctx)
     if errors:
@@ -187,8 +211,7 @@ def handle_update(ts, json_str, paths, ctx):
                   entry_severity=entry.get("severity"),
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, reason)
-        print(f"QUARANTINED: {reason}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "quarantined", "message": f"QUARANTINED: {reason}"}
 
     valid_retrieval_only = ctx.get("valid_retrieval_only_agents")
     if valid_retrieval_only is not None and entry.get("source_agent") in valid_retrieval_only:
@@ -196,8 +219,7 @@ def handle_update(ts, json_str, paths, ctx):
         log_event(paths, "update", outcome="QUARANTINED", outcome_detail=detail,
                   target_ts=ts, latency_ms=round((time.perf_counter() - _start) * 1000, 2))
         quarantine(paths, json_str, detail)
-        print(f"QUARANTINED: {detail}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "quarantined", "message": f"QUARANTINED: {detail}"}
 
     original_fields = set(entry.keys())
     entry = stamp_entry(entry, paths.repo_root)
@@ -240,33 +262,35 @@ def handle_update(ts, json_str, paths, ctx):
     if not found:
         log_event(paths, "update", outcome="NOT_FOUND", target_ts=ts,
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print(f"ERROR: No entry found with ts={ts}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "not_found", "message": f"ERROR: No entry found with ts={ts}"}
 
     write_learnings(paths, existing_entries)
-    print(f"UPDATED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}")
+    msg = f"UPDATED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}"
     log_event(paths, "update", outcome="UPDATED", target_ts=ts,
               entry_type=entry.get("type"), entry_domain=entry.get("domain"),
               entry_severity=entry.get("severity"),
               latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-    return 0
+    return {"exit_code": 0, "status": "updated", "message": msg, "entry": entry}
 
 
-def handle_resolve(ts, paths):
-    """
-    Handle --resolve mode: mark existing entry as resolved (partial update).
-    
-    Note: Uses read-modify-write pattern without file locking. Safe under
-    current sequential execution model. If parallel agent execution is added,
-    implement fcntl.flock() or equivalent per-platform locking.
-    """
+def handle_update(ts, json_str, paths, ctx):
+    """Handle --update mode: amend existing entry. CLI wrapper."""
+    result = update_core(ts, json_str, paths, ctx)
+    if result["exit_code"] != 0:
+        print(result["message"], file=sys.stderr)
+    else:
+        print(result["message"])
+    return result["exit_code"]
+
+
+def resolve_core(ts, paths):
+    """Shared logic for --resolve mode. Returns dict, no printing."""
     _start = time.perf_counter()
 
     if not TS_PATTERN.match(ts):
         log_event(paths, "resolve", outcome="INVALID_TS", target_ts=ts,
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print(f"ERROR: Invalid timestamp format: {ts}. Expected YYYY-MM-DDTHH:MM:SSZ", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "invalid_ts", "message": f"ERROR: Invalid timestamp format: {ts}. Expected YYYY-MM-DDTHH:MM:SSZ"}
     
     existing_entries = read_learnings(paths)
     found = False
@@ -282,30 +306,54 @@ def handle_resolve(ts, paths):
     if not found:
         log_event(paths, "resolve", outcome="NOT_FOUND", target_ts=ts,
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print(f"ERROR: No entry found with ts={ts}", file=sys.stderr)
-        return 1
+        return {"exit_code": 1, "status": "not_found", "message": f"ERROR: No entry found with ts={ts}"}
 
     write_learnings(paths, existing_entries)
-    print(f"RESOLVED [step-{resolved_entry['step']}, {resolved_entry['type']}, {resolved_entry['domain']}] {resolved_entry['trigger']}")
+    msg = f"RESOLVED [step-{resolved_entry['step']}, {resolved_entry['type']}, {resolved_entry['domain']}] {resolved_entry['trigger']}"
     log_event(paths, "resolve", outcome="RESOLVED", target_ts=ts,
               entry_step=resolved_entry.get("step"),
               entry_domain=resolved_entry.get("domain"),
               entry_type=resolved_entry.get("type"),
               latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-    return 0
+    return {"exit_code": 0, "status": "resolved", "message": msg, "entry": resolved_entry}
 
 
-def handle_stats(paths):
-    """Handle --stats mode: print summary statistics about the memory system."""
-    _start = time.perf_counter()
-    entries = read_learnings(paths)
+def handle_resolve(ts, paths):
+    """
+    Handle --resolve mode: mark existing entry as resolved (partial update). CLI wrapper.
     
+    Note: Uses read-modify-write pattern without file locking. Safe under
+    current sequential execution model. If parallel agent execution is added,
+    implement fcntl.flock() or equivalent per-platform locking.
+    """
+    result = resolve_core(ts, paths)
+    if result["exit_code"] != 0:
+        print(result["message"], file=sys.stderr)
+    else:
+        print(result["message"])
+    return result["exit_code"]
+
+
+def stats_core(paths, emit_event: bool = True):
+    """Shared logic for --stats mode. Returns dict, no printing."""
+    _start = time.perf_counter() if emit_event else None
+    entries = read_learnings(paths)
+
     if not entries:
-        log_event(paths, "stats", total_entries=0, unresolved=0, resolved=0,
-                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print("## MEMORY STATS")
-        print("No entries found.")
-        return 0
+        if emit_event:
+            log_event(paths, "stats", total_entries=0, unresolved=0, resolved=0,
+                      latency_ms=round((time.perf_counter() - _start) * 1000, 2))
+        return {
+            "exit_code": 0, "status": "ok",
+            "total": 0, "unresolved": 0, "resolved": 0,
+            "avg_access_count": 0.0, "avg_reinforcement_count": 0.0,
+            "step_range": [0, 0],
+            "severity_breakdown": {}, "type_breakdown": {},
+            "scope_breakdown": {}, "debt_breakdown": {},
+            "verified": 0, "unverified": 0,
+            "proven": 0, "over_injected": 0, "under_retrieved": 0,
+            "sleep_cycle_due": False,
+        }
     
     total = len(entries)
     unresolved = sum(1 for e in entries if not e.get("resolved", False))
@@ -346,48 +394,72 @@ def handle_stats(paths):
     over_injected = [e for e in entries if e.get("access_count", 0) >= 10 and e.get("reinforcement_count", 0) <= 2]
     under_retrieved = [e for e in entries if e.get("access_count", 0) <= 2 and e.get("reinforcement_count", 0) >= 5]
     
+    sleep_cycle_due = unresolved > 50
+
+    if emit_event:
+        log_event(paths, "stats",
+            total_entries=total, unresolved=unresolved, resolved=resolved,
+            avg_access_count=round(avg_access, 2), avg_reinforcement_count=round(avg_reinforcement, 2),
+            step_range=[min_step, max_step],
+            severity_breakdown=severity_counts, type_breakdown=type_counts,
+            scope_breakdown=scope_counts, debt_breakdown=debt_counts,
+            verified=verified_count, unverified=unverified_count,
+            proven=len(proven), over_injected=len(over_injected), under_retrieved=len(under_retrieved),
+            latency_ms=round((time.perf_counter() - _start) * 1000, 2),
+        )
+
+    return {
+        "exit_code": 0, "status": "ok",
+        "total": total, "unresolved": unresolved, "resolved": resolved,
+        "avg_access_count": round(avg_access, 2), "avg_reinforcement_count": round(avg_reinforcement, 2),
+        "step_range": [min_step, max_step],
+        "severity_breakdown": severity_counts, "type_breakdown": type_counts,
+        "scope_breakdown": scope_counts, "debt_breakdown": debt_counts,
+        "verified": verified_count, "unverified": unverified_count,
+        "proven": len(proven), "over_injected": len(over_injected), "under_retrieved": len(under_retrieved),
+        "sleep_cycle_due": sleep_cycle_due,
+    }
+
+
+def handle_stats(paths):
+    """Handle --stats mode: print summary statistics. CLI wrapper."""
+    result = stats_core(paths)
+    if result["exit_code"] != 0:
+        return result["exit_code"]
+    
+    if result["total"] == 0:
+        print("## MEMORY STATS")
+        print("No entries found.")
+        return 0
+    
     print("## MEMORY STATS")
-    print(f"Total entries: {total}")
-    print(f"Unresolved: {unresolved}")
-    print(f"Resolved: {resolved}")
-    print(f"Average access_count: {avg_access:.1f}")
-    print(f"Average reinforcement_count: {avg_reinforcement:.1f}")
-    print(f"Step range: {min_step}-{max_step}")
+    print(f"Total entries: {result['total']}")
+    print(f"Unresolved: {result['unresolved']}")
+    print(f"Resolved: {result['resolved']}")
+    print(f"Average access_count: {result['avg_access_count']:.1f}")
+    print(f"Average reinforcement_count: {result['avg_reinforcement_count']:.1f}")
+    print(f"Step range: {result['step_range'][0]}-{result['step_range'][1]}")
     print(f"\nSeverity breakdown:")
     for sev in ["critical", "major", "minor"]:
-        count = severity_counts.get(sev, 0)
+        count = result["severity_breakdown"].get(sev, 0)
         print(f"  {sev}: {count}")
     print(f"\nType breakdown:")
-    for t in sorted(type_counts.keys()):
-        print(f"  {t}: {type_counts[t]}")
+    for t in sorted(result["type_breakdown"].keys()):
+        print(f"  {t}: {result['type_breakdown'][t]}")
     print(f"\nScope breakdown:")
     for s in ["system", "module", "file"]:
-        count = scope_counts.get(s, 0)
+        count = result["scope_breakdown"].get(s, 0)
         print(f"  {s}: {count}")
     print(f"\nDebt level breakdown:")
     for d in ["proper", "workaround", "temporary"]:
-        count = debt_counts.get(d, 0)
+        count = result["debt_breakdown"].get(d, 0)
         print(f"  {d}: {count}")
-    print(f"\nVerified: {verified_count} verified, {unverified_count} unverified")
-    
+    print(f"\nVerified: {result['verified']} verified, {result['unverified']} unverified")
     print(f"\nReinforcement patterns:")
-    print(f"  Proven (reinforcement >= 5): {len(proven)}")
-    print(f"  Over-injected (access >= 10, reinforcement <= 2): {len(over_injected)}")
-    print(f"  Under-retrieved (access <= 2, reinforcement >= 5): {len(under_retrieved)}")
-    
-    if unresolved > 50:
-        print(f"\n## SLEEP CYCLE DUE — {unresolved} unresolved entries exceed threshold of 50")
+    print(f"  Proven (reinforcement >= 5): {result['proven']}")
+    print(f"  Over-injected (access >= 10, reinforcement <= 2): {result['over_injected']}")
+    print(f"  Under-retrieved (access <= 2, reinforcement >= 5): {result['under_retrieved']}")
+    if result["sleep_cycle_due"]:
+        print(f"\n## SLEEP CYCLE DUE — {result['unresolved']} unresolved entries exceed threshold of 50")
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
-
-    log_event(paths, "stats",
-        total_entries=total, unresolved=unresolved, resolved=resolved,
-        avg_access_count=round(avg_access, 2), avg_reinforcement_count=round(avg_reinforcement, 2),
-        step_range=[min_step, max_step],
-        severity_breakdown=severity_counts, type_breakdown=type_counts,
-        scope_breakdown=scope_counts, debt_breakdown=debt_counts,
-        verified=verified_count, unverified=unverified_count,
-        proven=len(proven), over_injected=len(over_injected), under_retrieved=len(under_retrieved),
-        latency_ms=round((time.perf_counter() - _start) * 1000, 2),
-    )
-
     return 0

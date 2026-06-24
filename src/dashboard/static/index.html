@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Memory Engine</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <h1>AME</h1>
+        <span class="version" id="engine-version">v—</span>
+      </div>
+      <ul class="nav-tabs">
+        <li data-tab="dashboard" class="active"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></li>
+        <li data-tab="learnings"><i data-lucide="book-open"></i><span>Learnings</span></li>
+        <li data-tab="retrieval"><i data-lucide="search"></i><span>Retrieval</span></li>
+        <li data-tab="metrics"><i data-lucide="bar-chart-3"></i><span>Metrics</span></li>
+        <li data-tab="consolidation"><i data-lucide="layers"></i><span>Consolidation</span></li>
+        <li data-tab="fleet"><i data-lucide="network"></i><span>Fleet</span></li>
+        <li data-tab="settings"><i data-lucide="settings"></i><span>Settings</span></li>
+      </ul>
+      <div class="sidebar-footer">
+        <div id="health-badge" class="health-badge unknown">—</div>
+      </div>
+    </nav>
+
+    <main id="content">
+      <!-- Dashboard -->
+      <section id="view-dashboard" class="view active">
+        <div class="view-header">
+          <h2>Dashboard</h2>
+          <button id="refresh-dashboard" class="btn btn-ghost"><i data-lucide="refresh-cw"></i> Refresh</button>
+        </div>
+        <div id="dashboard-cards" class="cards-grid"></div>
+        <div class="charts-row">
+          <div class="chart-card">
+            <h3>Activity Trends (30d)</h3>
+            <canvas id="chart-activity"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Severity Breakdown</h3>
+            <canvas id="chart-severity"></canvas>
+          </div>
+        </div>
+        <div id="dashboard-recommendations" class="recommendations-panel"></div>
+        <div id="dashboard-alerts" class="alerts-panel"></div>
+      </section>
+
+      <!-- Learnings Browser -->
+      <section id="view-learnings" class="view">
+        <div class="view-header">
+          <h2>Learnings Browser</h2>
+          <div class="filter-bar">
+            <input type="text" id="learnings-search" placeholder="Search..." class="input">
+            <select id="filter-domain" class="select"><option value="">All domains</option></select>
+            <select id="filter-type" class="select"><option value="">All types</option></select>
+            <select id="filter-severity" class="select"><option value="">All severities</option></select>
+            <select id="filter-agent" class="select"><option value="">All agents</option></select>
+            <select id="filter-resolved" class="select">
+              <option value="">All</option>
+              <option value="false">Unresolved</option>
+              <option value="true">Resolved</option>
+            </select>
+            <input type="number" id="filter-step-min" placeholder="Min step" class="input" style="width:80px">
+            <input type="number" id="filter-step-max" placeholder="Max step" class="input" style="width:80px">
+            <button id="learnings-export-jsonl" class="btn btn-ghost">Export JSONL</button>
+            <button id="learnings-export-csv" class="btn btn-ghost">Export CSV</button>
+          </div>
+        </div>
+        <div class="learnings-layout">
+          <div id="learnings-table-wrap" class="learnings-table-wrap">
+            <table id="learnings-table">
+              <thead>
+                <tr>
+                  <th data-sort="step">Step ↕</th>
+                  <th data-sort="type">Type ↕</th>
+                  <th data-sort="domain">Domain ↕</th>
+                  <th data-sort="severity">Severity ↕</th>
+                  <th data-sort="trigger">Trigger ↕</th>
+                  <th data-sort="source_agent">Agent ↕</th>
+                  <th data-sort="resolved">Status ↕</th>
+                </tr>
+              </thead>
+              <tbody id="learnings-tbody"></tbody>
+            </table>
+          </div>
+          <aside id="learnings-detail" class="learnings-detail">
+            <p class="placeholder">Select an entry to view details.</p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Retrieval Explorer -->
+      <section id="view-retrieval" class="view">
+        <div class="view-header"><h2>Retrieval Explorer</h2></div>
+        <div class="form-card">
+          <label>Step <input type="number" id="ret-step" value="1" min="1" class="input"></label>
+          <label>Components <input type="text" id="ret-components" placeholder="A,B" class="input"></label>
+          <label>Files <input type="text" id="ret-files" placeholder="f1,f2" class="input"></label>
+          <label>Domain <input type="text" id="ret-domain" placeholder="ui" class="input"></label>
+          <button id="ret-run" class="btn btn-primary">Retrieve</button>
+        </div>
+        <div id="ret-results"></div>
+        <div class="charts-row" id="ret-charts" style="display:none">
+          <div class="chart-card">
+            <h3>Score Distribution</h3>
+            <canvas id="chart-ret-scores"></canvas>
+          </div>
+        </div>
+        <div id="ret-filtered-out" style="display:none"></div>
+        <div id="ret-history"></div>
+      </section>
+
+      <!-- Metrics Deep-Dive -->
+      <section id="view-metrics" class="view">
+        <div class="view-header">
+          <h2>Metrics Deep-Dive</h2>
+          <div class="filter-bar">
+            <select id="metrics-range" class="select">
+              <option value="7">7 days</option>
+              <option value="30" selected>30 days</option>
+              <option value="90">90 days</option>
+              <option value="0">All time</option>
+            </select>
+          </div>
+        </div>
+        <div class="sub-tabs" id="metrics-subtabs">
+          <button class="sub-tab active" data-subtab="retrieval">Retrieval Quality</button>
+          <button class="sub-tab" data-subtab="logging">Logging Patterns</button>
+          <button class="sub-tab" data-subtab="consolidation">Consolidation</button>
+          <button class="sub-tab" data-subtab="lifecycle">Lifecycle</button>
+          <button class="sub-tab" data-subtab="agents">Agents</button>
+          <button class="sub-tab" data-subtab="dedup">Dedup</button>
+        </div>
+        <div id="metrics-content"><p class="placeholder">Loading metrics...</p></div>
+      </section>
+
+      <!-- Consolidation Console -->
+      <section id="view-consolidation" class="view">
+        <div class="view-header">
+          <h2>Consolidation Console</h2>
+          <div class="form-card" style="margin-bottom:0;padding:8px;gap:8px">
+            <label>Sprint <input type="number" id="consolidate-sprint" placeholder="Auto" class="input" style="width:80px"></label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-dim)"><input type="checkbox" id="consolidate-force"> Force</label>
+            <button id="consolidate-run" class="btn btn-primary"><i data-lucide="play"></i> Run Sleep Cycle</button>
+          </div>
+        </div>
+        <div id="consolidation-content"><p class="placeholder">Loading...</p></div>
+      </section>
+
+      <!-- Cross-Project Fleet -->
+      <section id="view-fleet" class="view">
+        <div class="view-header"><h2>Cross-Project Fleet</h2></div>
+        <div id="fleet-content"><p class="placeholder">Loading fleet data...</p></div>
+      </section>
+
+      <!-- Settings -->
+      <section id="view-settings" class="view">
+        <div class="view-header"><h2>Settings</h2></div>
+        <div id="settings-content"><p class="placeholder">Loading config...</p></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Event Log Panel -->
+  <div id="event-log" class="event-log collapsed">
+    <div class="event-log-header" onclick="document.getElementById('event-log').classList.toggle('collapsed')">
+      <span>Event Log</span>
+      <span id="event-log-count" class="event-log-count">0</span>
+    </div>
+    <div id="event-log-body" class="event-log-body"></div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <div id="relog-modal" class="modal" style="display:none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <h3>Re-log Quarantined Entry</h3>
+      <p class="sub" style="margin-bottom:8px">Fix the JSON below, then submit.</p>
+      <textarea id="relog-editor" class="config-editor" style="min-height:200px"></textarea>
+      <div class="detail-actions" style="margin-top:12px">
+        <button id="relog-submit" class="btn btn-primary">Submit</button>
+        <button id="relog-cancel" class="btn btn-ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/dashboard.js"></script>
+  <script src="/js/learnings.js"></script>
+  <script src="/js/retrieval.js"></script>
+  <script src="/js/metrics.js"></script>
+  <script src="/js/consolidation.js"></script>
+  <script src="/js/fleet.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/events.js"></script>
+</body>
+</html>

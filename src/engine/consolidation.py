@@ -243,10 +243,14 @@ def handle_confirm_reset(paths, ctx):
     return 0
 
 
-def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
-    """Handle --consolidate mode: Sleep Cycle for episodic memory."""
+def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
+    """Shared logic for --consolidate mode. Returns dict, no printing.
+
+    Returns:
+        {"exit_code": int, "status": str, ...report fields}
+    """
     if confirm_reset:
-        return handle_confirm_reset(paths, ctx)
+        return {"exit_code": handle_confirm_reset(paths, ctx), "status": "confirm_reset"}
 
     _start = time.perf_counter()
     entries = read_learnings(paths)
@@ -255,8 +259,7 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     if not unresolved:
         log_event(paths, "consolidate", outcome="NO_ENTRIES",
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print("âš  No unresolved entries to consolidate. Archive not created.")
-        return 0
+        return {"exit_code": 0, "status": "no_entries", "message": "No unresolved entries to consolidate. Archive not created."}
 
     if sprint_number is None:
         sprint_number = infer_sprint_number(unresolved)
@@ -266,17 +269,13 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     if os.path.exists(archive_path) and not force:
         log_event(paths, "consolidate", outcome="ARCHIVE_EXISTS", sprint_number=sprint_number,
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print(f"âš  Warning: {archive_path} already exists.")
-        print("  Use --force to overwrite, or specify a different sprint number.")
-        return 1
+        return {"exit_code": 1, "status": "archive_exists", "message": f"Warning: {archive_path} already exists. Use --force to overwrite, or specify a different sprint number.", "archive_path": archive_path}
 
     os.makedirs(paths.archive_dir, exist_ok=True)
 
     with open(archive_path, "w", encoding="utf-8") as f:
         for entry in unresolved:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    print(f"âœ“ Archived {len(unresolved)} entries to {archive_path}")
 
     current_step = max(e.get("step", 0) for e in unresolved)
 
@@ -297,122 +296,14 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         is_stale, lines_changed, error = check_staleness(entry, paths.repo_root)
         stale_entries.append((is_stale, lines_changed, error, entry))
 
-    agents_suggestions = get_agents_md_suggestions(unresolved)
-
-    print("\n" + "=" * 60)
-    print(f"## SLEEP CYCLE REPORT â€” Sprint {sprint_number}")
-    print("=" * 60)
-
-    print(f"\n## ðŸŽ¯ PROMOTION CANDIDATES ({len(candidates)} entries)")
-    print("The following entries are candidates for promotion to SYSTEM_INVARIANTS.md.")
-    print("Review each entry, then apply approved entries to the invariants file.\n")
-
-    if candidates:
-        for i, (score, entry) in enumerate(candidates, 1):
-            print(f"### Candidate {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-            print(f"**Trigger:** {entry.get('trigger', '')}")
-            print(f"**Action:** {entry.get('action', '')}")
-            print(f"**Reason:** {entry.get('reason', '')}")
-            print(f"**Promotion score:** {score:.2f} (access_count={entry.get('access_count', 0)}, severity={entry.get('severity', 'minor')}, step_diff={current_step - entry.get('step', 0)})")
-            print()
-    else:
-        print("No promotion candidates found.\n")
-
-    print(f"\n## âš”ï¸ CONTRADICTIONS ({len(contradictions)} entries)")
-    print("The following entries propose superseding existing invariants via the Challenge Protocol.")
-    print("Review carefully â€” these may indicate outdated rules or necessary architectural changes.\n")
-
-    if contradictions:
-        for i, entry in enumerate(contradictions, 1):
-            print(f"### Contradiction {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-            print(f"**Trigger:** {entry.get('trigger', '')}")
-            print(f"**Action:** {entry.get('action', '')}")
-            print(f"**Reason:** {entry.get('reason', '')}")
-            print(f"**Action required:** Review and update SYSTEM_INVARIANTS.md if applicable")
-            print()
-    else:
-        print("No contradictions detected.\n")
-
-    print(f"\n## ðŸ—‘ï¸ QUARANTINE REVIEW")
-    print(f"Total quarantined entries: {quarantine_count}\n")
-
-    if quarantine_breakdown:
-        print("### Breakdown by reason:")
-        for category, count in sorted(quarantine_breakdown.items()):
-            print(f"  - {category}: {count}")
-        print()
-
-    if quarantine_recent:
-        print("### Recent failures:")
-        for i, entry in enumerate(quarantine_recent, 1):
-            print(f"{i}. [{entry.get('ts', '?')}] {entry.get('reason', 'unknown')}")
-            print(f"   Raw: {entry.get('raw', '')[:80]}...")
-        print()
-
-    print("Interpretation guidance:")
-    print("- Chronic quarantine from one agent â†’ meta_learning signal (agent doesn't understand schema)")
-    print("- Repeated validation errors â†’ need for better documentation or examples")
-    print("- Clear quarantine after review: echo \"\" > memory/quarantine.jsonl")
-    print()
-
-    print(f"\n## ðŸ•°ï¸ STALE ENTRIES")
-    print("The following entries may be stale based on git history.")
-    print("Verify against current code before promoting.\n")
-
     stale_count = sum(1 for is_stale, _, _, _ in stale_entries if is_stale)
     error_count = sum(1 for _, _, err, _ in stale_entries if err is not None)
 
-    if stale_count > 0 or error_count > 0:
-        idx = 1
-        for is_stale, lines_changed, error, entry in stale_entries:
-            if error:
-                print(f"### Uncheckable {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-                print(f"**Status:**  Could not check staleness â€” {error}")
-                print(f"**Entry:** {entry.get('trigger', '')}")
-                print()
-                idx += 1
-            elif is_stale:
-                print(f"### Stale {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
-                print(f"**Commit:** {entry.get('commit', 'unknown')}")
-                print(f"**Files touched:** {', '.join(entry.get('files_touched', []))}")
-                print(f"**Lines changed since entry:** {lines_changed}")
-                print(f"**Status:**  HIGH CHURN â€” verify trigger/action still hold")
-                print(f"**Entry:** {entry.get('trigger', '')}")
-                print()
-                idx += 1
-    else:
-        print("No stale entries detected.\n")
+    agents_suggestions = get_agents_md_suggestions(unresolved)
 
-    if agents_suggestions:
-        print(f"\n## AGENTS.md Updates Suggested ({len(agents_suggestions)} entries)")
-        print("The following learnings reference AGENTS.md and may suggest updates.\n")
-
-        for entry in agents_suggestions:
-            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
-            print(f"  â†’ Suggests reviewing AGENTS.md for potential updates")
-        print()
-
-    # Metrics snapshot for this sprint
     _metrics_summary = _sprint_metrics(paths)
-    if _metrics_summary:
-        print("=" * 60)
-        print("## SPRINT METRICS")
-        print("=" * 60)
-        print(_metrics_summary)
-        print()
-
-    print("=" * 60)
-    print("## NEXT STEPS")
-    print("=" * 60)
-    print("1. Review promotion candidates above")
-    print("2. Draft proposed diff to SYSTEM_INVARIANTS.md (output in chat or scratch file)")
-    print("3. Human reviews and applies approved entries to SYSTEM_INVARIANTS.md")
-    print("4. Human confirms with: python memory/filter.py --consolidate --confirm-reset")
-    print()
 
     save_session(sprint_number, paths)
-    expiry = ctx.get("session_expiry_minutes", 10)
-    print(f"âœ“ Session saved. Run --confirm-reset within {expiry} minutes to clear learnings.jsonl.")
 
     log_event(paths, "consolidate",
         outcome="REPORTED",
@@ -428,5 +319,167 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         agents_md_suggestions=len(agents_suggestions),
         latency_ms=round((time.perf_counter() - _start) * 1000, 2),
     )
+
+    return {
+        "exit_code": 0,
+        "status": "reported",
+        "sprint_number": sprint_number,
+        "archive_path": archive_path,
+        "archived_count": len(unresolved),
+        "total_entries": len(entries),
+        "current_step": current_step,
+        "promotion_candidates": [{"score": s, "entry": e} for s, e in candidates],
+        "contradictions": contradictions,
+        "quarantine": {
+            "count": quarantine_count,
+            "breakdown": quarantine_breakdown,
+            "recent": quarantine_recent,
+        },
+        "stale": {
+            "count": stale_count,
+            "error_count": error_count,
+            "entries": [{"is_stale": s, "lines_changed": l, "error": err, "entry": e} for s, l, err, e in stale_entries],
+        },
+        "agents_md_suggestions": agents_suggestions,
+        "metrics_summary": _metrics_summary,
+        "session_expiry_minutes": ctx.get("session_expiry_minutes", 10),
+    }
+
+
+def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
+    """Handle --consolidate mode: Sleep Cycle for episodic memory. CLI wrapper.
+
+    Calls consolidate_core and prints the report.
+    """
+    result = consolidate_core(sprint_number, confirm_reset, force, paths, ctx)
+
+    if result["exit_code"] != 0:
+        print(result.get("message", "ERROR"), file=sys.stderr)
+        return result["exit_code"]
+
+    if result["status"] == "confirm_reset":
+        return result["exit_code"]
+
+    if result["status"] == "no_entries":
+        print(result["message"])
+        return 0
+
+    sprint = result["sprint_number"]
+    print(f"\nArchived {result['archived_count']} entries to {result['archive_path']}")
+
+    print("\n" + "=" * 60)
+    print(f"## SLEEP CYCLE REPORT — Sprint {sprint}")
+    print("=" * 60)
+
+    candidates = result["promotion_candidates"]
+    print(f"\n## PROMOTION CANDIDATES ({len(candidates)} entries)")
+    print("The following entries are candidates for promotion to SYSTEM_INVARIANTS.md.")
+    print("Review each entry, then apply approved entries to the invariants file.\n")
+
+    if candidates:
+        for i, c in enumerate(candidates, 1):
+            entry = c["entry"]
+            print(f"### Candidate {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+            print(f"**Trigger:** {entry.get('trigger', '')}")
+            print(f"**Action:** {entry.get('action', '')}")
+            print(f"**Reason:** {entry.get('reason', '')}")
+            print(f"**Promotion score:** {c['score']:.2f} (access_count={entry.get('access_count', 0)}, severity={entry.get('severity', 'minor')}, step_diff={result['current_step'] - entry.get('step', 0)})")
+            print()
+    else:
+        print("No promotion candidates found.\n")
+
+    contradictions = result["contradictions"]
+    print(f"\n## CONTRADICTIONS ({len(contradictions)} entries)")
+    print("The following entries propose superseding existing invariants via the Challenge Protocol.")
+    print("Review carefully — these may indicate outdated rules or necessary architectural changes.\n")
+
+    if contradictions:
+        for i, entry in enumerate(contradictions, 1):
+            print(f"### Contradiction {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+            print(f"**Trigger:** {entry.get('trigger', '')}")
+            print(f"**Action:** {entry.get('action', '')}")
+            print(f"**Reason:** {entry.get('reason', '')}")
+            print(f"**Action required:** Review and update SYSTEM_INVARIANTS.md if applicable")
+            print()
+    else:
+        print("No contradictions detected.\n")
+
+    q = result["quarantine"]
+    print(f"\n## QUARANTINE REVIEW")
+    print(f"Total quarantined entries: {q['count']}\n")
+
+    if q["breakdown"]:
+        print("### Breakdown by reason:")
+        for category, count in sorted(q["breakdown"].items()):
+            print(f"  - {category}: {count}")
+        print()
+
+    if q["recent"]:
+        print("### Recent failures:")
+        for i, entry in enumerate(q["recent"], 1):
+            print(f"{i}. [{entry.get('ts', '?')}] {entry.get('reason', 'unknown')}")
+            print(f"   Raw: {entry.get('raw', '')[:80]}...")
+        print()
+
+    print("Interpretation guidance:")
+    print("- Chronic quarantine from one agent → meta_learning signal (agent doesn't understand schema)")
+    print("- Repeated validation errors → need for better documentation or examples")
+    print('- Clear quarantine after review: echo "" > memory/quarantine.jsonl')
+    print()
+
+    stale = result["stale"]
+    print(f"\n## STALE ENTRIES")
+    print("The following entries may be stale based on git history.")
+    print("Verify against current code before promoting.\n")
+
+    if stale["count"] > 0 or stale["error_count"] > 0:
+        idx = 1
+        for item in stale["entries"]:
+            if item["error"]:
+                entry = item["entry"]
+                print(f"### Uncheckable {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+                print(f"**Status:**  Could not check staleness — {item['error']}")
+                print(f"**Entry:** {entry.get('trigger', '')}")
+                print()
+                idx += 1
+            elif item["is_stale"]:
+                entry = item["entry"]
+                print(f"### Stale {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+                print(f"**Commit:** {entry.get('commit', 'unknown')}")
+                print(f"**Files touched:** {', '.join(entry.get('files_touched', []))}")
+                print(f"**Lines changed since entry:** {item['lines_changed']}")
+                print(f"**Status:**  HIGH CHURN — verify trigger/action still hold")
+                print(f"**Entry:** {entry.get('trigger', '')}")
+                print()
+                idx += 1
+    else:
+        print("No stale entries detected.\n")
+
+    if result["agents_md_suggestions"]:
+        print(f"\n## AGENTS.md Updates Suggested ({len(result['agents_md_suggestions'])} entries)")
+        print("The following learnings reference AGENTS.md and may suggest updates.\n")
+        for entry in result["agents_md_suggestions"]:
+            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
+            print(f"  → Suggests reviewing AGENTS.md for potential updates")
+        print()
+
+    if result["metrics_summary"]:
+        print("=" * 60)
+        print("## SPRINT METRICS")
+        print("=" * 60)
+        print(result["metrics_summary"])
+        print()
+
+    print("=" * 60)
+    print("## NEXT STEPS")
+    print("=" * 60)
+    print("1. Review promotion candidates above")
+    print("2. Draft proposed diff to SYSTEM_INVARIANTS.md (output in chat or scratch file)")
+    print("3. Human reviews and applies approved entries to SYSTEM_INVARIANTS.md")
+    print("4. Human confirms with: python memory/filter.py --consolidate --confirm-reset")
+    print()
+
+    expiry = result.get("session_expiry_minutes", 10)
+    print(f"Session saved. Run --confirm-reset within {expiry} minutes to clear learnings.jsonl.")
 
     return 0
