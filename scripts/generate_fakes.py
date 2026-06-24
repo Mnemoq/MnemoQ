@@ -2,7 +2,7 @@
 """Bulk-generate valid synthetic memory entries for stress-testing.
 
 Direct mode writes to <memory_dir>/fakes.jsonl.
-Pipeline mode routes each entry through filter.py --log-file.
+Pipeline mode routes each entry through mnemoq --log-file.
 """
 
 from __future__ import annotations
@@ -17,24 +17,19 @@ import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
-repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-src_dir = os.path.join(repo_root, "src")
-if src_dir not in sys.path:
-    sys.path.insert(0, src_dir)
-
-import filter
-from filter import setup_paths, load_config
-from engine.constants import (
+import agent_memory.cli as cli
+from agent_memory.cli import setup_paths, load_config
+from agent_memory.engine.constants import (
     DEFAULTS,
     VALID_DOMAINS,
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
     VALID_RETRIEVAL_ONLY_AGENTS,
 )
-from engine.migrate import CURRENT_SCHEMA_VERSION
-from engine.retrieval import cosine_similarity, embed_entry, encode_embedding
-from engine.metrics import _get_project_id
-from engine.validation import validate_entry
+from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
+from agent_memory.engine.retrieval import cosine_similarity, embed_entry, encode_embedding
+from agent_memory.engine.metrics import _get_project_id
+from agent_memory.engine.validation import validate_entry
 
 
 # --- Bootstrap ---
@@ -51,7 +46,7 @@ def _get_commit(repo_root):
 
 def build_ctx(memory_dir):
     paths = setup_paths(memory_dir)
-    filter.PATHS = paths  # load_config() reads from filter._get_paths()
+    cli.PATHS = paths  # must be set before load_config()
     config = load_config()
     ctx = {k.lower(): v for k, v in DEFAULTS.items()}
     if config:
@@ -546,7 +541,7 @@ def run_direct(args, entries, ctx, paths):
 
 def run_pipeline(args, entries, ctx, paths):
     if args.target:
-        raise SystemExit("ERROR: --target cannot be used with --pipeline (filter.py writes to learnings.jsonl)")
+        raise SystemExit("ERROR: --target cannot be used with --pipeline (mnemoq writes to learnings.jsonl)")
     if args.clean and os.path.exists(paths.learnings_path):
         os.remove(paths.learnings_path)
 
@@ -555,7 +550,7 @@ def run_pipeline(args, entries, ctx, paths):
         tmp = os.path.join(paths.memory_dir, f"_fake_entry_{uuid.uuid4().hex}.json")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(entry, f, ensure_ascii=False)
-        cmd = [sys.executable, os.path.join(paths.repo_root, "src", "filter.py"), "--log-file", tmp]
+        cmd = [sys.executable, "-m", "agent_memory.cli", "--log-file", tmp]
         if args.memory_dir:
             cmd += ["--memory-dir", args.memory_dir]
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=paths.repo_root)
