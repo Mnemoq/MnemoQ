@@ -15,6 +15,18 @@ VALID_DOMAINS and VALID_SOURCE_AGENTS constrain what entries are accepted.
 ## Testing
 Run `python -m pytest tests/` before committing. Tests live in tests/test_memory.py.
 Engine modules are tested via filter.py CLI integration, not direct imports.
+Exception: `tests/test_server.py` may import `engine.server.create_app` directly to exercise the HTTP API surface.
 
 ## Deployment
 Bump VERSION file, then run scripts/deploy.ps1. Deploy copies to ~/.agent-memory/engine/.
+
+## Intentional Design Decisions
+These are deliberate tradeoffs — do not flag as issues in review:
+- **Single validation path**: `validate_entry()` is the source of truth for schema enforcement. API models use `dict[str, Any]` to avoid duplicate validation drift.
+- **`*_core` functions return dicts**: Not Pydantic models. Keeps engine decoupled from API layer.
+- **No premature abstractions**: If a pattern isn't in the codebase, it was considered and rejected. Suggest only what fits existing conventions.
+- **ctx dict is read-only in core functions**: No defensive copy needed. If a core function mutates ctx, that's a bug to flag — not a reason to add copying overhead.
+
+## Plan Deviations
+When implementing from a plan file, surface any deviation from the plan as an explicit decision point before coding it.
+See `.windsurf/workflows/plan-deviation.md` for the full procedure.

@@ -16,7 +16,7 @@ Score every plan using this exact scale:
 ## Process
 
 1. Read the plan file completely.
-2. Identify all gaps, ambiguities, missing test criteria, and unstated assumptions.
+2. Identify all gaps, ambiguities, missing test criteria, and unstated assumptions — suggestions must stay within the plan's stated architecture and not propose abstractions beyond current scope.
 3. Score using the rubric above.
 4. If clarification is needed, collect ALL ambiguities first, then present them in one consolidated block.
 5. Do not ask questions continuously — consolidate into a single structured output.

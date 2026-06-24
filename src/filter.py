@@ -567,6 +567,12 @@ Examples:
     parser.add_argument("--metrics-since", type=str, metavar="YYYY-MM-DD", help="Only include events on or after this date")
     parser.add_argument("--metrics-export", type=str, metavar="PATH", help="Export raw metrics events to a file (JSONL format)")
 
+    # API server flags
+    parser.add_argument("--serve", action="store_true", help="Start HTTP API server (requires agent-memory[api])")
+    parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
+    parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
+    parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
+
     args = parser.parse_args()
 
     # --version is zero-dependency: works even if config.json is broken
@@ -637,6 +643,12 @@ Examples:
     if args.eval and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema]):
         parser.error("--eval cannot be combined with other operational flags")
 
+    if (args.serve or args.dashboard) and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval]):
+        parser.error("--serve/--dashboard cannot be combined with other operational flags")
+
+    if args.mcp and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard]):
+        parser.error("--mcp cannot be combined with other operational flags")
+
     if args.migrate_schema:
         from engine.migrate import run_migration
         return run_migration(_get_paths())
@@ -644,6 +656,32 @@ Examples:
     if args.eval:
         from engine.eval import run_eval
         return run_eval(_get_paths(), _build_ctx())
+
+    if args.mcp:
+        from engine.mcp_server import run_server
+        run_server(args.memory_dir)
+        return 0
+
+    if args.serve or args.dashboard:
+        try:
+            import uvicorn
+        except ImportError:
+            print("ERROR: --serve requires the [api] optional dependencies.", file=sys.stderr)
+            print("Install with: pip install agent-memory[api]", file=sys.stderr)
+            return 1
+        from engine.server import create_app
+        api_key = _CTX.get("api_key") or None
+        app = create_app(_get_paths(), _build_ctx(), api_key=api_key, dashboard=args.dashboard)
+        url = f"http://127.0.0.1:{args.port}"
+        if args.dashboard:
+            print(f"Agent Memory Dashboard starting on {url}", file=sys.stderr)
+            import threading, webbrowser
+            threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+        else:
+            print(f"Agent Memory Engine API starting on {url}", file=sys.stderr)
+            print(f"API docs at {url}/docs", file=sys.stderr)
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+        return 0
 
     if args.metrics:
         return _met_handle_metrics(args, _get_paths())

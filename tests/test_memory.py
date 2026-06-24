@@ -902,35 +902,31 @@ class TestShim:
         """Test shim handles missing engine gracefully."""
         from shim import SHIM_TEMPLATE
         
+        # Use a custom shim pointing to a non-existent engine path so we do not
+        # disturb the real engine directory (avoiding races with parallel tests).
+        missing_engine = tmp_path / "nonexistent" / "engine" / "filter.py"
+        custom_shim = SHIM_TEMPLATE.replace(
+            'engine_path = os.path.expanduser("~/.agent-memory/engine/filter.py")',
+            f'engine_path = r"{missing_engine}"'
+        )
+        
         # Write shim to project (memory dir already exists from fixture)
         memory_dir = temp_project / "memory"
         shim_path = memory_dir / "filter.py"
-        shim_path.write_text(SHIM_TEMPLATE)
+        shim_path.write_text(custom_shim)
         
-        # Temporarily rename engine directory
-        engine_dir = Path.home() / ".agent-memory" / "engine"
-        backup_dir = tmp_path / "engine_backup"
-        if engine_dir.exists():
-            shutil.move(str(engine_dir), str(backup_dir))
-            assert not engine_dir.exists(), "shutil.move failed to relocate engine dir"
+        # Run shim
+        result = subprocess.run(
+            [sys.executable, str(shim_path), "--stats"],
+            capture_output=True,
+            text=True,
+            cwd=temp_project
+        )
         
-        try:
-            # Run shim
-            result = subprocess.run(
-                [sys.executable, str(shim_path), "--stats"],
-                capture_output=True,
-                text=True,
-                cwd=temp_project
-            )
-            
-            # Should fail with error message
-            assert result.returncode == 1
-            assert "Engine not found" in result.stderr
-            assert "deploy script" in result.stderr
-        finally:
-            # Restore engine directory
-            if backup_dir.exists():
-                shutil.move(str(backup_dir), str(engine_dir))
+        # Should fail with error message
+        assert result.returncode == 1
+        assert "Engine not found" in result.stderr
+        assert "deploy script" in result.stderr
     
     def test_profile_loads_post_migration(self, temp_project, engine_dir):
         """Test that profile.py loads from central location after migration."""

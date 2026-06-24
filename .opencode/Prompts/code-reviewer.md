@@ -134,7 +134,7 @@ For each resolved entry, use `python memory/filter.py --resolve <ts>`.
 |----------|-----------|
 | Critical | Type error, logic bug, memory leak, invariant violation, will break at runtime |
 | Warning | Violates project rules, performance risk, maintainability issue |
-| Suggestion | Style improvement, minor optimization, better naming |
+| Suggestion | Style improvement, minor optimization, better naming — must not duplicate existing validation or propose abstractions beyond current scope |
 
 ## Do NOT
 
@@ -142,3 +142,4 @@ For each resolved entry, use `python memory/filter.py --resolve <ts>`.
 - Review files not in the diff (unless checking for missing context)
 - Repeat the diff back to the user
 - Include introductory filler — start directly with the report
+- Suggest introducing a pattern, layer, or abstraction not already present in the codebase — if the codebase doesn't use it, the team chose not to

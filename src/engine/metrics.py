@@ -289,7 +289,16 @@ def _consolidation_stats(events):
     """Compute consolidation history metrics."""
     total = len(events)
     if not total:
-        return {}
+        return {
+            "total_consolidations": 0,
+            "sprints": [],
+            "total_promotion_candidates": 0,
+            "avg_promotion_candidates": 0,
+            "total_contradictions": 0,
+            "total_stale": 0,
+            "total_quarantine_reviewed": 0,
+            "daily": {"days": [], "promotion_candidates": [], "contradictions": [], "stale_entries": []},
+        }
 
     sprints = []
     promos = []
@@ -303,6 +312,31 @@ def _consolidation_stats(events):
         stales.append(_si(e.get("stale_entries")))
         quars.append(_si(e.get("quarantine_count")))
 
+    # 30-day daily trend
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    daily = {}
+    for e in events:
+        try:
+            ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if ts < cutoff:
+            continue
+        day = ts.strftime("%Y-%m-%d")
+        if day not in daily:
+            daily[day] = {"promotion_candidates": 0, "contradictions": 0, "stale_entries": 0}
+        daily[day]["promotion_candidates"] += _si(e.get("promotion_candidates"))
+        daily[day]["contradictions"] += _si(e.get("contradictions"))
+        daily[day]["stale_entries"] += _si(e.get("stale_entries"))
+
+    days_sorted = sorted(daily.keys())
+    daily_out = {
+        "days": days_sorted,
+        "promotion_candidates": [daily[d]["promotion_candidates"] for d in days_sorted],
+        "contradictions": [daily[d]["contradictions"] for d in days_sorted],
+        "stale_entries": [daily[d]["stale_entries"] for d in days_sorted],
+    }
+
     return {
         "total_consolidations": total,
         "sprints": sprints,
@@ -311,6 +345,7 @@ def _consolidation_stats(events):
         "total_contradictions": sum(contras),
         "total_stale": sum(stales),
         "total_quarantine_reviewed": sum(quars),
+        "daily": daily_out,
     }
 
 
@@ -348,6 +383,273 @@ def _trend_stats(events, days=30):
         "total_retrievals": sum(b["retrievals"] for b in buckets.values()),
         "total_logs": sum(b["logs"] for b in buckets.values()),
         "total_consolidations": sum(b["consolidations"] for b in buckets.values()),
+    }
+
+
+def _lifecycle_stats(entries):
+    """Compute entry lifecycle metrics from learnings (not metrics events)."""
+    if not entries:
+        return {}
+    total = len(entries)
+    resolved = sum(1 for e in entries if e.get("resolved", False))
+    unresolved = total - resolved
+
+    now = datetime.now(timezone.utc)
+    ages = []
+    age_days = []
+    for e in entries:
+        try:
+            ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
+            age_days.append((now - ts).days)
+        except (KeyError, ValueError):
+            age_days.append(0)
+    ages = [a for a in age_days if a is not None]
+
+    avg_age = sum(ages) / len(ages) if ages else 0
+    max_age = max(ages) if ages else 0
+
+    access_counts = [e.get("access_count", 0) for e in entries]
+    reinforcement_counts = [e.get("reinforcement_count", 0) for e in entries]
+
+    # Age buckets (days): 0, 1-7, 8-14, 15-30, 31-60, 61-90, 180+ (captures >90)
+    age_buckets = [0, 0, 0, 0, 0, 0, 0]
+    age_labels = ["0", "1-7", "8-14", "15-30", "31-60", "61-90", "180+"]
+    for a in ages:
+        if a == 0:
+            age_buckets[0] += 1
+        elif a <= 7:
+            age_buckets[1] += 1
+        elif a <= 14:
+            age_buckets[2] += 1
+        elif a <= 30:
+            age_buckets[3] += 1
+        elif a <= 60:
+            age_buckets[4] += 1
+        elif a <= 90:
+            age_buckets[5] += 1
+        else:
+            age_buckets[6] += 1
+
+    # Access buckets: 0, 1, 2-5, 6-10, 11-25, 26-50, 50+
+    access_buckets = [0, 0, 0, 0, 0, 0, 0]
+    access_labels = ["0", "1", "2-5", "6-10", "11-25", "26-50", "50+"]
+    for a in access_counts:
+        if a == 0:
+            access_buckets[0] += 1
+        elif a == 1:
+            access_buckets[1] += 1
+        elif a <= 5:
+            access_buckets[2] += 1
+        elif a <= 10:
+            access_buckets[3] += 1
+        elif a <= 25:
+            access_buckets[4] += 1
+        elif a <= 50:
+            access_buckets[5] += 1
+        else:
+            access_buckets[6] += 1
+
+    # Zombie: unresolved, zero access, age >= 7 days
+    zombies = []
+    for i, e in enumerate(entries):
+        if e.get("resolved", False):
+            continue
+        if access_counts[i] != 0:
+            continue
+        if age_days[i] < 7:
+            continue
+        zombies.append({
+            "ts": e.get("ts"),
+            "source_agent": e.get("source_agent", "unknown"),
+            "domain": e.get("domain", "unknown"),
+            "severity": e.get("severity", "unknown"),
+            "trigger": e.get("trigger", "")[:80],
+            "age_days": age_days[i],
+        })
+    zombies.sort(key=lambda x: -x["age_days"])
+    zombies = zombies[:50]
+
+    return {
+        "total": total,
+        "resolved": resolved,
+        "unresolved": unresolved,
+        "resolution_rate": resolved / total,
+        "avg_age_days": round(avg_age, 1),
+        "max_age_days": max_age,
+        "avg_access_count": round(sum(access_counts) / total, 2),
+        "avg_reinforcement_count": round(sum(reinforcement_counts) / total, 2),
+        "zero_access": sum(1 for a in access_counts if a == 0),
+        "high_access": sum(1 for a in access_counts if a >= 10),
+        "age_distribution": {"labels": age_labels, "values": age_buckets},
+        "access_distribution": {"labels": access_labels, "values": access_buckets},
+        "zombie_entries": zombies,
+        "zombie_count": len(zombies),
+    }
+
+
+def _agent_stats(entries, log_events=None):
+    """Compute per-agent contribution breakdown."""
+    agents = {}
+    for e in entries:
+        a = e.get("source_agent", "unknown")
+        if a not in agents:
+            agents[a] = {
+                "entries": 0,
+                "resolved": 0,
+                "avg_importance": 0,
+                "domains": set(),
+                "severity_counts": {"critical": 0, "major": 0, "minor": 0, "unknown": 0},
+            }
+        agents[a]["entries"] += 1
+        if e.get("resolved", False):
+            agents[a]["resolved"] += 1
+        agents[a]["avg_importance"] += e.get("importance", 5)
+        sev = e.get("severity", "unknown")
+        if sev not in agents[a]["severity_counts"]:
+            sev = "unknown"
+        agents[a]["severity_counts"][sev] += 1
+        d = e.get("domain")
+        if d:
+            agents[a]["domains"].add(d)
+
+    # Build 30-day trend buckets per agent from log_events
+    trend_days = []
+    trend = {}
+    if log_events:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        for ev in log_events:
+            a = ev.get("entry_source_agent", "unknown")
+            if a not in trend:
+                trend[a] = {}
+            try:
+                ts = datetime.fromisoformat(ev["ts"].replace("Z", "+00:00"))
+            except (KeyError, ValueError):
+                continue
+            if ts < cutoff:
+                continue
+            day = ts.strftime("%Y-%m-%d")
+            trend[a][day] = trend[a].get(day, 0) + 1
+
+    # Normalize to a contiguous 30-day label list
+    if trend:
+        start = datetime.now(timezone.utc) - timedelta(days=29)
+        trend_days = [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(30)]
+        for a in trend:
+            trend[a] = [trend[a].get(d, 0) for d in trend_days]
+
+    result = []
+    for a, s in sorted(agents.items(), key=lambda x: -x[1]["entries"]):
+        result.append({
+            "agent": a,
+            "entries": s["entries"],
+            "resolved": s["resolved"],
+            "resolution_rate": s["resolved"] / s["entries"] if s["entries"] else 0,
+            "avg_importance": round(s["avg_importance"] / s["entries"], 1),
+            "domains": sorted(s["domains"]),
+            "severity_counts": s["severity_counts"],
+            "trend": trend.get(a, [0] * len(trend_days)) if trend_days else [],
+        })
+
+    if log_events:
+        log_by_agent = {}
+        for ev in log_events:
+            a = ev.get("entry_source_agent", "unknown")
+            if a not in log_by_agent:
+                log_by_agent[a] = {"added": 0, "duplicate": 0, "conflict": 0, "quarantined": 0}
+            outcome = ev.get("outcome", "").lower()
+            if outcome == "added":
+                log_by_agent[a]["added"] += 1
+            elif outcome == "duplicate":
+                log_by_agent[a]["duplicate"] += 1
+            elif outcome == "conflict":
+                log_by_agent[a]["conflict"] += 1
+            elif outcome == "quarantined":
+                log_by_agent[a]["quarantined"] += 1
+        for r in result:
+            r["log_outcomes"] = log_by_agent.get(r["agent"], {})
+
+    return result
+
+
+def _dedup_stats(log_events):
+    """Compute deduplication effectiveness from log events."""
+    total = len(log_events)
+    if not total:
+        return {
+            "total_logs": 0,
+            "added": 0,
+            "duplicates": 0,
+            "semantic_duplicates": 0,
+            "conflicts": 0,
+            "conflicts_list": [],
+            "dedup_rate": 0,
+            "conflict_rate": 0,
+            "avg_similarity": 0,
+            "max_similarity": 0,
+            "daily": {"days": [], "duplicates": [], "conflicts": [], "added": []},
+        }
+    dup = sum(1 for e in log_events if e.get("outcome", "").upper() == "DUPLICATE")
+    sem_dup = sum(1 for e in log_events if e.get("outcome", "").upper() == "SEMANTIC_DUPLICATE")
+    conflict = sum(1 for e in log_events if e.get("outcome", "").upper() == "CONFLICT")
+    added = sum(1 for e in log_events if e.get("outcome", "").upper() == "ADDED")
+
+    similarities = [_sf(e.get("similarity_score")) for e in log_events if e.get("similarity_score") is not None]
+
+    # 30-day duplicate/conflict trend
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    daily = {}
+    for e in log_events:
+        try:
+            ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if ts < cutoff:
+            continue
+        day = ts.strftime("%Y-%m-%d")
+        if day not in daily:
+            daily[day] = {"duplicates": 0, "conflicts": 0, "added": 0}
+        o = e.get("outcome", "").upper()
+        if o in ("DUPLICATE", "SEMANTIC_DUPLICATE"):
+            daily[day]["duplicates"] += 1
+        elif o == "CONFLICT":
+            daily[day]["conflicts"] += 1
+        elif o == "ADDED":
+            daily[day]["added"] += 1
+
+    days_sorted = sorted(daily.keys())
+    daily_out = {
+        "days": days_sorted,
+        "duplicates": [daily[d]["duplicates"] for d in days_sorted],
+        "conflicts": [daily[d]["conflicts"] for d in days_sorted],
+        "added": [daily[d]["added"] for d in days_sorted],
+    }
+
+    # Recent conflicts list
+    conflicts_list = []
+    for e in log_events:
+        if e.get("outcome", "").upper() == "CONFLICT":
+            conflicts_list.append({
+                "ts": e.get("ts"),
+                "source_agent": e.get("entry_source_agent", "unknown"),
+                "matched_source_agent": e.get("matched_source_agent", "unknown"),
+                "trigger": e.get("entry_trigger", "")[:80],
+                "similarity_score": _sf(e.get("similarity_score")),
+            })
+    conflicts_list.sort(key=lambda x: x.get("ts", "") or "", reverse=True)
+    conflicts_list = conflicts_list[:20]
+
+    return {
+        "total_logs": total,
+        "added": added,
+        "duplicates": dup,
+        "semantic_duplicates": sem_dup,
+        "conflicts": conflict,
+        "conflicts_list": conflicts_list,
+        "dedup_rate": (dup + sem_dup) / total,
+        "conflict_rate": conflict / total,
+        "avg_similarity": round(sum(similarities) / len(similarities), 4) if similarities else 0,
+        "max_similarity": round(max(similarities), 4) if similarities else 0,
+        "daily": daily_out,
     }
 
 
