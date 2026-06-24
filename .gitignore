@@ -40,3 +40,6 @@ node_modules/
 # Runtime memory data
 memory/learnings.jsonl
 memory/metrics.jsonl
+
+# Test junk
+test.json
