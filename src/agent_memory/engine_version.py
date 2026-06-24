@@ -1,39 +1,52 @@
 """
 Engine Version — Single source of truth for version constant.
 
-Reads from VERSION file, falls back to hardcoded value if file missing.
-
 Resolution order:
-1. Deployed engine: ~/.agent-memory/engine/VERSION
-2. Repo root: <this-file>/../VERSION (during development)
+1. Installed package metadata (post-`pip install .`)
+2. VERSION file — searched at both candidate locations:
+     - repo root: <this-file>/../../../VERSION          (dev layout)
+     - deployed engine: <this-file>/../../VERSION      (deploy.ps1 layout)
 3. Hardcoded fallback: FALLBACK_VERSION
 """
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 
 # Hardcoded fallback — update this when bumping version
-FALLBACK_VERSION = "1.20.4"
+FALLBACK_VERSION = "1.20.6"
+
+
+def _read_version_file() -> str | None:
+    # dev: src/agent_memory/engine_version.py -> ../../../VERSION  = repo root
+    # deploy: ~/.agent-memory/engine/agent_memory/engine_version.py -> ../../VERSION
+    #         = ~/.agent-memory/engine/VERSION
+    for candidate in (
+        Path(__file__).parent.parent.parent / "VERSION",
+        Path(__file__).parent.parent / "VERSION",
+    ):
+        if candidate.exists():
+            try:
+                v = candidate.read_text().strip()
+                if v:
+                    return v
+            except Exception:
+                continue
+    return None
+
 
 def get_engine_version() -> str:
-    """Read engine version from VERSION file, with fallback chain."""
-    # 1. Deployed engine location
-    version_file = Path.home() / ".agent-memory" / "engine" / "VERSION"
-    if version_file.exists():
-        try:
-            version = version_file.read_text().strip()
-            if version:
-                return version
-        except Exception:
-            pass
-    
-    # 2. Repo root VERSION (during development, before deploy)
-    repo_version = Path(__file__).parent.parent / "VERSION"
-    if repo_version.exists():
-        try:
-            version = repo_version.read_text().strip()
-            if version:
-                return version
-        except Exception:
-            pass
-    
+    """Read engine version, with fallback chain."""
+    # 1. Installed package metadata
+    try:
+        v = pkg_version("mnemoq")
+        if v:
+            return v
+    except PackageNotFoundError:
+        pass
+
+    # 2. VERSION file (dev or deployed layout)
+    v = _read_version_file()
+    if v:
+        return v
+
     # 3. Hardcoded fallback
     return FALLBACK_VERSION
