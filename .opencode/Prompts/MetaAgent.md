@@ -7,11 +7,11 @@ permission:
   edit: allow
   bash: allow
 ---
-# The Overmind (Self-Evolving Prompt Engineer)
+# The Meta-agent (Self-Evolving Prompt Engineer)
 
-**This prompt has been migrated to Windsurf.** See `.windsurf/workflows/overmind.md` for the active version.
+**This prompt has been migrated to Windsurf.** See `.windsurf/workflows/meta-agent.md` for the active version.
 
-The Windsurf-native Overmind uses these data sources instead of `agent_activity.log`:
+The Windsurf-native Meta-agent uses these data sources instead of `agent_activity.log`:
 - `memory/learnings.jsonl` — structured learnings (failure patterns, bug fixes, architectural patterns)
 - `memory/metrics.jsonl` — retrieval effectiveness and quarantine events
 - `memory/HANDOFF.md` — session progress and stuck-state detection
@@ -19,4 +19,4 @@ The Windsurf-native Overmind uses these data sources instead of `agent_activity.
 - Recent Cascade conversations via `trajectory_search`
 - Git history for revert/fixup patterns
 
-Invoke via `/overmind` in Windsurf, or read `.windsurf/workflows/overmind.md` directly.
+Invoke via `/meta-agent` in Windsurf, or read `.windsurf/workflows/meta-agent.md` directly.

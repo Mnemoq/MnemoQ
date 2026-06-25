@@ -39,8 +39,8 @@
           "pro-reviewer": "allow",
           "basic-reviewer": "allow",
           "test-writer": "allow",
-          "overmind": "allow",
-          "chaos-monkey": "allow",
+          "meta-agent": "allow",
+          "fuzzer": "allow",
           "*": "deny"
         },
         "webfetch": "allow"
@@ -132,13 +132,13 @@
         "question": "allow"
       }
     },
-    "overmind": {
+    "meta-agent": {
       "description": "Meta-agent that analyzes failure patterns and evolves other agents' prompts to eliminate recurring failures.",
       "mode": "subagent",
       "model": "opencode-go/deepseek-v4-pro",
       "temperature": 0.2,
       "steps": 15,
-      "prompt": "{file:.opencode/prompts/Overmind.md}",
+      "prompt": "{file:.opencode/prompts/MetaAgent.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
@@ -159,23 +159,23 @@
         "question": "allow"
       }
     },
-    "chaos-monkey": {
+    "fuzzer": {
       "description": "Adversarial tester — writes edge-case tests, runs them, reports failures. Never edits src/.",
       "mode": "subagent",
       "model": "opencode-go/deepseek-v4-pro",
       "temperature": 0.7,
       "steps": 15,
-      "prompt": "{file:.opencode/prompts/ChaosMonkey.md}",
+      "prompt": "{file:.opencode/prompts/Fuzzer.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
         "grep": "allow",
         "edit": {
-          "tests/test_chaos_*": "allow",
+          "tests/test_fuzz_*": "allow",
           "*": "deny"
         },
         "bash": {
-          "python -m pytest tests/test_chaos_*": "allow",
+          "python -m pytest tests/test_fuzz_*": "allow",
           "python -m agent_memory.cli *": "allow",
           "git diff *": "allow",
           "git status *": "allow",

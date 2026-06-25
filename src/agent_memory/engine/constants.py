@@ -42,7 +42,7 @@ RERANKER_LLM_MODEL = None
 API_KEY = None
 VALID_RERANKERS = {"none", "cross-encoder", "llm-local"}
 
-VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer", "overmind", "chaos-monkey"}
+VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer", "meta-agent", "fuzzer"}
 
 # Universal schema constraints — not configurable per-project.
 #
