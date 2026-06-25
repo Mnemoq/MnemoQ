@@ -22,6 +22,8 @@ CLI modes:
       Sleep Cycle: archive learnings, generate promotion report.
   --consolidate --confirm-reset
       Clear learnings.jsonl after review (requires recent --consolidate run).
+  --verify
+      Validate every entry in learnings.jsonl against the schema.
 """
 
 from __future__ import annotations
@@ -245,6 +247,8 @@ def load_config():
         "major_retention": ("MAJOR_RETENTION", 0, None),
         "escalation_threshold": ("ESCALATION_THRESHOLD", 0, None),
         "rrf_k": ("RRF_K", 1, None),
+        "sleep_cycle_days": ("SLEEP_CYCLE_DAYS", 0, None),
+        "sleep_cycle_quarantine_threshold": ("SLEEP_CYCLE_QUARANTINE_THRESHOLD", 0, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
@@ -455,7 +459,7 @@ def handle_resolve(ts):
 
 def handle_stats():
     """Handle --stats mode."""
-    return _h_handle_stats(_get_paths())
+    return _h_handle_stats(_get_paths(), ctx=_CTX)
 
 
 from agent_memory.engine.retrieval import (
@@ -528,12 +532,9 @@ Examples:
 
     parser.add_argument("--version", action="store_true", help="Show engine version and exit")
 
-    # Note: MAX_STEP help text uses default value (30) since config not loaded yet
-    max_step_default = _CTX["max_step"]
+    max_step_default = _CTX.get("max_step")
     if max_step_default is None:
         step_help = "Current plan step number (no upper bound)"
-    elif max_step_default == 30:
-        step_help = "Current plan step number (1-30)"
     else:
         step_help = f"Current plan step number (1-{max_step_default})"
     parser.add_argument("--step", type=int, help=step_help)
@@ -572,6 +573,7 @@ Examples:
     parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
     parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
+    parser.add_argument("--verify", action="store_true", help="Validate every entry in learnings.jsonl against schema")
 
     args = parser.parse_args()
 
@@ -649,6 +651,9 @@ Examples:
     if args.mcp and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard]):
         parser.error("--mcp cannot be combined with other operational flags")
 
+    if args.verify and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp]):
+        parser.error("--verify cannot be combined with other operational flags")
+
     if args.migrate_schema:
         from agent_memory.engine.migrate import run_migration
         return run_migration(_get_paths())
@@ -681,6 +686,28 @@ Examples:
             print(f"Agent Memory Engine API starting on {url}", file=sys.stderr)
             print(f"API docs at {url}/docs", file=sys.stderr)
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+        return 0
+
+    if args.verify:
+        entries = read_learnings()
+        if not entries:
+            print("learnings.jsonl is empty or does not exist.", file=sys.stderr)
+            return 0
+        ctx = _build_ctx()
+        bad = []
+        for i, entry in enumerate(entries):
+            errs = _val_validate_entry(entry, ctx)
+            if errs:
+                bad.append((i, entry.get("ts", "?"), errs))
+        total = len(entries)
+        if bad:
+            print(f"VERIFICATION FAILED: {len(bad)}/{total} entries invalid", file=sys.stderr)
+            for idx, ts, errs in bad[:20]:
+                print(f"  line {idx+1} (ts={ts}): {'; '.join(errs)}", file=sys.stderr)
+            if len(bad) > 20:
+                print(f"  ... and {len(bad) - 20} more", file=sys.stderr)
+            return 1
+        print(f"VERIFICATION PASSED: {total} entries valid", file=sys.stderr)
         return 0
 
     if args.metrics:

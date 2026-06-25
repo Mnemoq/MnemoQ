@@ -137,10 +137,20 @@ def recommendations(stats, metrics_data, config=None):
     recs = []
 
     if stats.get("sleep_cycle_due"):
+        reasons = stats.get("sleep_cycle_reasons", [])
+        messages = []
+        if "threshold" in reasons:
+            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of 50")
+        if "time" in reasons:
+            days = (config or {}).get("tuning", {}).get("sleep_cycle_days", 7)
+            messages.append(f"more than {days} days since last consolidation")
+        if "quarantine" in reasons:
+            messages.append("quarantine entries exceed threshold")
+        msg = "Sleep cycle due — " + "; ".join(messages) + "."
         recs.append({
             "priority": "high",
             "category": "consolidation",
-            "message": f"Sleep cycle due — {stats['unresolved']} unresolved entries exceed threshold of 50.",
+            "message": msg,
             "action": "Run consolidation to archive resolved learnings and promote candidates.",
         })
 
@@ -205,9 +215,18 @@ def alerts_list(stats, metrics_data):
     alerts = []
 
     if stats.get("sleep_cycle_due"):
+        reasons = stats.get("sleep_cycle_reasons", [])
+        messages = []
+        if "threshold" in reasons:
+            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of 50")
+        if "time" in reasons:
+            messages.append("more than 7 days since last consolidation")
+        if "quarantine" in reasons:
+            messages.append("quarantine entries exceed threshold")
+        msg = "Sleep cycle due — " + "; ".join(messages) + "."
         alerts.append({
             "type": "danger",
-            "message": f"Sleep cycle due — {stats['unresolved']} unresolved entries exceed threshold of 50.",
+            "message": msg,
         })
 
     if stats.get("over_injected", 0) > 0:

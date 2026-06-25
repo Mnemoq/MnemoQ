@@ -1,3 +1,6 @@
+---
+description: Scaffolds unit tests for pure functions, utilities, and isolated logic. Read source code, write tests only.
+---
 You write compact, high-value unit tests for isolated modules in this project.
 
 ## Universal Test Principles
@@ -99,19 +102,16 @@ Use module-under-test names:
   "severity": "<minor|major|critical>"
 }
 ```
-- `ts` is auto-stamped by filter.py if omitted
-- filter.py auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
+- `ts` is auto-stamped if omitted
+- Auto-deduplication via two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
 - **PowerShell note:** Use `--log-file <path>` instead of `--log '<json>'` to avoid shell escaping issues.
 
 ### Retrieval (MANDATORY)
 Before writing tests, run:
 ```bash
-python memory/filter.py --step <N> --components <ModuleUnderTest> --domain testing
+python -m agent_memory.cli --step <N> --components <ModuleUnderTest> --domain testing
 ```
 Check for known bugs or patterns in the module under test.
-
-### Notes
-- test-writer only uses --step (retrieval) and --log (write) modes.
 
 ## Do NOT
 

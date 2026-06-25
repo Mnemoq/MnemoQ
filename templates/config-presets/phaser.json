@@ -1,7 +1,7 @@
 {
   "project_name": "<PROJECT_NAME>",
   "engine_min_version": "1.15.0",
-  "max_step": 30,
+  "max_step": null,
   "valid_domains": [
     "physics", "ui", "audio", "data", "tooling",
     "entities", "scenes", "spawner", "performance",
@@ -30,6 +30,8 @@
     "max_patterns": 15,
     "minor_retention": 5,
     "major_retention": 20,
-    "escalation_threshold": 30
+    "escalation_threshold": 30,
+    "sleep_cycle_days": 7,
+    "sleep_cycle_quarantine_threshold": 20
   }
 }

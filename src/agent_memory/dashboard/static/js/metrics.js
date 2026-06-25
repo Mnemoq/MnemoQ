@@ -44,7 +44,7 @@ async function loadMetricsSubtab() {
       el.innerHTML = renderDedupMetrics(data);
     }
   } catch (e) {
-    el.innerHTML = `<p class="placeholder">Error: ${e.message}</p>`;
+    el.innerHTML = `<p class="placeholder">Could not load data. Check that the engine is running.</p>`;
   }
 }
 

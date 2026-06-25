@@ -253,7 +253,7 @@ def _call_tool(name: str, arguments: dict, paths: _Paths, ctx: dict) -> dict:
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     elif name == "get_stats":
-        result = stats_core(paths)
+        result = stats_core(paths, ctx=ctx)
         result.pop("exit_code", None)
         result.pop("status", None)
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}

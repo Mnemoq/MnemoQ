@@ -91,9 +91,9 @@ python memory/filter.py --log-file "$env:TEMP\learning.json"
 
 **Consolidation (Sleep Cycle):**
 
-Run when `learnings.jsonl` exceeds 50 entries or at sprint boundaries. `filter.py` prints `## SLEEP CYCLE DUE` banner when threshold is hit.
+Run when unresolved entries exceed 50, N days pass since last consolidation, or quarantine exceeds threshold. `filter.py` prints `## SLEEP CYCLE DUE` banner when a trigger fires.
 
-1. **Trigger (automated):** `filter.py` prints banner when unresolved entry count > 50 or at configured sprint boundaries.
+1. **Trigger (automated):** `filter.py` prints banner when unresolved entry count > 50, N days since last consolidation, or quarantine entries exceed threshold.
 2. **GM:** Archive → distill → draft a proposed diff to `SYSTEM_INVARIANTS.md` (output in chat, **NOT applied**).
 3. **Human:** Review the proposed diff, apply to `SYSTEM_INVARIANTS.md`.
 4. **GM:** Reset `learnings.jsonl` only after human confirms.
