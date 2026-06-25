@@ -528,6 +528,10 @@ def generate_duplicate(source, rng, max_step, ctx):
 
 def run_direct(args, entries, ctx, paths):
     target = args.target or os.path.join(paths.memory_dir, "fakes.jsonl")
+    if args.dry_run:
+        print(f"[dry-run] Would write {len(entries)} entries -> {target}")
+        print("Validation errors: 0")
+        return
     if args.clean and os.path.exists(target):
         os.remove(target)
 
@@ -542,6 +546,13 @@ def run_direct(args, entries, ctx, paths):
 def run_pipeline(args, entries, ctx, paths):
     if args.target:
         raise SystemExit("ERROR: --target cannot be used with --pipeline (mnemoq writes to learnings.jsonl)")
+    if args.dry_run:
+        print(f"[dry-run] Would route {len(entries)} entries through mnemoq --log-file pipeline")
+        print(f"[dry-run] Target: {paths.learnings_path}")
+        if args.clean:
+            print(f"[dry-run] --clean would delete {paths.learnings_path}")
+        print("Validation errors: 0")
+        return
     if args.clean and os.path.exists(paths.learnings_path):
         os.remove(paths.learnings_path)
 
@@ -591,12 +602,13 @@ def build_parser():
         epilog="""
 Examples:
   python scripts/generate_fakes.py --count 100 --clean
-  python scripts/generate_fakes.py --count 50 --pipeline --clean
+  python scripts/generate_fakes.py --count 50 --pipeline --confirm --clean
   python scripts/generate_fakes.py --count 10 --seed 123 --clean
+  python scripts/generate_fakes.py --count 50 --pipeline --dry-run
         """,
     )
     parser.add_argument("--count", type=int, required=True, help="Number of entries to generate")
-    parser.add_argument("--pipeline", action="store_true", help="Route each entry through filter.py")
+    parser.add_argument("--pipeline", action="store_true", help="Route each entry through mnemoq --log-file")
     parser.add_argument("--stop-on-error", action="store_true", help="Halt on first pipeline failure")
     parser.add_argument("--type", type=str, help="Restrict to one type")
     parser.add_argument("--domain", type=str, help="Restrict to one domain")
@@ -610,7 +622,9 @@ Examples:
     parser.add_argument("--duplicates", type=float, default=0, help="Percentage of entries that are near-duplicates")
     parser.add_argument("--resolved", type=float, default=5, help="Percentage of entries marked resolved")
     parser.add_argument("--seed", type=int, help="Random seed for reproducible generation")
-    parser.add_argument("--memory-dir", type=str, help="Memory directory (passed to filter.py)")
+    parser.add_argument("--dry-run", action="store_true", help="Validate and print summary without writing anything")
+    parser.add_argument("--confirm", action="store_true", help="Required to use --pipeline without --dry-run (safety guard against corrupting learnings.jsonl)")
+    parser.add_argument("--memory-dir", type=str, help="Memory directory (passed to mnemoq)")
     return parser
 
 
@@ -631,6 +645,8 @@ def main():
             parser.error("--target cannot be used with --pipeline")
         if args.embed:
             parser.error("--embed cannot be used with --pipeline")
+        if not args.dry_run and not args.confirm:
+            parser.error("--pipeline writes to learnings.jsonl — use --confirm to proceed or --dry-run to preview")
 
     try:
         ctx, paths = build_ctx(args.memory_dir)
