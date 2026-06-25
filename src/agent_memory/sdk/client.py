@@ -117,7 +117,7 @@ class _LocalTransport:
         return result
 
     def stats(self):
-        result = stats_core(self.paths)
+        result = stats_core(self.paths, ctx=self.ctx)
         result.pop("exit_code", None)
         result.pop("status", None)
         return result

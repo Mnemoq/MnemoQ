@@ -17,6 +17,7 @@ from agent_memory.engine.agents_review import check_agents_conflict
 from agent_memory.engine.metrics import log_event
 from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
 from agent_memory.engine.retrieval import embed_entry, encode_embedding, find_semantic_duplicate
+from agent_memory.engine.triggers import check_sleep_cycle
 
 TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -334,7 +335,7 @@ def handle_resolve(ts, paths):
     return result["exit_code"]
 
 
-def stats_core(paths, emit_event: bool = True):
+def stats_core(paths, emit_event: bool = True, ctx=None):
     """Shared logic for --stats mode. Returns dict, no printing."""
     _start = time.perf_counter() if emit_event else None
     entries = read_learnings(paths)
@@ -353,6 +354,7 @@ def stats_core(paths, emit_event: bool = True):
             "verified": 0, "unverified": 0,
             "proven": 0, "over_injected": 0, "under_retrieved": 0,
             "sleep_cycle_due": False,
+            "sleep_cycle_reasons": [],
         }
     
     total = len(entries)
@@ -394,7 +396,11 @@ def stats_core(paths, emit_event: bool = True):
     over_injected = [e for e in entries if e.get("access_count", 0) >= 10 and e.get("reinforcement_count", 0) <= 2]
     under_retrieved = [e for e in entries if e.get("access_count", 0) <= 2 and e.get("reinforcement_count", 0) >= 5]
     
-    sleep_cycle_due = unresolved > 50
+    if ctx is not None:
+        sleep_cycle_due, sleep_cycle_reasons = check_sleep_cycle(paths, ctx, unresolved)
+    else:
+        sleep_cycle_due = unresolved > 50
+        sleep_cycle_reasons = ["threshold"] if sleep_cycle_due else []
 
     if emit_event:
         log_event(paths, "stats",
@@ -418,12 +424,13 @@ def stats_core(paths, emit_event: bool = True):
         "verified": verified_count, "unverified": unverified_count,
         "proven": len(proven), "over_injected": len(over_injected), "under_retrieved": len(under_retrieved),
         "sleep_cycle_due": sleep_cycle_due,
+        "sleep_cycle_reasons": sleep_cycle_reasons,
     }
 
 
-def handle_stats(paths):
+def handle_stats(paths, ctx=None):
     """Handle --stats mode: print summary statistics. CLI wrapper."""
-    result = stats_core(paths)
+    result = stats_core(paths, ctx=ctx)
     if result["exit_code"] != 0:
         return result["exit_code"]
     
@@ -460,6 +467,12 @@ def handle_stats(paths):
     print(f"  Over-injected (access >= 10, reinforcement <= 2): {result['over_injected']}")
     print(f"  Under-retrieved (access <= 2, reinforcement >= 5): {result['under_retrieved']}")
     if result["sleep_cycle_due"]:
-        print(f"\n## SLEEP CYCLE DUE — {result['unresolved']} unresolved entries exceed threshold of 50")
+        reasons = result.get("sleep_cycle_reasons", [])
+        if "threshold" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — {result['unresolved']} unresolved entries exceed threshold of 50")
+        if "time" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — {ctx.get('sleep_cycle_days', 7) if ctx else 7} days since last consolidation")
+        if "quarantine" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — Quarantine entries exceed threshold of {ctx.get('sleep_cycle_quarantine_threshold', 20) if ctx else 20}")
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
     return 0

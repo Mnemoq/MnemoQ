@@ -144,11 +144,11 @@ class EventHub:
                 pass
 
 
-async def _check_and_broadcast_alerts(paths, event_hub):
+async def _check_and_broadcast_alerts(paths, ctx, event_hub):
     """Check for new alerts after a write op and broadcast any new ones via WS."""
     try:
         from agent_memory.engine.analysis import alerts_list, get_metrics_data
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         _, r, l, c = get_metrics_data(paths)
@@ -270,7 +270,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         await event_hub.broadcast({"event": "log", "status": result.get("status"), "entry": result.get("entry")})
         invalidate_metrics_cache()
         if dashboard:
-            await _check_and_broadcast_alerts(paths, event_hub)
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
     # -- Update --
@@ -318,14 +318,14 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         await event_hub.broadcast({"event": "resolve", "ts": req.ts, "status": result.get("status")})
         invalidate_metrics_cache()
         if dashboard:
-            await _check_and_broadcast_alerts(paths, event_hub)
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
     # -- Stats --
 
     @app.get("/api/stats")
     async def stats():
-        result = stats_core(paths)
+        result = stats_core(paths, ctx=ctx)
         result.pop("exit_code", None)
         result.pop("status", None)
         return result
@@ -394,7 +394,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         await event_hub.broadcast({"event": "consolidate", "sprint": result.get("sprint_number"), "status": result.get("status")})
         invalidate_metrics_cache()
         if dashboard:
-            await _check_and_broadcast_alerts(paths, event_hub)
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
     # -- WebSocket --

@@ -221,10 +221,8 @@ def create_starter_files(target_memory):
     # SYSTEM_INVARIANTS.md
     invariants_content = """# System Invariants
 
-Consolidated structural rules. Versioned by sprint/step range.
+Consolidated structural rules.
 IMMUTABLE during active tasks. Only updated during Sleep Cycle.
-
-## Steps 1-30 (Initial Development)
 
 (No invariants yet. They will be added during Sleep Cycle consolidation.)
 """

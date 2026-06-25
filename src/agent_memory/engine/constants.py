@@ -25,7 +25,9 @@ RRF_K = 60      # reciprocal rank fusion constant
 MINOR_RETENTION = 5
 MAJOR_RETENTION = 20
 ESCALATION_THRESHOLD = 30
-MAX_STEP = 30  # Default; overridden by config.json if present
+
+SLEEP_CYCLE_DAYS = 7
+SLEEP_CYCLE_QUARANTINE_THRESHOLD = 20
 
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDING_ALPHA = 0.5
@@ -37,9 +39,10 @@ RERANKER_TOP_N = 20
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 RERANKER_LLM_ENDPOINT = None
 RERANKER_LLM_MODEL = None
+API_KEY = None
 VALID_RERANKERS = {"none", "cross-encoder", "llm-local"}
 
-VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer"}
+VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer", "overmind", "chaos-monkey"}
 
 # Universal schema constraints — not configurable per-project.
 #
@@ -105,7 +108,6 @@ DEFAULTS = {
     "MINOR_RETENTION": MINOR_RETENTION,
     "MAJOR_RETENTION": MAJOR_RETENTION,
     "ESCALATION_THRESHOLD": ESCALATION_THRESHOLD,
-    "MAX_STEP": MAX_STEP,
     "VALID_SOURCE_AGENTS": VALID_SOURCE_AGENTS,
     "VALID_TYPES": VALID_TYPES,
     "VALID_DOMAINS": VALID_DOMAINS,
@@ -125,5 +127,8 @@ DEFAULTS = {
     "RERANKER_MODEL": RERANKER_MODEL,
     "RERANKER_LLM_ENDPOINT": RERANKER_LLM_ENDPOINT,
     "RERANKER_LLM_MODEL": RERANKER_LLM_MODEL,
+    "API_KEY": API_KEY,
     "VALID_RERANKERS": VALID_RERANKERS,
+    "SLEEP_CYCLE_DAYS": SLEEP_CYCLE_DAYS,
+    "SLEEP_CYCLE_QUARANTINE_THRESHOLD": SLEEP_CYCLE_QUARANTINE_THRESHOLD,
 }

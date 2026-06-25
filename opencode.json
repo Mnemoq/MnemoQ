@@ -39,6 +39,8 @@
           "pro-reviewer": "allow",
           "basic-reviewer": "allow",
           "test-writer": "allow",
+          "overmind": "allow",
+          "chaos-monkey": "allow",
           "*": "deny"
         },
         "webfetch": "allow"
@@ -128,6 +130,58 @@
         },
         "webfetch": "deny",
         "question": "allow"
+      }
+    },
+    "overmind": {
+      "description": "Meta-agent that analyzes failure patterns and evolves other agents' prompts to eliminate recurring failures.",
+      "mode": "subagent",
+      "model": "opencode-go/deepseek-v4-pro",
+      "temperature": 0.2,
+      "steps": 15,
+      "prompt": "{file:.opencode/prompts/Overmind.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": {
+          ".opencode/prompts/*.md": "allow",
+          "AGENTS.md": "allow",
+          "*": "deny"
+        },
+        "bash": {
+          "python -m agent_memory.cli *": "allow",
+          "git log *": "allow",
+          "git diff *": "allow",
+          "git status *": "allow",
+          "*": "ask"
+        },
+        "webfetch": "deny",
+        "question": "allow"
+      }
+    },
+    "chaos-monkey": {
+      "description": "Adversarial tester — writes edge-case tests, runs them, reports failures. Never edits src/.",
+      "mode": "subagent",
+      "model": "opencode-go/deepseek-v4-pro",
+      "temperature": 0.7,
+      "steps": 15,
+      "prompt": "{file:.opencode/prompts/ChaosMonkey.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": {
+          "tests/test_chaos_*": "allow",
+          "*": "deny"
+        },
+        "bash": {
+          "python -m pytest tests/test_chaos_*": "allow",
+          "python -m agent_memory.cli *": "allow",
+          "git diff *": "allow",
+          "git status *": "allow",
+          "*": "ask"
+        },
+        "webfetch": "deny"
       }
     }
   }

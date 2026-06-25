@@ -173,7 +173,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     async def consolidation_state():
         entries = read_learnings(paths)
         unresolved = [e for e in entries if not e.get("resolved", False)]
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
 
@@ -337,7 +337,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
 
     @router.get("/api/metrics/health")
     async def metrics_health():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         _, r, l, c = get_metrics_data(paths)
@@ -347,7 +347,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
 
     @router.get("/api/metrics/alerts")
     async def metrics_alerts():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         _, r, l, c = get_metrics_data(paths)
@@ -384,7 +384,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     @router.get("/api/metrics/snapshot")
     async def metrics_snapshot():
         entries = read_learnings(paths)
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         _, r, l, c = get_metrics_data(paths)
@@ -428,7 +428,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         except (IOError, json.JSONDecodeError):
             config = {}
         tuning = config.get("tuning", {})
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         _, r, l, c = get_metrics_data(paths)
@@ -439,7 +439,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
 
     @router.get("/api/metrics/recommendations")
     async def metrics_recommendations():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         config_path = paths.config_path
@@ -454,7 +454,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
 
     @router.get("/api/metrics/dashboard")
     async def metrics_dashboard():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         entries = read_learnings(paths)

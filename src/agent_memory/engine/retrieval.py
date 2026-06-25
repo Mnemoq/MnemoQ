@@ -16,6 +16,7 @@ from agent_memory.engine.io import read_learnings, write_learnings
 from agent_memory.engine.metrics import log_event
 from agent_memory.engine.profile import load_profile, get_profile_context
 from agent_memory.engine.constants import EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
+from agent_memory.engine.triggers import check_sleep_cycle
 
 
 _TOKEN_SPLIT = re.compile(r'[^a-z0-9]+')
@@ -410,14 +411,7 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     profile_context = get_profile_context(profile, task_domain, domain_mappings=ctx.get("domain_mappings"))
 
     unresolved_count = sum(1 for e in entries if not e.get("resolved", False))
-    max_step = ctx.get("max_step")
-    sleep_cycle_steps = {10, 20, max_step} if max_step is not None else {10, 20}
-    sleep_cycle_due = unresolved_count > 50 or current_step in sleep_cycle_steps
-    sleep_cycle_reasons = []
-    if unresolved_count > 50:
-        sleep_cycle_reasons.append("threshold")
-    if current_step in sleep_cycle_steps:
-        sleep_cycle_reasons.append("sprint_boundary")
+    sleep_cycle_due, sleep_cycle_reasons = check_sleep_cycle(paths, ctx, unresolved_count)
 
     all_results = warnings + patterns
     top_score = all_results[0][2] if all_results else 0.0
@@ -533,8 +527,10 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         reasons = result.get("sleep_cycle_reasons", [])
         if "threshold" in reasons:
             print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} unresolved entries exceed threshold of 50")
-        if "sprint_boundary" in reasons:
-            print(f"\n## SLEEP CYCLE DUE — Sprint boundary at step {current_step} ({result['unresolved_count']} unresolved entries)")
+        if "time" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — {ctx.get('sleep_cycle_days', 7)} days since last consolidation")
+        if "quarantine" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — Quarantine entries exceed threshold of {ctx.get('sleep_cycle_quarantine_threshold', 20)}")
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
 
     return 0

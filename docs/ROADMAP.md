@@ -11,7 +11,7 @@
 - [x] Eval framework
 - [x] Profile, agents review, migrate commands
 
-## Near-term
+## Near-term — v1.21.x
 
 - [ ] Sync client (`agent_memory.sync`) — AGPL client talking to a remote server
 - [ ] Eval improvements — more benchmark scenarios, automated regression tracking

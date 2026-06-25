@@ -92,7 +92,7 @@ Use module-under-test names:
 }
 ```
 - `ts` is auto-stamped by filter.py if omitted
-- filter.py auto-deduplicates entries with Jaccard similarity ≥ 0.7
+- filter.py auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
 - **PowerShell note:** Use `--log-file <path>` instead of `--log '<json>'` to avoid shell escaping issues.
 
 ### Retrieval (MANDATORY)
@@ -103,7 +103,6 @@ python memory/filter.py --step <N> --components <ModuleUnderTest> --domain testi
 Check for known bugs or patterns in the module under test.
 
 ### Notes
-- Subagents do not read or write HANDOFF.md. Only the GM agent manages session handoff.
 - test-writer only uses --step (retrieval) and --log (write) modes.
 
 ## Do NOT
