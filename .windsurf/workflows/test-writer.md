@@ -37,7 +37,7 @@ If AGENTS.md does not define test candidates/exclusions, use these general guide
 - `cli.py` dispatcher — thin wrapper, tested via CLI integration
 - MCP server stdio protocol — requires JSON-RPC runtime
 - Embedding model loading — requires model download, not unit-testable
-- FastAPI server endpoints — use chaos-monkey for those
+- FastAPI server endpoints — use fuzzer for those
 
 ## Rules
 

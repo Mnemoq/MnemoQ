@@ -27,6 +27,7 @@ Score every plan using this exact scale:
 ## Project-Specific Plan Checks
 
 - **Architecture alignment**: Plans must respect `AGENTS.md` § Architecture — `cli.py` is a thin dispatcher, logic lives in `src/agent_memory/engine/` modules, ctx dict + Paths pattern.
+- **scan the plan for design gaps that would cause implementation ambiguity.
 - **Config references**: Plans touching config should reference `docs/config-tuning.md` for parameter details and `templates/config-presets/` for preset examples.
 - **Testing criteria**: Plans must specify test commands (`python -m pytest tests/`) and respect import rules (engine modules tested via CLI integration, except `test_server.py` and `test_triggers.py`).
 - **Intentional design decisions**: Plans must not propose changes that violate AGENTS.md § Intentional Design Decisions (single validation path, `*_core` return dicts, no premature abstractions, read-only ctx).
