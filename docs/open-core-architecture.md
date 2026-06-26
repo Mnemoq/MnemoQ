@@ -51,8 +51,12 @@ When built, `src/agent_memory/sync.py` will be **AGPL** — it's the client that
 | `agent_memory.engine.profile` | Core | Active |
 | `agent_memory.engine.agents_review` | Core | Active |
 | `agent_memory.engine.migrate` | Core | Active |
-| `agent_memory.sync` | Core (client) | Planned |
-| Cloud sync server | Pro | Planned |
-| Multi-tenant layer | Pro | Planned |
-| Hosted dashboard backend | Pro | Planned |
+| `agent_memory.engine.storage` | Core | Planned (v1.22) |
+| `agent_memory.engine.entities` | Core | Planned (v1.25) |
+| `agent_memory.engine.graph` | Core | Planned (v1.25.1) |
+| `agent_memory.engine.transfer` | Core | Planned (v1.28.1) |
+| `agent_memory.sync` | Core (client) | Planned (v2.0) |
+| Cloud sync server | Pro | Planned (v2.0) |
+| Multi-tenant layer | Pro | Planned (v3.0) |
+| Hosted dashboard backend | Pro | Planned (v2.2) |
 | Billing service | Pro | Planned |

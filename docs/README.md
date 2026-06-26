@@ -24,4 +24,4 @@ Complete documentation for the MnemoQ agent memory engine. Start here if you're 
 | Doc | What it covers |
 |-----|---------------|
 | [Open-Core Architecture](open-core-architecture.md) | AGPL core vs proprietary Pro boundary, module classification |
-| [ROADMAP](ROADMAP.md) | Current status, near-term plans, Pro tier |
+| [ROADMAP](ROADMAP.md) | Shipped features, Tier 3 plans (v1.22–v1.28), future phases, Pro tier |

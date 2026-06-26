@@ -35,6 +35,17 @@ mnemoq-scaffold ./my-project --defaults
 
 This creates a `memory/` directory with `config.json` and `learnings.jsonl` in your project.
 
+Wire memory into your IDE/agent platform:
+
+```bash
+mnemoq-scaffold ./my-project --defaults --ide windsurf
+mnemoq-scaffold ./my-project --defaults --ide windsurf,cursor,claude-code
+mnemoq-scaffold ./my-project --defaults --ide all
+mnemoq-scaffold --ide ?
+```
+
+Supported platforms: `opencode`, `windsurf`, `cursor`, `claude-code`, `copilot`, `all`.
+
 ### 2. Log a learning
 
 ```bash

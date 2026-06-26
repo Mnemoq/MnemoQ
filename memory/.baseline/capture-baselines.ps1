@@ -4,13 +4,18 @@
 # NOTE: Only captures stdout. Stderr goes to console for visibility but isn't diffed.
 
 $ErrorActionPreference = "Continue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 
 function Restore-Fixture {
     Copy-Item memory\.baseline\fixture-learnings.jsonl memory\learnings.jsonl -Force
 }
 
+Remove-Item memory\archive\sprint-*.jsonl -Force -ErrorAction SilentlyContinue
+Remove-Item memory\metrics.jsonl -Force -ErrorAction SilentlyContinue
+
 $python = "python"
-$filter = "src\filter.py"
+$filter = @("-m", "agent_memory.cli")
 
 Write-Host "=== Phase 0.1: Read-only baselines ===" -ForegroundColor Cyan
 
@@ -19,19 +24,19 @@ Restore-Fixture
 Write-Host "  stats.txt captured"
 
 Restore-Fixture
-& $python $filter --step 5 --components Player,Enemy --domain physics > memory\.baseline\retrieval-component.txt 2>$null
+& $python $filter --step 5 --components Player,Enemy --domain physics --no-profile > memory\.baseline\retrieval-component.txt 2>$null
 Write-Host "  retrieval-component.txt captured"
 
 Restore-Fixture
-& $python $filter --step 10 --domain tooling > memory\.baseline\retrieval-domain.txt 2>$null
+& $python $filter --step 10 --domain tooling --no-profile > memory\.baseline\retrieval-domain.txt 2>$null
 Write-Host "  retrieval-domain.txt captured"
 
 Restore-Fixture
-& $python $filter --step 1 --components NonExistent --domain nonexistent > memory\.baseline\retrieval-empty.txt 2>$null
+& $python $filter --step 1 --components NonExistent --domain nonexistent --no-profile > memory\.baseline\retrieval-empty.txt 2>$null
 Write-Host "  retrieval-empty.txt captured"
 
 Restore-Fixture
-& $python $filter --step 5 --components Player,Enemy > memory\.baseline\retrieval-no-domain.txt 2>$null
+& $python $filter --step 5 --components Player,Enemy --no-profile > memory\.baseline\retrieval-no-domain.txt 2>$null
 Write-Host "  retrieval-no-domain.txt captured"
 
 # Step alone (no qualifiers) — prints help to stdout, exit 1
@@ -41,7 +46,7 @@ Write-Host "  step-alone.txt captured"
 
 # Escalation — entry #2 step=0 + critical, current_step=30
 Restore-Fixture
-& $python $filter --step 30 --domain tooling > memory\.baseline\retrieval-escalation.txt 2>$null
+& $python $filter --step 30 --domain tooling --no-profile > memory\.baseline\retrieval-escalation.txt 2>$null
 Write-Host "  retrieval-escalation.txt captured"
 
 # File mutation (access_count bump)
@@ -89,7 +94,7 @@ Write-Host "`n=== Phase 0.3: Consolidation baselines ===" -ForegroundColor Cyan
 
 Restore-Fixture
 Copy-Item memory\.baseline\fixture-agents.md AGENTS.md -Force -ErrorAction SilentlyContinue
-Remove-Item memory\archive -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item memory\archive\sprint-*.jsonl -Force -ErrorAction SilentlyContinue
 & $python $filter --consolidate --sprint 1 > memory\.baseline\consolidate.txt 2>$null
 Copy-Item memory\learnings.jsonl memory\.baseline\learnings-after-consolidate.jsonl -Force
 if (Test-Path memory\archive\sprint-1.jsonl) {

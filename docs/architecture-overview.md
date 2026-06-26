@@ -425,5 +425,5 @@ Core functions receive `ctx` and `paths` as parameters and never mutate them. No
 | [CLI Reference](cli-reference.md) | All flags, mutual-exclusion rules, examples |
 | [MCP Integration](mcp-integration.md) | Client setup for Claude Desktop, Cursor, Windsurf, VS Code |
 | [Open-Core Architecture](open-core-architecture.md) | AGPL core vs proprietary Pro boundary |
-| [ROADMAP](ROADMAP.md) | Current status and planned features |
+| [ROADMAP](ROADMAP.md) | Shipped features, Tier 3 plans (v1.22–v1.28), future phases, Pro tier |
 | [AGENTS.md](../AGENTS.md) | Coding conventions, intentional design decisions |
