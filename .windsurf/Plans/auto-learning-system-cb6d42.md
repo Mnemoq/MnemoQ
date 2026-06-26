@@ -191,6 +191,17 @@ _PATH_DOMAIN_MAP = {
     "fixtures/": "testing", "mock/": "testing", "mocks/": "testing",
     "e2e/": "testing", "integration/": "testing",
 
+    # data
+    "data/": "data", "etl/": "data", "pipeline/": "data",
+    "ingest/": "data", "dataset/": "data", "analytics/": "data",
+    "warehouse/": "data", "spark/": "data", "kafka/": "data",
+    "airflow/": "data", "dag/": "data", "stream/": "data",
+
+    # ui (design-system / UX concerns, distinct from general frontend)
+    "ux/": "ui", "design-system/": "ui", "design_system/": "ui",
+    "storybook/": "ui", "figma/": "ui", "theme/": "ui",
+    "themes/": "ui",
+
     # performance
     "perf/": "performance", "performance/": "performance",
     "benchmark/": "performance", "benchmarks/": "performance",
@@ -201,6 +212,12 @@ _PATH_DOMAIN_MAP = {
     "docs/": "documentation", "doc/": "documentation",
     "documentation/": "documentation", "readme": "documentation",
     "changelog": "documentation", "license": "documentation",
+
+    # tooling (explicit keywords — also the fallback domain)
+    "cli/": "tooling", "bin/": "tooling", "tools/": "tooling",
+    "config/": "tooling", "eslint": "tooling", "prettier": "tooling",
+    "webpack": "tooling", "vite": "tooling", "rollup": "tooling",
+    "babel": "tooling", "tsconfig": "tooling",
 }
 ```
 
