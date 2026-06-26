@@ -20,9 +20,9 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+
 from agent_memory.engine_version import get_engine_version
 from agent_memory.shim import SHIM_TEMPLATE, is_shim
-
 
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.1
@@ -102,7 +102,7 @@ def load_projects(dry_run=False):
     stale_entries = []
     all_lines = []
     
-    with open(projects_file, 'r', encoding='utf-8') as f:
+    with open(projects_file, encoding='utf-8') as f:
         all_lines = f.readlines()
     
     for line in all_lines:

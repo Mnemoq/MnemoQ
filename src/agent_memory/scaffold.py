@@ -23,6 +23,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+
 from agent_memory.engine_version import get_engine_version
 from agent_memory.shim import SHIM_TEMPLATE, is_shim
 
@@ -298,7 +299,7 @@ def verify_scaffold(target_memory):
             print("[OK] Verification passed: filter.py runs cleanly")
             return True
         else:
-            print(f"[FAIL] Verification failed:")
+            print("[FAIL] Verification failed:")
             print(f"  stdout: {result.stdout}")
             print(f"  stderr: {result.stderr}")
             return False
@@ -413,11 +414,11 @@ def merge_opencode_json(target_path):
                         perms["bash"] = bash_dict
     
     if not atomic_write_json(opencode_path, existing):
-        print(f"  ERROR: Failed to write opencode.json", file=sys.stderr)
+        print("  ERROR: Failed to write opencode.json", file=sys.stderr)
         if backup_path and backup_path.exists():
             try:
                 shutil.copy2(backup_path, opencode_path)
-                print(f"  Restored opencode.json from backup", file=sys.stderr)
+                print("  Restored opencode.json from backup", file=sys.stderr)
             except Exception as e:
                 print(f"  WARNING: Could not restore from backup: {e}", file=sys.stderr)
         return False, backup_path
@@ -529,7 +530,7 @@ def wire_opencode(target_path):
     if backup_path:
         print(f"  Backed up opencode.json -> {backup_path.name}")
     else:
-        print(f"  Created opencode.json from snippet")
+        print("  Created opencode.json from snippet")
     
     return True
 
@@ -557,7 +558,7 @@ def wire_windsurf(target_path):
     gitkeep = plans_dir / ".gitkeep"
     if not gitkeep.exists():
         gitkeep.touch()
-    print(f"  Created .windsurf/Plans/")
+    print("  Created .windsurf/Plans/")
     
     mem_status = append_agents_md_memory_section(target_path)
     if mem_status == "appended":
@@ -704,7 +705,7 @@ Examples:
             sys.exit(f"ERROR: {target_memory} already exists.\n"
                      f"Use --force to overwrite engine files (data files are never touched).")
         else:
-            print(f"  --force: overwriting engine files only")
+            print("  --force: overwriting engine files only")
     
     # Load template config
     template_path = ENGINE_DIR / "templates" / "config.json"
@@ -723,24 +724,24 @@ Examples:
     
     # Copy engine files
     copy_engine_files(target_memory, args.force)
-    print(f"  Wrote shim to filter.py")
+    print("  Wrote shim to filter.py")
     
     # Write config.json (create if absent, never overwrite)
     config_path = target_memory / "config.json"
     if not config_path.exists():
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"  Created config.json")
+        print("  Created config.json")
     else:
-        print(f"  config.json exists (not overwritten)")
+        print("  config.json exists (not overwritten)")
     
     # Create starter files (only if absent)
     create_starter_files(target_memory)
-    print(f"  Created starter files")
+    print("  Created starter files")
     
     # Register project
     register_project(target_path)
-    print(f"  Registered in projects.txt")
+    print("  Registered in projects.txt")
     
     # Verify
     verify_scaffold(target_memory)
@@ -770,9 +771,9 @@ Examples:
     print(f"\n[OK] Scaffold complete: {target_memory}")
     if platforms:
         print(f"  Wired: {', '.join(platforms)}")
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  1. cd {target_path}")
-    print(f"  2. python memory/filter.py --step 1 --components YourComponent --domain tooling")
+    print("  2. python memory/filter.py --step 1 --components YourComponent --domain tooling")
     
     return 0
 

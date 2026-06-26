@@ -17,7 +17,7 @@ def _last_consolidation_ts(paths):
     if not os.path.exists(path):
         return None
     last_ts = None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -62,7 +62,7 @@ def check_sleep_cycle(paths, ctx, unresolved_count):
     quarantine_threshold = ctx.get("sleep_cycle_quarantine_threshold", 20)
     if quarantine_threshold and quarantine_threshold > 0:
         if os.path.exists(paths.quarantine_path):
-            with open(paths.quarantine_path, "r", encoding="utf-8") as f:
+            with open(paths.quarantine_path, encoding="utf-8") as f:
                 count = sum(1 for line in f if line.strip())
             if count >= quarantine_threshold:
                 reasons.append("quarantine")

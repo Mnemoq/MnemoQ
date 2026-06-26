@@ -10,14 +10,14 @@ import re
 import sys
 import time
 
-from agent_memory.engine.io import read_learnings, write_learnings, append_learning, quarantine
-from agent_memory.engine.validation import validate_entry, find_best_match, actions_oppose
-from agent_memory.engine.git_utils import stamp_entry
 from agent_memory.engine.agents_review import check_agents_conflict
+from agent_memory.engine.git_utils import stamp_entry
+from agent_memory.engine.io import append_learning, quarantine, read_learnings, write_learnings
 from agent_memory.engine.metrics import log_event
 from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
 from agent_memory.engine.retrieval import embed_entry, encode_embedding, find_semantic_duplicate
 from agent_memory.engine.triggers import check_sleep_cycle
+from agent_memory.engine.validation import actions_oppose, find_best_match, validate_entry
 
 TS_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
@@ -80,13 +80,13 @@ def log_core(json_str, paths, ctx):
 
     # AGENTS.md conflict detection (informational, non-blocking)
     conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry, paths)
-    agents_warning = None
     if conflict_detected:
-        agents_warning = (
+        print(
             f"WARNING: Learning may overlap with AGENTS.md section '{best_section}'\n"
             f"  Jaccard: {jaccard_score:.2f}, Containment hits: {containment_hits}\n"
             f"  Learning: {entry['trigger']}: {entry['action']}\n"
-            f"  Consider: Updating existing section instead of adding new rule"
+            f"  Consider: Updating existing section instead of adding new rule",
+            file=sys.stderr,
         )
 
     existing_entries = read_learnings(paths)
@@ -446,23 +446,23 @@ def handle_stats(paths, ctx=None):
     print(f"Average access_count: {result['avg_access_count']:.1f}")
     print(f"Average reinforcement_count: {result['avg_reinforcement_count']:.1f}")
     print(f"Step range: {result['step_range'][0]}-{result['step_range'][1]}")
-    print(f"\nSeverity breakdown:")
+    print("\nSeverity breakdown:")
     for sev in ["critical", "major", "minor"]:
         count = result["severity_breakdown"].get(sev, 0)
         print(f"  {sev}: {count}")
-    print(f"\nType breakdown:")
+    print("\nType breakdown:")
     for t in sorted(result["type_breakdown"].keys()):
         print(f"  {t}: {result['type_breakdown'][t]}")
-    print(f"\nScope breakdown:")
+    print("\nScope breakdown:")
     for s in ["system", "module", "file"]:
         count = result["scope_breakdown"].get(s, 0)
         print(f"  {s}: {count}")
-    print(f"\nDebt level breakdown:")
+    print("\nDebt level breakdown:")
     for d in ["proper", "workaround", "temporary"]:
         count = result["debt_breakdown"].get(d, 0)
         print(f"  {d}: {count}")
     print(f"\nVerified: {result['verified']} verified, {result['unverified']} unverified")
-    print(f"\nReinforcement patterns:")
+    print("\nReinforcement patterns:")
     print(f"  Proven (reinforcement >= 5): {result['proven']}")
     print(f"  Over-injected (access >= 10, reinforcement <= 2): {result['over_injected']}")
     print(f"  Under-retrieved (access <= 2, reinforcement >= 5): {result['under_retrieved']}")

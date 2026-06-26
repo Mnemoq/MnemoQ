@@ -25,7 +25,7 @@ import json
 import os
 import sys
 from collections import namedtuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ENGINE_DIR = Path.home() / ".agent-memory" / "engine"
@@ -52,12 +52,12 @@ def _get_project_id(paths):
     config_path = Path(paths.config_path)
     if config_path.exists():
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
             name = config.get("project_name")
             if name and isinstance(name, str):
                 return name
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
     return os.path.basename(paths.repo_root) or "unknown"
 
@@ -100,7 +100,7 @@ def read_metrics(paths, event_type=None, since=None):
         return []
 
     events = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -136,7 +136,7 @@ def _load_project_paths():
         return []
 
     projects = []
-    with open(projects_file, "r", encoding="utf-8") as f:
+    with open(projects_file, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s or s.startswith("#"):

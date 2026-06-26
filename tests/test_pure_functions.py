@@ -11,29 +11,28 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from agent_memory.engine.validation import (
-    validate_entry,
-    jaccard_similarity,
-    actions_oppose,
-    find_best_match,
-)
-from agent_memory.engine.retrieval import score_entry, is_in_retention
 from agent_memory.engine.consolidation import (
-    score_for_promotion,
-    is_promotion_candidate,
     detect_contradictions,
-    infer_sprint_number,
     get_agents_md_suggestions,
+    infer_sprint_number,
+    is_promotion_candidate,
+    score_for_promotion,
 )
 from agent_memory.engine.constants import (
-    VALID_TYPES,
-    VALID_DOMAINS,
-    VALID_SEVERITIES,
-    VALID_SCOPES,
     VALID_DEBT_LEVELS,
+    VALID_DOMAINS,
+    VALID_SCOPES,
+    VALID_SEVERITIES,
     VALID_SOURCE_AGENTS,
+    VALID_TYPES,
 )
-
+from agent_memory.engine.retrieval import is_in_retention, score_entry
+from agent_memory.engine.validation import (
+    actions_oppose,
+    find_best_match,
+    jaccard_similarity,
+    validate_entry,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers

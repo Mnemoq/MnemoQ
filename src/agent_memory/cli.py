@@ -34,6 +34,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
 from agent_memory.engine_version import get_engine_version
 
 # --- Paths Dataclass ---
@@ -191,7 +192,7 @@ def load_config():
         return {}
     
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
     except json.JSONDecodeError as e:
         print(f"WARNING: config.json is malformed: {e}", file=sys.stderr)
@@ -378,10 +379,16 @@ def _build_ctx():
 # Each delegates to the engine module, passing paths and ctx.
 
 from agent_memory.engine.io import (
-    read_learnings as _io_read_learnings,
     append_learning as _io_append_learning,
-    write_learnings as _io_write_learnings,
+)
+from agent_memory.engine.io import (
     quarantine as _io_quarantine,
+)
+from agent_memory.engine.io import (
+    read_learnings as _io_read_learnings,
+)
+from agent_memory.engine.io import (
+    write_learnings as _io_write_learnings,
 )
 
 
@@ -407,9 +414,6 @@ def quarantine(raw_input, reason):
 
 from agent_memory.engine.validation import (
     validate_entry as _val_validate_entry,
-    jaccard_similarity,
-    actions_oppose,
-    find_best_match,
 )
 
 
@@ -420,6 +424,8 @@ def validate_entry(entry):
 
 from agent_memory.engine.agents_review import (
     check_agents_conflict as _ar_check_agents_conflict,
+)
+from agent_memory.engine.agents_review import (
     handle_review_agents as _ar_handle_review_agents,
 )
 
@@ -436,9 +442,15 @@ def handle_review_agents(current_step, threshold):
 
 from agent_memory.engine.handlers import (
     handle_log as _h_handle_log,
-    handle_update as _h_handle_update,
+)
+from agent_memory.engine.handlers import (
     handle_resolve as _h_handle_resolve,
+)
+from agent_memory.engine.handlers import (
     handle_stats as _h_handle_stats,
+)
+from agent_memory.engine.handlers import (
+    handle_update as _h_handle_update,
 )
 
 
@@ -463,9 +475,13 @@ def handle_stats():
 
 
 from agent_memory.engine.retrieval import (
-    score_entry as _ret_score_entry,
-    is_in_retention as _ret_is_in_retention,
     handle_retrieval as _ret_handle_retrieval,
+)
+from agent_memory.engine.retrieval import (
+    is_in_retention as _ret_is_in_retention,
+)
+from agent_memory.engine.retrieval import (
+    score_entry as _ret_score_entry,
 )
 
 
@@ -485,10 +501,11 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, no_
 
 
 from agent_memory.engine.consolidation import (
-    handle_consolidate as _con_handle_consolidate,
     handle_confirm_reset as _con_handle_confirm_reset,
 )
-
+from agent_memory.engine.consolidation import (
+    handle_consolidate as _con_handle_consolidate,
+)
 from agent_memory.engine.metrics import handle_metrics as _met_handle_metrics
 
 
@@ -502,7 +519,6 @@ def handle_confirm_reset():
     return _con_handle_confirm_reset(_get_paths(), _build_ctx())
 
 
-from agent_memory.engine.git_utils import stamp_entry, check_staleness
 
 
 # --- Main ---
@@ -610,9 +626,9 @@ Examples:
     log_json = args.log
     if args.log_file:
         try:
-            with open(args.log_file, "r", encoding="utf-8-sig") as f:
+            with open(args.log_file, encoding="utf-8-sig") as f:
                 log_json = f.read()
-        except (IOError, OSError) as e:
+        except OSError as e:
             print(f"ERROR: Cannot read --log-file: {e}", file=sys.stderr)
             sys.exit(1)
 
@@ -681,7 +697,8 @@ Examples:
         url = f"http://127.0.0.1:{args.port}"
         if args.dashboard:
             print(f"Agent Memory Dashboard starting on {url}", file=sys.stderr)
-            import threading, webbrowser
+            import threading
+            import webbrowser
             threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         else:
             print(f"Agent Memory Engine API starting on {url}", file=sys.stderr)

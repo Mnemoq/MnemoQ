@@ -12,12 +12,11 @@ import os
 import re
 import time
 
+from agent_memory.engine.constants import EMBEDDING_CACHE_DIR, EMBEDDING_MODEL
 from agent_memory.engine.io import read_learnings, write_learnings
 from agent_memory.engine.metrics import log_event
-from agent_memory.engine.profile import load_profile, get_profile_context
-from agent_memory.engine.constants import EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
+from agent_memory.engine.profile import get_profile_context, load_profile
 from agent_memory.engine.triggers import check_sleep_cycle
-
 
 _TOKEN_SPLIT = re.compile(r'[^a-z0-9]+')
 

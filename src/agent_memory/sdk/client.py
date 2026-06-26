@@ -22,16 +22,14 @@ import os
 from datetime import datetime
 from typing import Any
 
-from agent_memory.sdk.exceptions import APIError, ConflictError, NotFoundError, ValidationError
-
 from agent_memory import cli as filter
-from agent_memory.engine.constants import DEFAULTS
 from agent_memory.engine.consolidation import consolidate_core
+from agent_memory.engine.constants import DEFAULTS
 from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
 from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
 from agent_memory.engine.models import LearningEntry
 from agent_memory.engine.retrieval import retrieve_core
-
+from agent_memory.sdk.exceptions import APIError, ConflictError, NotFoundError, ValidationError
 
 # ---------------------------------------------------------------------------
 # Transport helpers

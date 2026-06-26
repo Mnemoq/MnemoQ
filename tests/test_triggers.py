@@ -5,15 +5,14 @@ Direct-import tests (follows test_server.py exception pattern per AGENTS.md).
 import json
 import os
 import sys
-import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from agent_memory.engine.triggers import check_sleep_cycle, _last_consolidation_ts
+from agent_memory.engine.triggers import _last_consolidation_ts, check_sleep_cycle
 
 
 class _Paths:

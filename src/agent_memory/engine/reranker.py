@@ -17,7 +17,6 @@ import urllib.request
 
 from agent_memory.engine.constants import EMBEDDING_CACHE_DIR, RERANKER_MODEL
 
-
 # --- Cross-encoder singleton cache (keyed by model name) ---
 
 _ce_cache: dict[str, object | None] = {}

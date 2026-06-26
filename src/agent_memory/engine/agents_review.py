@@ -13,7 +13,6 @@ import time
 from agent_memory.engine.io import read_learnings
 from agent_memory.engine.metrics import log_event
 
-
 # Stop-words for keyword extraction
 STOP_WORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
@@ -58,7 +57,7 @@ def parse_agents_sections(agents_md_path):
     if not os.path.exists(agents_md_path):
         return []
 
-    with open(agents_md_path, "r", encoding="utf-8") as f:
+    with open(agents_md_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     heading_re = re.compile(r"^(#{2,4})\s+(.+)$")
@@ -245,7 +244,7 @@ def handle_review_agents(current_step, threshold, paths):
     # COLD sections
     cold = [(h, c) for h, c in section_ref_counts.items() if c == 0]
     if cold:
-        print("### COLD — No references in last {} steps".format(threshold))
+        print(f"### COLD — No references in last {threshold} steps")
         for heading, count in cold:
             print(f"- {heading.lower().replace(' ', '-')} (0 refs) — may be foundational or stale")
         print()
