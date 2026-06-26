@@ -129,9 +129,8 @@ AGENTS.md compliance is an optimization, not a dependency. The engine generating
 
 #### `src/agent_memory/engine/retrieval.py`
 
-- **No code change required for the common case.** Meta-learnings are generated `resolved: true`, and `retrieve_core()` already skips resolved entries at `retrieval.py:287`. That skip is data-safe because it filters *during scoring* without rebinding `entries`.
-- **Do NOT reassign `entries`.** `retrieve_core()` rewrites the whole file at `retrieval.py:408` (`write_learnings(paths, entries)`) whenever results are returned. A load-time `entries = [e for e in entries if e.get("type") != "meta_learning"]` would therefore **delete every meta-learning from `learnings.jsonl`** on the next hit.
-- If explicit defense-in-depth against an *unresolved* `meta_learning` is wanted, filter into a separate scoring-only list (e.g. build `scoring_entries` and iterate that in the Phase-1 loop), leaving `entries` — and thus the write-back at line 408 — untouched.
+- **No code change.** Meta-learnings are generated `resolved: true`, and `retrieve_core()` already skips resolved entries at `retrieval.py:287`. That skip is data-safe because it filters *during scoring* without rebinding `entries`. **Decision: rely on the resolved-skip only (approach A).** No type-based filter in retrieval — if an unresolved `meta_learning` ever surfaces, that's a generator bug to fix at the source, not a retrieval-layer guard.
+- **Do NOT reassign `entries`.** `retrieve_core()` rewrites the whole file at `retrieval.py:408` (`write_learnings(paths, entries)`) whenever results are returned. Any in-place filter on `entries` would **delete the filtered-out entries from `learnings.jsonl`** on the next hit.
 
 ### Phase 2: Core Detection Module (`src/agent_memory/engine/auto_learn.py`)
 

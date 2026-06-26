@@ -479,9 +479,9 @@ def is_in_retention(entry, current_step):
     return _ret_is_in_retention(entry, current_step, _build_ctx())
 
 
-def handle_retrieval(current_step, task_components, task_files, task_domain):
+def handle_retrieval(current_step, task_components, task_files, task_domain, no_profile=False):
     """Handle retrieval mode: score, filter, and print relevant learnings."""
-    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_ctx(), _get_paths())
+    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_ctx(), _get_paths(), no_profile=no_profile)
 
 
 from agent_memory.engine.consolidation import (
@@ -556,6 +556,7 @@ Examples:
     parser.add_argument("--migrate-schema", action="store_true", help="Run schema migration on learnings.jsonl and write updated file")
     parser.add_argument("--eval", action="store_true", help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
     parser.add_argument("--memory-dir", type=str, help="Path to memory directory (default: <cwd>/memory)")
+    parser.add_argument("--no-profile", action="store_true", help="Skip developer profile loading (for deterministic output)")
 
     # Metrics flags
     parser.add_argument("--metrics", action="store_true", help="Print metrics summary report")
@@ -732,7 +733,7 @@ Examples:
         task_components = [c.strip() for c in args.components.split(",")] if args.components else []
         task_files = [f.strip() for f in args.files.split(",")] if args.files else []
         task_domain = args.domain
-        return handle_retrieval(args.step, task_components, task_files, task_domain)
+        return handle_retrieval(args.step, task_components, task_files, task_domain, no_profile=args.no_profile)
     else:
         parser.print_help()
         return 1

@@ -1,3 +1,5 @@
+# Project Instructions
+
 ## Memory
 
 **Session start:** `memory/HANDOFF.md` and `memory/SYSTEM_INVARIANTS.md` are auto-loaded by your IDE/agent platform. Act on HANDOFF's "next action" line if present.

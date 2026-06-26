@@ -255,7 +255,7 @@ def is_in_retention(entry, current_step, ctx):
     return False
 
 
-def retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths):
+def retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths, no_profile=False):
     """Shared logic for retrieval mode. Returns dict, no printing.
 
     Returns:
@@ -407,8 +407,11 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     if warnings or patterns:
         write_learnings(paths, entries)
 
-    profile = load_profile()
-    profile_context = get_profile_context(profile, task_domain, domain_mappings=ctx.get("domain_mappings"))
+    if no_profile:
+        profile_context = []
+    else:
+        profile = load_profile()
+        profile_context = get_profile_context(profile, task_domain, domain_mappings=ctx.get("domain_mappings"))
 
     unresolved_count = sum(1 for e in entries if not e.get("resolved", False))
     sleep_cycle_due, sleep_cycle_reasons = check_sleep_cycle(paths, ctx, unresolved_count)
@@ -476,9 +479,9 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     }
 
 
-def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths):
+def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths, no_profile=False):
     """Handle retrieval mode: score, filter, and print relevant learnings. CLI wrapper."""
-    result = retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths)
+    result = retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths, no_profile=no_profile)
 
     print("## ⚠ WARNINGS — Read before starting")
     if result["warnings"]:
@@ -494,13 +497,14 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     else:
         print("(none)")
 
-    print("\n## 🎯 DEVELOPER PREFERENCES")
-    if result["profile_context"]:
-        for pref in result["profile_context"]:
-            print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
-            print(f"  Reason: {pref['reason']}")
-    else:
-        print("(none)")
+    if not no_profile:
+        print("\n## 🎯 DEVELOPER PREFERENCES")
+        if result["profile_context"]:
+            for pref in result["profile_context"]:
+                print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
+                print(f"  Reason: {pref['reason']}")
+        else:
+            print("(none)")
 
     print("\n## RELEVANT PATTERNS")
     if result["patterns"]:

@@ -16,9 +16,11 @@ Log, retrieve, consolidate, and manage agent memories.
 | `--components` | str | — | Comma-separated component names |
 | `--files` | str | — | Comma-separated file paths |
 | `--domain` | str | — | Coarse domain tag |
+| `--no-profile` | flag | — | Skip developer profile loading (for deterministic output) |
 
 ```bash
 mnemoq --step 3 --components api,auth --files src/auth.py --domain backend
+mnemoq --step 3 --components api,auth --domain backend --no-profile
 ```
 
 ### Logging Flags
@@ -186,14 +188,29 @@ Initialize a new project with a `memory/` directory, `config.json`, and `learnin
 | `target` (positional) | str | current directory | Target project path |
 | `--defaults` | flag | — | Skip prompts, use all defaults |
 | `--force` | flag | — | Overwrite engine files only (preserves `learnings.jsonl`) |
-| `--opencode` | flag | — | Wire memory system into opencode (merge `opencode.json`, copy prompts, append `AGENTS.md`) |
+| `--ide` | str | — | Wire memory into IDE/agent platform(s): `opencode`, `windsurf`, `cursor`, `claude-code`, `copilot`, `all` (comma-separated). Use `--ide ?` to list platforms. |
 | `--version` | flag | — | Show version and exit |
 
 ```bash
 mnemoq-scaffold ./my-project --defaults
-mnemoq-scaffold ./my-project --defaults --opencode
+mnemoq-scaffold ./my-project --defaults --ide windsurf
+mnemoq-scaffold ./my-project --defaults --ide windsurf,cursor,claude-code
+mnemoq-scaffold ./my-project --defaults --ide all
+mnemoq-scaffold --ide ?
 mnemoq-scaffold . --force
 ```
+
+Supported platforms:
+
+| Platform | What gets wired |
+|----------|----------------|
+| `opencode` | Merges `opencode.json`, copies prompts to `.opencode/prompts/`, appends `AGENTS.md` |
+| `windsurf` | Copies workflows to `.windsurf/workflows/`, creates `.windsurf/Plans/`, appends `AGENTS.md` |
+| `cursor` | Copies `.mdc` rule files to `.cursor/rules/`, appends `AGENTS.md` |
+| `claude-code` | Creates/appends `CLAUDE.md` with memory protocol |
+| `copilot` | Creates/appends `.github/copilot-instructions.md`, appends `AGENTS.md` |
+
+`--opencode` is kept as a hidden backward-compat alias for `--ide opencode`.
 
 ---
 

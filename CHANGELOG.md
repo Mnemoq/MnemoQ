@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `--no-profile` CLI flag to skip developer profile loading during retrieval (deterministic output for baselines/CI)
+
 ## [1.20.6] - 2026-06-25
 
 Initial public release.

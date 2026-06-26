@@ -646,6 +646,180 @@ class TestScaffoldIntegration:
         assert "gm" in opencode["agent"]
         assert "code-reviewer" in opencode["agent"]
 
+    def test_scaffold_ide_flag_opencode(self, fresh_project, engine_dir):
+        """Test that --ide opencode produces same results as --opencode."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "opencode"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / "opencode.json").exists()
+        assert (fresh_project / ".opencode" / "prompts" / "gm.md").exists()
+
+    def test_scaffold_opencode_backward_compat(self, fresh_project, engine_dir):
+        """Test that --opencode hidden alias still works."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--opencode"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / "opencode.json").exists()
+
+    def test_scaffold_windsurf_wiring(self, fresh_project, engine_dir):
+        """Test that --ide windsurf creates workflows, Plans dir, and AGENTS.md."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "windsurf"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
+        assert (fresh_project / ".windsurf" / "workflows" / "code-reviewer.md").exists()
+        assert (fresh_project / ".windsurf" / "Plans").exists()
+        assert (fresh_project / ".windsurf" / "Plans" / ".gitkeep").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+        agents_content = (fresh_project / "AGENTS.md").read_text()
+        assert "## Memory" in agents_content
+
+    def test_scaffold_cursor_wiring(self, fresh_project, engine_dir):
+        """Test that --ide cursor creates .cursor/rules/*.mdc and AGENTS.md."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "cursor"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".cursor" / "rules" / "memory-protocol.mdc").exists()
+        assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
+        assert (fresh_project / ".cursor" / "rules" / "code-reviewer.mdc").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+        agents_content = (fresh_project / "AGENTS.md").read_text()
+        assert "## Memory" in agents_content
+
+    def test_scaffold_claude_code_wiring(self, fresh_project, engine_dir):
+        """Test that --ide claude-code creates CLAUDE.md with memory protocol."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "claude-code"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / "CLAUDE.md").exists()
+        claude_content = (fresh_project / "CLAUDE.md").read_text()
+        assert "## Memory" in claude_content
+        assert "filter.py" in claude_content
+
+    def test_scaffold_copilot_wiring(self, fresh_project, engine_dir):
+        """Test that --ide copilot creates .github/copilot-instructions.md and AGENTS.md."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "copilot"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".github" / "copilot-instructions.md").exists()
+        copilot_content = (fresh_project / ".github" / "copilot-instructions.md").read_text()
+        assert "## Memory" in copilot_content
+        assert (fresh_project / "AGENTS.md").exists()
+        agents_content = (fresh_project / "AGENTS.md").read_text()
+        assert "## Memory" in agents_content
+
+    def test_scaffold_multi_ide(self, fresh_project, engine_dir):
+        """Test that --ide windsurf,cursor wires both platforms."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "windsurf,cursor"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
+        assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+
+    def test_scaffold_ide_invalid_platform(self, fresh_project, engine_dir):
+        """Test that unknown IDE platform exits with error."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "foo"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode != 0
+        assert "Unknown IDE platform" in result.stderr or "Unknown IDE platform" in result.stdout
+
+    def test_scaffold_ide_list_platforms(self):
+        """Test that --ide ? lists available platforms and exits 0."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", "--ide", "?"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert "Available IDE platforms" in result.stdout
+        assert "windsurf" in result.stdout
+        assert "cursor" in result.stdout
+        assert "claude-code" in result.stdout
+        assert "copilot" in result.stdout
+        assert "all" in result.stdout
+
+    def test_scaffold_ide_all(self, fresh_project, engine_dir):
+        """Test that --ide all wires every platform."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "all"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
+        assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
+        assert (fresh_project / "CLAUDE.md").exists()
+        assert (fresh_project / ".github" / "copilot-instructions.md").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+        assert "Wired:" in result.stdout
+
+    def test_templates_are_platform_agnostic(self):
+        """Test that shared templates contain no opencode-specific bias."""
+        templates_dir = Path(__file__).parent.parent / "templates"
+        shared_files = list((templates_dir / "prompts").glob("*.md"))
+        shared_files.append(templates_dir / "agents-memory-section.md")
+        shared_files.extend((templates_dir / "windsurf" / "workflows").glob("*.md"))
+        biased_patterns = [".opencode/", "opencode-go", "via opencode.json"]
+        for f in shared_files:
+            content = f.read_text(encoding='utf-8').lower()
+            for pattern in biased_patterns:
+                assert pattern not in content, f"Template {f.name} contains biased pattern '{pattern}'"
+
 
 class TestUpdateHygiene:
     """Test update.py hygiene features (temp path detection, auto-prune)."""
