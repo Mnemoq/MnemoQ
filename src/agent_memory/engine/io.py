@@ -20,7 +20,7 @@ def _read_raw_jsonl(path):
     entries = []
     if not os.path.exists(path):
         return entries
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for i, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -80,7 +80,7 @@ def write_learnings(paths, entries):
                             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                     os.remove(tmp_path)
                 except PermissionError:
-                    print(f"ERROR: Fallback write also failed. File may be locked.", file=sys.stderr)
+                    print("ERROR: Fallback write also failed. File may be locked.", file=sys.stderr)
                     print(f"Temp file preserved at: {tmp_path}", file=sys.stderr)
                     raise
                 except OSError as e:

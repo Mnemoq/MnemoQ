@@ -5,7 +5,6 @@ Skips if fastapi is not installed.
 """
 import json
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -17,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 fastapi = pytest.importorskip("fastapi")
 import httpx
+
 from agent_memory.engine.server import create_app
 
 
@@ -728,7 +728,7 @@ class TestConfigUpdate:
             update = {"project_name": "new", "tuning": {"score_threshold": 0.2, "decay_rate": 0.995, "component_weight": 1.0, "file_weight": 0.7, "domain_weight": 0.4, "no_match_weight": 0.1, "max_warnings": 5, "max_patterns": 15, "minor_retention": 5, "major_retention": 20}}
             resp = await c.put("/api/config", json=update)
             assert resp.status_code == 500
-            with open(paths.config_path, "r", encoding="utf-8") as f:
+            with open(paths.config_path, encoding="utf-8") as f:
                 saved = json.load(f)
             assert saved["project_name"] == "original"
             assert not os.path.exists(tmp_path), "Temporary config file should be removed after failed write"

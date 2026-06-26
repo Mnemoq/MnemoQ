@@ -12,35 +12,36 @@ import os
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from agent_memory.engine.handlers import stats_core
-from agent_memory.engine.consolidation import (
-    is_promotion_candidate,
-    detect_contradictions,
-    review_quarantine,
-    check_staleness,
+from agent_memory.engine.analysis import (
+    alerts_list,
+    get_metrics_data,
+    health_score,
+    make_project_paths,
+    parse_since,
+    recommendations,
 )
+from agent_memory.engine.consolidation import (
+    check_staleness,
+    detect_contradictions,
+    is_promotion_candidate,
+    review_quarantine,
+)
+from agent_memory.engine.handlers import stats_core
 from agent_memory.engine.io import _read_raw_jsonl, read_learnings
 from agent_memory.engine.metrics import (
-    read_metrics,
-    _retrieval_stats,
-    _logging_stats,
-    _consolidation_stats,
-    _trend_stats,
-    _lifecycle_stats,
     _agent_stats,
+    _consolidation_stats,
     _dedup_stats,
-    _load_project_paths,
     _get_project_id,
-)
-from agent_memory.engine.analysis import (
-    get_metrics_data,
-    parse_since,
-    make_project_paths,
-    health_score,
-    recommendations,
-    alerts_list,
+    _lifecycle_stats,
+    _load_project_paths,
+    _logging_stats,
+    _retrieval_stats,
+    _trend_stats,
+    read_metrics,
 )
 from agent_memory.engine.models import ErrorResponse
 
@@ -136,7 +137,7 @@ def _list_archives(paths):
     for fname in sorted(os.listdir(paths.archive_dir)):
         if fname.endswith(".jsonl"):
             fpath = os.path.join(paths.archive_dir, fname)
-            with open(fpath, "r", encoding="utf-8") as f:
+            with open(fpath, encoding="utf-8") as f:
                 count = sum(1 for line in f if line.strip())
             archives.append({"file": fname, "entries": count})
     return archives
@@ -181,11 +182,11 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         last_consolidation_ts = None
         try:
             if os.path.exists(paths.session_file):
-                with open(paths.session_file, "r", encoding="utf-8") as f:
+                with open(paths.session_file, encoding="utf-8") as f:
                     session = json.load(f)
                 last_sprint = session.get("sprint")
                 last_consolidation_ts = session.get("timestamp")
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             pass
 
         if last_sprint is None:
@@ -423,9 +424,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     async def metrics_config_tuning():
         config_path = paths.config_path
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             config = {}
         tuning = config.get("tuning", {})
         stats = stats_core(paths, emit_event=False, ctx=ctx)
@@ -444,9 +445,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         stats.pop("status", None)
         config_path = paths.config_path
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             config = {}
         _, r, l, c = get_metrics_data(paths)
         md = {"retrieval": r, "logging": l, "consolidation": c}
@@ -463,9 +464,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         trends = _trend_stats(events, days=30)
         config_path = paths.config_path
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             config = {}
         return {
             "stats": stats,
@@ -484,9 +485,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     @router.get("/api/config")
     async def get_config():
         try:
-            with open(paths.config_path, "r", encoding="utf-8") as f:
+            with open(paths.config_path, encoding="utf-8") as f:
                 return json.load(f)
-        except (IOError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(
                 status_code=500,
                 detail=ErrorResponse(
@@ -521,9 +522,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         existing = {}
         if os.path.exists(paths.config_path):
             try:
-                with open(paths.config_path, "r", encoding="utf-8") as f:
+                with open(paths.config_path, encoding="utf-8") as f:
                     existing = json.load(f)
-            except (IOError, json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError):
                 pass
         merged_config = _merge_config(existing, body)
 
@@ -536,7 +537,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, paths.config_path)
-        except IOError as e:
+        except OSError as e:
             try:
                 os.unlink(tmp_path)
             except OSError:

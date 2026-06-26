@@ -27,7 +27,7 @@ def load_fixture(fixture_path):
         return []
 
     fixtures = []
-    with open(fixture_path, "r", encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):

@@ -8,7 +8,8 @@ Resolution order:
      - deployed engine: <this-file>/../../VERSION      (deploy.ps1 layout)
 3. Hardcoded fallback: FALLBACK_VERSION
 """
-from importlib.metadata import PackageNotFoundError, version as pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 # Hardcoded fallback — update this when bumping version

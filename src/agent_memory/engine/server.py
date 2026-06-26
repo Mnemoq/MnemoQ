@@ -13,23 +13,22 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from agent_memory.engine.handlers import log_core, update_core, resolve_core, stats_core
-from agent_memory.engine.retrieval import retrieve_core
 from agent_memory.engine.consolidation import consolidate_core
-from agent_memory.engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
+from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
+from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
 from agent_memory.engine.models import (
-    LogRequest,
-    UpdateRequest,
-    ResolveRequest,
     ConsolidateRequest,
     ErrorResponse,
+    LogRequest,
+    ResolveRequest,
+    UpdateRequest,
 )
+from agent_memory.engine.retrieval import retrieve_core
 
 
 class EventHub:
@@ -118,7 +117,7 @@ class EventHub:
                 size = os.path.getsize(mp)
                 if size < state["size"]:
                     state["size"] = 0
-                with open(mp, "r", encoding="utf-8") as f:
+                with open(mp, encoding="utf-8") as f:
                     f.seek(state["size"])
                     new_lines = f.readlines()
                 state["size"] = size
@@ -140,7 +139,7 @@ class EventHub:
                         })
                     except json.JSONDecodeError:
                         pass
-            except (IOError, OSError):
+            except OSError:
                 pass
 
 
@@ -428,7 +427,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
             _index_html = None
             _index_path = os.path.join(static_dir, "index.html")
             if os.path.isfile(_index_path):
-                with open(_index_path, "r", encoding="utf-8") as f:
+                with open(_index_path, encoding="utf-8") as f:
                     _index_html = f.read()
 
             @app.get("/")

@@ -10,10 +10,10 @@ import math
 import os
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
-from agent_memory.engine.io import read_learnings
 from agent_memory.engine.git_utils import check_staleness
+from agent_memory.engine.io import read_learnings
 from agent_memory.engine.metrics import log_event, read_metrics
 
 
@@ -108,7 +108,7 @@ def review_quarantine(paths):
         return 0, {}, []
 
     entries = []
-    with open(paths.quarantine_path, "r", encoding="utf-8") as f:
+    with open(paths.quarantine_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -176,7 +176,7 @@ def save_session(sprint_number, paths):
     try:
         with open(paths.session_file, "w", encoding="utf-8") as f:
             json.dump(session_data, f)
-    except IOError as e:
+    except OSError as e:
         print(f"WARNING: Could not save session file: {e}", file=sys.stderr)
 
 
@@ -186,7 +186,7 @@ def load_session(paths, ctx):
         return None, None
 
     try:
-        with open(paths.session_file, "r", encoding="utf-8") as f:
+        with open(paths.session_file, encoding="utf-8") as f:
             data = json.load(f)
 
         ts = datetime.fromisoformat(data["timestamp"])
@@ -202,7 +202,7 @@ def load_session(paths, ctx):
 
         return ts, sprint
 
-    except (json.JSONDecodeError, KeyError, ValueError, IOError):
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
         return None, None
 
 
@@ -211,7 +211,7 @@ def clear_session(paths):
     if os.path.exists(paths.session_file):
         try:
             os.remove(paths.session_file)
-        except IOError:
+        except OSError:
             pass
 
 
@@ -229,8 +229,7 @@ def handle_confirm_reset(paths, ctx):
 
     print(f"âœ“ Session valid (sprint {sprint}, started {ts.strftime('%H:%M:%S')})")
 
-    with open(paths.learnings_path, "w", encoding="utf-8") as f:
-        pass  # Empty file
+    open(paths.learnings_path, "w", encoding="utf-8").close()  # Empty file
 
     print("âœ“ learnings.jsonl reset. Sprint complete.")
 
@@ -399,13 +398,13 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
             print(f"**Trigger:** {entry.get('trigger', '')}")
             print(f"**Action:** {entry.get('action', '')}")
             print(f"**Reason:** {entry.get('reason', '')}")
-            print(f"**Action required:** Review and update SYSTEM_INVARIANTS.md if applicable")
+            print("**Action required:** Review and update SYSTEM_INVARIANTS.md if applicable")
             print()
     else:
         print("No contradictions detected.\n")
 
     q = result["quarantine"]
-    print(f"\n## QUARANTINE REVIEW")
+    print("\n## QUARANTINE REVIEW")
     print(f"Total quarantined entries: {q['count']}\n")
 
     if q["breakdown"]:
@@ -428,7 +427,7 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     print()
 
     stale = result["stale"]
-    print(f"\n## STALE ENTRIES")
+    print("\n## STALE ENTRIES")
     print("The following entries may be stale based on git history.")
     print("Verify against current code before promoting.\n")
 
@@ -448,7 +447,7 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
                 print(f"**Commit:** {entry.get('commit', 'unknown')}")
                 print(f"**Files touched:** {', '.join(entry.get('files_touched', []))}")
                 print(f"**Lines changed since entry:** {item['lines_changed']}")
-                print(f"**Status:**  HIGH CHURN — verify trigger/action still hold")
+                print("**Status:**  HIGH CHURN — verify trigger/action still hold")
                 print(f"**Entry:** {entry.get('trigger', '')}")
                 print()
                 idx += 1
@@ -460,7 +459,7 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         print("The following learnings reference AGENTS.md and may suggest updates.\n")
         for entry in result["agents_md_suggestions"]:
             print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
-            print(f"  → Suggests reviewing AGENTS.md for potential updates")
+            print("  → Suggests reviewing AGENTS.md for potential updates")
         print()
 
     if result["metrics_summary"]:

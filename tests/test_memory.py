@@ -1,6 +1,7 @@
 """
 Tests for multi-project memory system.
 """
+import importlib
 import json
 import os
 import shutil
@@ -527,8 +528,7 @@ class TestRetrievalStdoutStability:
     
     def test_retrieval_stdout_stable(self, temp_project, engine_dir):
         """Test that retrieval output is stable across runs."""
-        memory_dir = temp_project / "memory"
-        
+
         # Create a learning
         learning = {
             "step": 1,
@@ -1343,7 +1343,7 @@ class TestBM25Score:
 
     def test_bm25_rare_term_scores_higher(self):
         """Rare matching term should score higher than common matching term."""
-        from agent_memory.engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+        from agent_memory.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
 
         # Use empty stop_words for deterministic testing (real STOP_WORDS would filter "physics"/"AABB")
         stop_words = set()
@@ -1365,7 +1365,7 @@ class TestBM25Score:
 
     def test_bm25_no_match_scores_zero(self):
         """Doc with no matching query terms should score 0.0."""
-        from agent_memory.engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+        from agent_memory.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
 
         stop_words = set()
         entries = [
@@ -1393,7 +1393,6 @@ class TestRRFFusion:
 
     def test_rrf_fusion_integration(self, temp_project, engine_dir):
         """RRF should rank entries that match both channels higher."""
-        memory_dir = temp_project / "memory"
 
         # Entry A: matches components AND has rare BM25 term "AABB"
         entry_a = {
@@ -1499,7 +1498,7 @@ class TestSchemaMigration:
 
     def test_migration_v0_to_v1(self):
         """Unit test: v0 entries get migrated to v1 with correct fields."""
-        from agent_memory.engine.migrate import migrate_entry, migrate_all, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
 
         v0_entry = {"step": 1, "type": "bug_fix", "trigger": "When test", "action": "ALWAYS test"}
         migrated = migrate_entry(dict(v0_entry))
@@ -1513,7 +1512,7 @@ class TestSchemaMigration:
 
     def test_migrate_entry_noop_on_current(self):
         """migrate_entry is a no-op on already-current entries."""
-        from agent_memory.engine.migrate import migrate_entry, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
 
         entry = {"schema_version": CURRENT_SCHEMA_VERSION, "step": 1, "embedding": [0.1, 0.2]}
         migrated = migrate_entry(dict(entry))
@@ -1523,7 +1522,7 @@ class TestSchemaMigration:
 
     def test_migrate_all_count(self):
         """migrate_all returns correct count of migrated entries."""
-        from agent_memory.engine.migrate import migrate_all, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_all
 
         entries = [
             {"step": 1, "type": "bug_fix"},  # v0, needs migration
@@ -1675,10 +1674,10 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding(self):
         """Base64 round-trip preserves vector values within float16 precision."""
-        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import decode_embedding, encode_embedding
 
         try:
-            import numpy as np
+            importlib.util.find_spec("numpy")
         except ImportError:
             pytest.skip("numpy not installed")
 
@@ -1693,14 +1692,14 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding_none(self):
         """encode_embedding(None) returns None, decode_embedding(None) returns None."""
-        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import decode_embedding, encode_embedding
 
         assert encode_embedding(None) is None
         assert decode_embedding(None) is None
 
     def test_embedding_encoding_plain_list_fallback(self):
         """encode_embedding falls back to plain list when numpy unavailable."""
-        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import decode_embedding
 
         # Test with a list (decode should handle plain lists too)
         original = [0.1, 0.2, 0.3]
@@ -1876,7 +1875,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_high_cosine(self):
         """find_semantic_duplicate detects match when embeddings are identical."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -1891,7 +1890,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_resolved(self):
         """find_semantic_duplicate skips resolved entries."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -1905,7 +1904,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_different_domain(self):
         """find_semantic_duplicate only checks same-domain entries."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -1919,7 +1918,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_picks_highest(self):
         """find_semantic_duplicate returns the highest cosine match."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         entry_vec = [1.0, 0.0, 0.0]
         close_vec = [0.99, 0.01, 0.0]
@@ -1963,7 +1962,6 @@ class TestSemanticDedup:
 
     def test_semantic_dedup_graceful_without_model(self, temp_project, engine_dir):
         """Semantic dedup should gracefully fall back to Jaccard when no embedding model is available."""
-        memory_dir = temp_project / "memory"
 
         # Log first entry
         learning1 = {

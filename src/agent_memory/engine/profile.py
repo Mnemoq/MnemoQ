@@ -10,7 +10,6 @@ See AGENT_MEMORY_GUIDE.md § Priority Hierarchy for the full priority order.
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -40,14 +39,14 @@ def load_profile():
         return None
 
     try:
-        with open(PROFILE_PATH, "r", encoding="utf-8") as f:
+        with open(PROFILE_PATH, encoding="utf-8") as f:
             profile = json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"WARNING: Could not load developer profile: {e}", file=sys.stderr)
         return None
 
     if not isinstance(profile, dict):
-        print(f"WARNING: Developer profile is not a JSON object", file=sys.stderr)
+        print("WARNING: Developer profile is not a JSON object", file=sys.stderr)
         return None
 
     return profile
