@@ -16,7 +16,7 @@ function Restore-Fixture {
 Remove-Item memory\archive\sprint-*.jsonl -Force -ErrorAction SilentlyContinue
 Remove-Item memory\metrics.jsonl -Force -ErrorAction SilentlyContinue
 
-function Normalize-Lines($lines) {
+function ConvertTo-NormalizedLines($lines) {
     # Replace ISO timestamps (2026-06-19T06:42:41Z) with a placeholder
     $lines = $lines | ForEach-Object { $_ -replace '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', 'TIMESTAMP' }
     # Replace latency values (12345ms) with placeholder — timing is non-deterministic
@@ -33,8 +33,8 @@ function Assert-NoDiff($name, $expected, $actual) {
     if ($null -eq $eContent -and $null -eq $aContent) { Write-Host "  PASS: $name (both empty)" -ForegroundColor Green; return }
     if ($null -eq $eContent) { $eContent = @() }
     if ($null -eq $aContent) { $aContent = @() }
-    $eNorm = Normalize-Lines $eContent
-    $aNorm = Normalize-Lines $aContent
+    $eNorm = ConvertTo-NormalizedLines $eContent
+    $aNorm = ConvertTo-NormalizedLines $aContent
     
     try {
         $diff = Compare-Object $eNorm $aNorm -ErrorAction Stop
