@@ -659,6 +659,7 @@ class TestScaffoldIntegration:
         assert result.returncode == 0
         assert (fresh_project / "opencode.json").exists()
         assert (fresh_project / ".opencode" / "prompts" / "gm.md").exists()
+        assert (fresh_project / ".opencode" / "prompts" / "docs-writer.md").exists()
 
     def test_scaffold_opencode_backward_compat(self, fresh_project, engine_dir):
         """Test that --opencode hidden alias still works."""
@@ -686,6 +687,7 @@ class TestScaffoldIntegration:
         assert result.returncode == 0
         assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
         assert (fresh_project / ".windsurf" / "workflows" / "code-reviewer.md").exists()
+        assert (fresh_project / ".windsurf" / "workflows" / "docs-writer.md").exists()
         assert (fresh_project / ".windsurf" / "Plans").exists()
         assert (fresh_project / ".windsurf" / "Plans" / ".gitkeep").exists()
         assert (fresh_project / "AGENTS.md").exists()
@@ -706,6 +708,7 @@ class TestScaffoldIntegration:
         assert (fresh_project / ".cursor" / "rules" / "memory-protocol.mdc").exists()
         assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
         assert (fresh_project / ".cursor" / "rules" / "code-reviewer.mdc").exists()
+        assert (fresh_project / ".cursor" / "rules" / "docs-writer.mdc").exists()
         assert (fresh_project / "AGENTS.md").exists()
         agents_content = (fresh_project / "AGENTS.md").read_text()
         assert "## Memory" in agents_content
@@ -814,6 +817,7 @@ class TestScaffoldIntegration:
         shared_files = list((templates_dir / "prompts").glob("*.md"))
         shared_files.append(templates_dir / "agents-memory-section.md")
         shared_files.extend((templates_dir / "windsurf" / "workflows").glob("*.md"))
+        shared_files.extend((templates_dir / "cursor-rules").glob("*.mdc"))
         biased_patterns = [".opencode/", "opencode-go", "via opencode.json"]
         for f in shared_files:
             content = f.read_text(encoding='utf-8').lower()

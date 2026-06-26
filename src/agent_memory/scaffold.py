@@ -431,7 +431,11 @@ def copy_prompts(target_path, src_dir=None, dst_dir=None, files=None):
     prompts_dst = dst_dir or (target_path / ".opencode" / "prompts")
     prompts_dst.mkdir(parents=True, exist_ok=True)
     
-    agents = files or ["gm.md", "code-reviewer.md", "test-writer.md"]
+    agents = files or [
+        "gm.md", "code-reviewer.md", "test-writer.md",
+        "meta-agent.md", "fuzzer.md", "docs-writer.md",
+        "security.md", "explorer.md", "refactorer.md",
+    ]
     copied = []
     skipped = []
     failed = []
@@ -537,7 +541,8 @@ def wire_windsurf(target_path):
     workflows_src = ENGINE_DIR / "templates" / "windsurf" / "workflows"
     workflows_dst = target_path / ".windsurf" / "workflows"
     workflow_files = ["gm.md", "code-reviewer.md", "test-writer.md", "fuzzer.md",
-                      "meta-agent.md", "plan-deviation.md", "plan-reviewer.md"]
+                      "meta-agent.md", "plan-deviation.md", "plan-reviewer.md",
+                      "docs-writer.md", "security.md", "explorer.md", "refactorer.md"]
     copied, skipped, failed = copy_prompts(target_path, src_dir=workflows_src, dst_dir=workflows_dst,
                                            files=workflow_files)
     if copied:
@@ -571,7 +576,9 @@ def wire_cursor(target_path):
     
     rules_src = ENGINE_DIR / "templates" / "cursor-rules"
     rules_dst = target_path / ".cursor" / "rules"
-    rule_files = ["memory-protocol.mdc", "gm.mdc", "code-reviewer.mdc", "test-writer.mdc"]
+    rule_files = ["memory-protocol.mdc", "gm.mdc", "code-reviewer.mdc", "test-writer.mdc",
+                   "meta-agent.mdc", "fuzzer.mdc", "docs-writer.mdc",
+                   "security.mdc", "explorer.mdc", "refactorer.mdc"]
     copied, skipped, failed = copy_prompts(target_path, src_dir=rules_src, dst_dir=rules_dst,
                                            files=rule_files)
     if copied:

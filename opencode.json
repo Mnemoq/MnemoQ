@@ -36,11 +36,14 @@
         },
         "task": {
           "code-reviewer": "allow",
-          "pro-reviewer": "allow",
           "basic-reviewer": "allow",
           "test-writer": "allow",
           "meta-agent": "allow",
           "fuzzer": "allow",
+          "docs-writer": "allow",
+          "security": "allow",
+          "explorer": "allow",
+          "refactorer": "allow",
           "*": "deny"
         },
         "webfetch": "allow"
@@ -68,13 +71,55 @@
         }
       }
     },
-    "pro-reviewer": {
-      "description": "Audits plan files for readiness. Scores 0-5, identifies gaps, consolidates clarifying questions. Read-only.",
+    "docs-writer": {
+      "description": "Keeps READMEs, API docs, and inline comments in sync with code changes. Only touches *.md files.",
+      "mode": "subagent",
+      "model": "opencode-go/deepseek-v4-pro",
+      "temperature": 0.2,
+      "steps": 10,
+      "prompt": "{file:.opencode/prompts/docs-writer.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": {
+          "**/*.md": "allow",
+          "*": "deny"
+        },
+        "bash": {
+          "python memory/filter.py *": "allow",
+          "*": "ask"
+        },
+        "webfetch": "deny"
+      }
+    },
+    "security": {
+      "description": "Security auditor — hardcoded secrets, injection, missing auth, unsafe deserialization. Read-only.",
       "mode": "subagent",
       "model": "opencode-go/deepseek-v4-pro",
       "temperature": 0.1,
       "steps": 10,
-      "prompt": "{file:.opencode/prompts/pro-reviewer.md}",
+      "prompt": "{file:.opencode/prompts/security.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": "deny",
+        "bash": {
+          "git diff *": "allow",
+          "python memory/filter.py *": "allow",
+          "*": "deny"
+        },
+        "webfetch": "deny"
+      }
+    },
+    "explorer": {
+      "description": "Context gatherer — maps how a feature works across the codebase, returns focused summary. Read-only.",
+      "mode": "subagent",
+      "model": "opencode-go/qwen3.7-plus",
+      "temperature": 0.1,
+      "steps": 10,
+      "prompt": "{file:.opencode/prompts/explorer.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
@@ -84,8 +129,31 @@
           "python memory/filter.py *": "allow",
           "*": "deny"
         },
-        "webfetch": "deny",
-        "question": "allow"
+        "webfetch": "deny"
+      }
+    },
+    "refactorer": {
+      "description": "Structural changes (extract, rename, split) without changing behavior. Runs tests after each step.",
+      "mode": "subagent",
+      "model": "opencode-go/qwen3.7-plus",
+      "temperature": 0.1,
+      "steps": 15,
+      "prompt": "{file:.opencode/prompts/refactorer.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": {
+          "src/**": "allow",
+          "*": "deny"
+        },
+        "bash": {
+          "python -m pytest *": "allow",
+          "python memory/filter.py *": "allow",
+          "git diff *": "allow",
+          "*": "ask"
+        },
+        "webfetch": "deny"
       }
     },
     "test-writer": {
@@ -138,7 +206,7 @@
       "model": "opencode-go/deepseek-v4-pro",
       "temperature": 0.2,
       "steps": 15,
-      "prompt": "{file:.opencode/prompts/MetaAgent.md}",
+      "prompt": "{file:.opencode/prompts/meta-agent.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
@@ -165,7 +233,7 @@
       "model": "opencode-go/deepseek-v4-pro",
       "temperature": 0.7,
       "steps": 15,
-      "prompt": "{file:.opencode/prompts/Fuzzer.md}",
+      "prompt": "{file:.opencode/prompts/fuzzer.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
