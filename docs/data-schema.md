@@ -78,7 +78,7 @@ From `constants.py`. Types, severities, scopes, and debt levels are **universal*
 | `VALID_SEVERITIES` | `minor`, `major`, `critical` | No |
 | `VALID_SCOPES` | `file`, `module`, `system` | No |
 | `VALID_DEBT_LEVELS` | `proper`, `workaround`, `temporary` | No |
-| `VALID_SOURCE_AGENTS` | `gm`, `code-reviewer`, `test-writer`, `scout`, `plan-reviewer`, `basic-reviewer`, `pro-reviewer`, `meta-agent`, `fuzzer` | Yes |
+| `VALID_SOURCE_AGENTS` | `gm`, `code-reviewer`, `test-writer`, `scout`, `plan-reviewer`, `basic-reviewer`, `meta-agent`, `fuzzer`, `docs-writer`, `security`, `explorer`, `refactorer` | Yes |
 
 ## Schema Versioning
 

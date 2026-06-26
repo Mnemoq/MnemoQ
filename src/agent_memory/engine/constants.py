@@ -42,7 +42,7 @@ RERANKER_LLM_MODEL = None
 API_KEY = None
 VALID_RERANKERS = {"none", "cross-encoder", "llm-local"}
 
-VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "pro-reviewer", "meta-agent", "fuzzer"}
+VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "meta-agent", "fuzzer", "docs-writer", "security", "explorer", "refactorer"}
 
 # Universal schema constraints — not configurable per-project.
 #
@@ -63,7 +63,7 @@ VALID_DOMAINS = {"ui", "data", "tooling", "performance", "testing", "security", 
 VALID_SEVERITIES = {"minor", "major", "critical"}
 VALID_SCOPES = {"file", "module", "system"}
 VALID_DEBT_LEVELS = {"proper", "workaround", "temporary"}
-VALID_RETRIEVAL_ONLY_AGENTS = {"basic-reviewer", "pro-reviewer"}
+VALID_RETRIEVAL_ONLY_AGENTS = {"basic-reviewer"}
 
 # Two-phase initialization:
 # Phase 1 (module load): DOMAIN_MAPPINGS = None (default, use profile/hardcoded)

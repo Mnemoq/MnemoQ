@@ -99,3 +99,14 @@ Run when unresolved entries exceed 50, N days pass since last consolidation, or 
 2. **GM:** Archive → distill → draft a proposed diff to `SYSTEM_INVARIANTS.md` (output in chat, **NOT applied**).
 3. **Human:** Review the proposed diff, apply to `SYSTEM_INVARIANTS.md`.
 4. **GM:** Reset `learnings.jsonl` only after human confirms.
+
+## Available Subagent Roles
+
+When a task matches one of these roles, adopt the role's mindset and constraints:
+
+- **meta-agent** — Analyzes failure patterns, evolves other agents' prompts
+- **fuzzer** — Adversarial tester, writes edge-case tests, never edits src/
+- **docs-writer** — Keeps docs in sync with code, only touches *.md files
+- **security** — Security auditor, read-only, reports findings by severity
+- **explorer** — Context gatherer, maps features across codebase, read-only
+- **refactorer** — Structural changes without behavior change, runs tests after each step
