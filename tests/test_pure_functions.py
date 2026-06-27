@@ -33,6 +33,15 @@ from agent_memory.engine.validation import (
     jaccard_similarity,
     validate_entry,
 )
+from agent_memory.engine.auto_learn import (
+    _derive_domain,
+    detect_conflicts,
+    detect_over_injected,
+    detect_repeated_fixes,
+    detect_retrieval_failure,
+    detect_reverts,
+    detect_under_retrieved,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -768,3 +777,279 @@ class TestGetAgentsMdSuggestions:
         entry = _valid_entry(files_touched=["docs/AGENTS.md"])
         result = get_agents_md_suggestions([entry])
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: _derive_domain
+# ---------------------------------------------------------------------------
+
+class TestDeriveDomain:
+    def test_database(self):
+        assert _derive_domain("src/db/connection.py") == "database"
+        assert _derive_domain("migrations/001_init.sql") == "database"
+
+    def test_frontend(self):
+        assert _derive_domain("src/components/Button.tsx") == "frontend"
+        assert _derive_domain("pages/index.vue") == "frontend"
+
+    def test_api(self):
+        assert _derive_domain("api/routes/users.py") == "api"
+
+    def test_security(self):
+        assert _derive_domain("auth/login.py") == "security"
+
+    def test_testing(self):
+        assert _derive_domain("tests/test_foo.py") == "testing"
+
+    def test_deployment(self):
+        assert _derive_domain("docker/Dockerfile") == "deployment"
+        assert _derive_domain(".github/workflows/ci.yml") == "deployment"
+
+    def test_fallback_tooling(self):
+        assert _derive_domain("some/random/file.xyz") == "tooling"
+
+    def test_windows_paths(self):
+        assert _derive_domain("src\\db\\connection.py") == "database"
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: detect_under_retrieved
+# ---------------------------------------------------------------------------
+
+class TestDetectUnderRetrieved:
+    def _al_ctx(self, **overrides):
+        base = {
+            "auto_learn_under_retrieved_access": 2,
+            "auto_learn_under_retrieved_reinforcement": 5,
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_under_retrieved(self):
+        entries = [
+            _valid_entry(access_count=1, reinforcement_count=6),
+        ]
+        results = detect_under_retrieved(entries, self._al_ctx())
+        assert len(results) == 1
+        assert results[0]["type"] == "meta_learning"
+        assert results[0]["resolved"] is True
+        assert "ALWAYS" in results[0]["action"]
+
+    def test_skips_resolved(self):
+        entries = [
+            _valid_entry(access_count=1, reinforcement_count=6, resolved=True),
+        ]
+        results = detect_under_retrieved(entries, self._al_ctx())
+        assert len(results) == 0
+
+    def test_skips_high_access(self):
+        entries = [
+            _valid_entry(access_count=5, reinforcement_count=6),
+        ]
+        results = detect_under_retrieved(entries, self._al_ctx())
+        assert len(results) == 0
+
+    def test_skips_low_reinforcement(self):
+        entries = [
+            _valid_entry(access_count=1, reinforcement_count=2),
+        ]
+        results = detect_under_retrieved(entries, self._al_ctx())
+        assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: detect_conflicts
+# ---------------------------------------------------------------------------
+
+class TestDetectConflicts:
+    def test_detects_opposing_actions(self):
+        e1 = _valid_entry(components=["Cache"], action="ALWAYS use Redis")
+        e2 = _valid_entry(components=["Cache"], action="NEVER use Redis")
+        results = detect_conflicts([e1, e2], {})
+        assert len(results) == 1
+        assert results[0]["type"] == "meta_learning"
+        assert results[0]["resolved"] is True
+        assert "NEVER" in results[0]["action"]
+
+    def test_no_conflict_same_direction(self):
+        e1 = _valid_entry(components=["Cache"], action="ALWAYS use Redis")
+        e2 = _valid_entry(components=["Cache"], action="ALWAYS flush on write")
+        results = detect_conflicts([e1, e2], {})
+        assert len(results) == 0
+
+    def test_no_conflict_different_components(self):
+        e1 = _valid_entry(components=["Cache"], action="ALWAYS use Redis")
+        e2 = _valid_entry(components=["Auth"], action="NEVER use Redis")
+        results = detect_conflicts([e1, e2], {})
+        assert len(results) == 0
+
+    def test_skips_resolved(self):
+        e1 = _valid_entry(components=["Cache"], action="ALWAYS use Redis", resolved=True)
+        e2 = _valid_entry(components=["Cache"], action="NEVER use Redis")
+        results = detect_conflicts([e1, e2], {})
+        assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: detect_over_injected
+# ---------------------------------------------------------------------------
+
+class TestDetectOverInjected:
+    def _al_ctx(self, **overrides):
+        base = {
+            "auto_learn_over_injected_access": 10,
+            "auto_learn_over_injected_reinforcement": 2,
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_over_injected(self):
+        entry = _valid_entry(access_count=12, reinforcement_count=1, ts="2026-01-01T00:00:00Z")
+        log_events = []  # no subsequent coverage
+        staleness_map = {}
+        results = detect_over_injected([entry], log_events, staleness_map, self._al_ctx())
+        assert len(results) == 1
+        assert results[0]["type"] == "meta_learning"
+        assert "NEVER" in results[0]["action"]
+
+    def test_skips_subsequent_coverage(self):
+        entry = _valid_entry(access_count=12, reinforcement_count=1, ts="2026-01-01T00:00:00Z",
+                             components=["Cache"])
+        log_events = [
+            {"ts": "2026-02-01T00:00:00Z", "entry_components": ["Cache"]},
+        ]
+        results = detect_over_injected([entry], log_events, {}, self._al_ctx())
+        assert len(results) == 0
+
+    def test_staleness_boost(self):
+        entry = _valid_entry(access_count=6, reinforcement_count=1, ts="2026-01-01T00:00:00Z")
+        staleness_map = {entry["ts"]: True}
+        results = detect_over_injected([entry], [], staleness_map, self._al_ctx())
+        assert len(results) == 1  # threshold halved from 10 to 5
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: detect_repeated_fixes
+# ---------------------------------------------------------------------------
+
+class TestDetectRepeatedFixes:
+    def test_detects_repeated_fixes(self):
+        commits = [
+            {"hash": "a1", "message": "fix: crash in connection", "files": ["src/db/conn.py"]},
+            {"hash": "a2", "message": "bug: null pointer in connection", "files": ["src/db/conn.py"]},
+            {"hash": "a3", "message": "fix: timeout in connection", "files": ["src/db/conn.py"]},
+        ]
+        results = detect_repeated_fixes(commits, {"auto_learn_fix_commit_threshold": 3,
+                                                   "auto_learn_max_files_per_commit": 5,
+                                                   "auto_learn_git_scan_depth": 20})
+        assert len(results) == 1
+        assert results[0]["type"] == "bug_fix"
+        assert results[0]["resolved"] is False
+        assert results[0]["domain"] == "database"
+
+    def test_skips_broad_commits(self):
+        files = [f"file_{i}.py" for i in range(6)]
+        commits = [
+            {"hash": "a1", "message": "fix: stuff", "files": files},
+            {"hash": "a2", "message": "fix: stuff", "files": files},
+            {"hash": "a3", "message": "fix: stuff", "files": files},
+        ]
+        results = detect_repeated_fixes(commits, {"auto_learn_fix_commit_threshold": 3,
+                                                   "auto_learn_max_files_per_commit": 5,
+                                                   "auto_learn_git_scan_depth": 20})
+        assert len(results) == 0
+
+    def test_below_threshold(self):
+        commits = [
+            {"hash": "a1", "message": "fix: crash", "files": ["src/db/conn.py"]},
+            {"hash": "a2", "message": "fix: crash", "files": ["src/db/conn.py"]},
+        ]
+        results = detect_repeated_fixes(commits, {"auto_learn_fix_commit_threshold": 3,
+                                                   "auto_learn_max_files_per_commit": 5,
+                                                   "auto_learn_git_scan_depth": 20})
+        assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: detect_reverts
+# ---------------------------------------------------------------------------
+
+class TestDetectReverts:
+    def test_detects_quoted_revert(self):
+        commits = [
+            {"hash": "a1", "message": 'Revert "feat: add Redis cache"', "files": ["src/cache.py"]},
+        ]
+        results, count = detect_reverts(commits, {})
+        assert count == 1
+        assert len(results) == 1
+        assert results[0]["type"] == "bug_fix"
+        assert results[0]["severity"] == "critical"
+        assert "NEVER" in results[0]["action"]
+
+    def test_skips_hash_only_revert(self):
+        commits = [
+            {"hash": "a1", "message": "Revert commit abc1234", "files": ["src/cache.py"]},
+        ]
+        results, count = detect_reverts(commits, {})
+        assert count == 1
+        assert len(results) == 0
+
+    def test_no_reverts(self):
+        commits = [
+            {"hash": "a1", "message": "feat: add stuff", "files": ["src/app.py"]},
+        ]
+        results, count = detect_reverts(commits, {})
+        assert count == 0
+        assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-learn: detect_retrieval_failure
+# ---------------------------------------------------------------------------
+
+class TestDetectRetrievalFailure:
+    def test_detects_correlation(self):
+        retrieval_events = [
+            {"ts": "2026-01-01T00:00:00Z", "query_components": ["Auth"],
+             "warnings_returned": 0, "patterns_returned": 0},
+        ]
+        log_events = [
+            {"ts": "2026-01-02T00:00:00Z", "entry_type": "bug_fix",
+             "entry_components": ["Auth"], "entry_files_touched": ["auth.py"],
+             "entry_step": 5, "entry_domain": "security"},
+        ]
+        results = detect_retrieval_failure([], retrieval_events, log_events, None,
+                                           {"auto_learn_retrieval_failure_cap": 100})
+        assert len(results) == 1
+        assert results[0]["type"] == "bug_fix"
+        assert results[0]["resolved"] is False
+        assert "ALWAYS" in results[0]["action"]
+
+    def test_skips_nonzero_results(self):
+        retrieval_events = [
+            {"ts": "2026-01-01T00:00:00Z", "query_components": ["Auth"],
+             "warnings_returned": 1, "patterns_returned": 0},
+        ]
+        log_events = [
+            {"ts": "2026-01-02T00:00:00Z", "entry_type": "bug_fix",
+             "entry_components": ["Auth"], "entry_files_touched": ["auth.py"],
+             "entry_step": 5, "entry_domain": "security"},
+        ]
+        results = detect_retrieval_failure([], retrieval_events, log_events, None,
+                                           {"auto_learn_retrieval_failure_cap": 100})
+        assert len(results) == 0
+
+    def test_skips_non_bug_fix(self):
+        retrieval_events = [
+            {"ts": "2026-01-01T00:00:00Z", "query_components": ["Auth"],
+             "warnings_returned": 0, "patterns_returned": 0},
+        ]
+        log_events = [
+            {"ts": "2026-01-02T00:00:00Z", "entry_type": "optimization",
+             "entry_components": ["Auth"], "entry_files_touched": ["auth.py"],
+             "entry_step": 5, "entry_domain": "security"},
+        ]
+        results = detect_retrieval_failure([], retrieval_events, log_events, None,
+                                           {"auto_learn_retrieval_failure_cap": 100})
+        assert len(results) == 0
+

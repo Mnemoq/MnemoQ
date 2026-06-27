@@ -99,6 +99,8 @@ def log_core(json_str, paths, ctx):
         "entry_severity": entry.get("severity"),
         "entry_step": entry.get("step"),
         "entry_source_agent": entry.get("source_agent"),
+        "entry_components": entry.get("components", []),
+        "entry_files_touched": entry.get("files_touched", []),
         "agents_md_conflict": conflict_detected,
         "agents_md_section": best_section,
         "agents_md_jaccard": round(jaccard_score, 4),

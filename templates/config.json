@@ -32,6 +32,17 @@
     "rrf_k": 60,
     "embedding_alpha": 0.5,
     "sleep_cycle_days": 7,
-    "sleep_cycle_quarantine_threshold": 20
+    "sleep_cycle_quarantine_threshold": 20,
+    "auto_learn_enabled": true,
+    "auto_learn_git_scan_depth": 20,
+    "auto_learn_fix_commit_threshold": 3,
+    "auto_learn_under_retrieved_access": 2,
+    "auto_learn_under_retrieved_reinforcement": 5,
+    "auto_learn_over_injected_access": 10,
+    "auto_learn_over_injected_reinforcement": 2,
+    "auto_learn_staleness_threshold": 500,
+    "auto_learn_max_files_per_commit": 5,
+    "auto_learn_max_per_run": 20,
+    "auto_learn_retrieval_failure_cap": 100
   }
 }

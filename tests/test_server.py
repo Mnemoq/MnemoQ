@@ -87,6 +87,17 @@ def _make_ctx():
         "no_match_weight": 0.1,
         "minor_retention": 5,
         "major_retention": 20,
+        "auto_learn_enabled": True,
+        "auto_learn_git_scan_depth": 20,
+        "auto_learn_fix_commit_threshold": 3,
+        "auto_learn_under_retrieved_access": 2,
+        "auto_learn_under_retrieved_reinforcement": 5,
+        "auto_learn_over_injected_access": 10,
+        "auto_learn_over_injected_reinforcement": 2,
+        "auto_learn_staleness_threshold": 500,
+        "auto_learn_max_files_per_commit": 5,
+        "auto_learn_max_per_run": 20,
+        "auto_learn_retrieval_failure_cap": 100,
     }
 
 
@@ -758,3 +769,20 @@ class TestConfigUpdate:
                 saved = json.load(f)
             assert saved["project_name"] == "original"
             assert not os.path.exists(tmp_path), "Temporary config file should be removed after failed write"
+
+
+class TestAutoLearn:
+    async def test_auto_learn_endpoint(self, temp_project):
+        paths = _make_paths(temp_project)
+        ctx = _make_ctx()
+        app = create_app(paths, ctx, api_key=None)
+        async with _make_client(app) as c:
+            resp = await c.post("/api/auto-learn")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ok"
+            assert "scanned" in data
+            assert "generated" in data
+            assert "deduped" in data
+            assert "skipped" in data
+

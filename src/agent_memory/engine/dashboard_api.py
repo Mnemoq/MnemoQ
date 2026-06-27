@@ -215,7 +215,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         for e in unresolved:
             if not e.get("commit") or not e.get("files_touched"):
                 continue
-            is_stale, lines_changed, error = check_staleness(e, paths.repo_root)
+            is_stale, lines_changed, error = check_staleness(e, paths.repo_root, ctx)
             if is_stale or error:
                 stale_entries.append({
                     "entry": e,

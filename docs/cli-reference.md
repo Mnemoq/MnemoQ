@@ -286,3 +286,18 @@ python scripts/generate_fakes.py --count 100 --clean
 python scripts/generate_fakes.py --count 50 --pipeline --dry-run
 python scripts/generate_fakes.py --count 200 --duplicates 10 --resolved 15 --seed 42
 ```
+
+### Auto-Learning Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--auto-learn` | flag | — | Run auto-learning: detect patterns from git history, retrieval gaps, and corpus analysis |
+
+```bash
+mnemoq --auto-learn
+mnemoq --auto-learn --memory-dir /path/to/memory
+```
+
+Auto-learning also runs automatically during `--consolidate` (unless `--confirm-reset` is used). The compact summary appears in the consolidation report.
+
+**Mutual exclusion**: `--auto-learn` cannot be combined with any other operational flag.
