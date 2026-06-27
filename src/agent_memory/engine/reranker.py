@@ -17,7 +17,6 @@ import urllib.request
 
 from agent_memory.engine.constants import EMBEDDING_CACHE_DIR, RERANKER_MODEL
 
-
 # --- Cross-encoder singleton cache (keyed by model name) ---
 
 _ce_cache: dict[str, object | None] = {}
@@ -178,7 +177,8 @@ def rerank_llm_local(query, candidates, ctx):
 
     scores = _parse_scores(response_text, len(candidates))
     if scores is None:
-        print(f"WARNING: LLM returned malformed response (expected {len(candidates)} scores), skipping rerank.", file=sys.stderr)
+        print(f"WARNING: LLM returned malformed response "
+              f"(expected {len(candidates)} scores), skipping rerank.", file=sys.stderr)
         return candidates, False
 
     # Sort by LLM score (desc), preserve original order for ties

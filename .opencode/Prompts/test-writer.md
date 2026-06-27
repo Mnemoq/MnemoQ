@@ -21,38 +21,46 @@ Refer to AGENTS.md for project-specific details:
 If AGENTS.md does not define test candidates/exclusions, use these general guidelines:
 
 ### Good candidates
-- Pure functions with clear input/output contracts
-- Utility modules and helpers
-- Validation logic and type guards
-- Branch-heavy logic
-- Error paths and edge cases
-- Configuration helpers and math functions
+- `validate_entry` — schema validation logic, type guards, boundary values
+- `score_entry` — retrieval scoring with decay, weights, BM25
+- `handle_retrieval` — scoring pipeline, filtering, result limits
+- `load_config` — config parsing, type validation, overlay logic
+- `handle_consolidate` — sleep cycle, retention windows, escalation
+- BM25 / RRF fusion math — pure functions with clear inputs/outputs
+- Decay/retention logic — step windows, access_count extension
+- `filter.py` profile matching — domain mappings, component matching
 
 ### Skip these
-- Modules that require a framework runtime to instantiate
-- DOM manipulation or rendering code
-- Integration flows across multiple modules
-- Visual/animation behavior
+- `cli.py` dispatcher — thin wrapper, tested via CLI integration
+- MCP server stdio protocol — requires JSON-RPC runtime
+- Embedding model loading — requires model download, not unit-testable
+- FastAPI server endpoints — use fuzzer for those
 
 ## Rules
 
 ### 1. Test in isolation
 - Mock external collaborators with your test framework's mocking primitives
-- Stub timers when needed
+- Use `freezegun` or `monkeypatch` for time-dependent logic
 - Never import framework runtime types in test files — if a module depends on framework runtime, it's not a unit test candidate
 
 ### 2. Stable test design
 - Test public behavior, not implementation details
-- Use `describe`/`it` (or equivalent) with precise names
+- Use `def test_*` functions with precise names
 - Follow arrange-act-assert structure
 - Keep fixtures minimal and local to the test file
 
 ### 3. Validate before finishing
-- Run the test command (see AGENTS.md ## Commands) after writing
-- If tests fail, fix the test or report the blocker clearly
-- Do not conclude without validation
+- Run `python -m pytest tests/ -x -q` after writing.
+- If tests fail, fix the test or report the blocker clearly.
+- Do not conclude without validation.
 
-### 4. Output discipline
+### 4. Import rules (critical)
+- Engine modules are tested via CLI integration, not direct imports.
+- Exception: `tests/test_server.py` may import `agent_memory.engine.server.create_app` directly.
+- Exception: `tests/test_triggers.py` may import `agent_memory.engine.triggers` directly.
+- All other engine modules must be tested through `cli.py` CLI calls or `subprocess.run`.
+
+### 5. Output discipline
 - First, state the behaviors you plan to cover (1-3 sentences)
 - Then write the test file
 - Then run validation
@@ -66,14 +74,14 @@ If AGENTS.md does not define test candidates/exclusions, use these general guide
 - Mocking pattern discovered (e.g., requires spy not mock)
 
 ### When NOT to Log
-- Obvious test patterns (how to write a describe/it block)
+- Obvious test patterns (how to write a test function)
 - Things already in SYSTEM_INVARIANTS.md
 - Trivial implementation details
 
 ### Components
 Use module-under-test names:
-- Example: `["MathUtils", "clamp"]`
-- Example: `["SaveManager", "load"]`
+- Example: `["validate_entry", "validate_entry"]`
+- Example: `["score_entry", "handle_retrieval"]`
 
 ### Format
 ```json
@@ -92,7 +100,7 @@ Use module-under-test names:
 }
 ```
 - `ts` is auto-stamped by filter.py if omitted
-- filter.py auto-deduplicates entries with Jaccard similarity ≥ 0.7
+- filter.py auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
 - **PowerShell note:** Use `--log-file <path>` instead of `--log '<json>'` to avoid shell escaping issues.
 
 ### Retrieval (MANDATORY)
@@ -103,7 +111,6 @@ python memory/filter.py --step <N> --components <ModuleUnderTest> --domain testi
 Check for known bugs or patterns in the module under test.
 
 ### Notes
-- Subagents do not read or write HANDOFF.md. Only the GM agent manages session handoff.
 - test-writer only uses --step (retrieval) and --log (write) modes.
 
 ## Do NOT

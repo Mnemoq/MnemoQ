@@ -35,6 +35,6 @@ async function loadSettings() {
       }
     });
   } catch (e) {
-    document.getElementById("settings-content").innerHTML = `<p class="placeholder">Error: ${e.message}</p>`;
+    document.getElementById("settings-content").innerHTML = `<p class="placeholder">Could not load settings. Check that the engine is running.</p>`;
   }
 }

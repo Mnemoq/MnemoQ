@@ -5,28 +5,36 @@
 param([string]$Phase = "gate")
 
 $ErrorActionPreference = "Continue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
 $script:allPass = $true
 
 function Restore-Fixture {
     Copy-Item memory\.baseline\fixture-learnings.jsonl memory\learnings.jsonl -Force
 }
 
-function Normalize-Lines($lines) {
+Remove-Item memory\archive\sprint-*.jsonl -Force -ErrorAction SilentlyContinue
+Remove-Item memory\metrics.jsonl -Force -ErrorAction SilentlyContinue
+
+function ConvertTo-NormalizedLines($lines) {
     # Replace ISO timestamps (2026-06-19T06:42:41Z) with a placeholder
-    return $lines | ForEach-Object { $_ -replace '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', 'TIMESTAMP' }
+    $lines = $lines | ForEach-Object { $_ -replace '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', 'TIMESTAMP' }
+    # Replace latency values (12345ms) with placeholder — timing is non-deterministic
+    $lines = $lines | ForEach-Object { $_ -replace '\d+ms', 'Xms' }
+    return $lines
 }
 
 function Assert-NoDiff($name, $expected, $actual) {
     if (!(Test-Path $expected)) { Write-Host "  SKIP: $name (no baseline)" -ForegroundColor Yellow; return }
     if (!(Test-Path $actual))   { Write-Host "  FAIL: $name (no output)" -ForegroundColor Red; $script:allPass = $false; return }
-    $eContent = Get-Content $expected
-    $aContent = Get-Content $actual
+    $eContent = Get-Content $expected -Encoding UTF8
+    $aContent = Get-Content $actual -Encoding UTF8
     # Handle empty files
     if ($null -eq $eContent -and $null -eq $aContent) { Write-Host "  PASS: $name (both empty)" -ForegroundColor Green; return }
     if ($null -eq $eContent) { $eContent = @() }
     if ($null -eq $aContent) { $aContent = @() }
-    $eNorm = Normalize-Lines $eContent
-    $aNorm = Normalize-Lines $aContent
+    $eNorm = ConvertTo-NormalizedLines $eContent
+    $aNorm = ConvertTo-NormalizedLines $aContent
     
     try {
         $diff = Compare-Object $eNorm $aNorm -ErrorAction Stop
@@ -44,7 +52,7 @@ function Assert-NoDiff($name, $expected, $actual) {
 }
 
 $python = "python"
-$filter = "src\filter.py"
+$filter = @("-m", "agent_memory.cli")
 $b = "memory\.baseline"
 $t = "memory\.baseline\_tmp"
 New-Item -ItemType Directory -Path $t -Force | Out-Null
@@ -55,19 +63,19 @@ Write-Host "=== Diff Gate ($Phase) ===" -ForegroundColor Cyan
 Restore-Fixture; & $python $filter --stats > "$t\stats.txt" 2>$null
 Assert-NoDiff "stats" "$b\stats.txt" "$t\stats.txt"
 
-Restore-Fixture; & $python $filter --step 5 --components Player,Enemy --domain physics > "$t\retrieval-component.txt" 2>$null
+Restore-Fixture; & $python $filter --step 5 --components Player,Enemy --domain physics --no-profile > "$t\retrieval-component.txt" 2>$null
 Assert-NoDiff "retrieval-component" "$b\retrieval-component.txt" "$t\retrieval-component.txt"
 
-Restore-Fixture; & $python $filter --step 10 --domain tooling > "$t\retrieval-domain.txt" 2>$null
+Restore-Fixture; & $python $filter --step 10 --domain tooling --no-profile > "$t\retrieval-domain.txt" 2>$null
 Assert-NoDiff "retrieval-domain" "$b\retrieval-domain.txt" "$t\retrieval-domain.txt"
 
-Restore-Fixture; & $python $filter --step 1 --components NonExistent --domain nonexistent > "$t\retrieval-empty.txt" 2>$null
+Restore-Fixture; & $python $filter --step 1 --components NonExistent --domain nonexistent --no-profile > "$t\retrieval-empty.txt" 2>$null
 Assert-NoDiff "retrieval-empty" "$b\retrieval-empty.txt" "$t\retrieval-empty.txt"
 
-Restore-Fixture; & $python $filter --step 5 --components Player,Enemy > "$t\retrieval-no-domain.txt" 2>$null
+Restore-Fixture; & $python $filter --step 5 --components Player,Enemy --no-profile > "$t\retrieval-no-domain.txt" 2>$null
 Assert-NoDiff "retrieval-no-domain" "$b\retrieval-no-domain.txt" "$t\retrieval-no-domain.txt"
 
-Restore-Fixture; & $python $filter --step 30 --domain tooling > "$t\retrieval-escalation.txt" 2>$null
+Restore-Fixture; & $python $filter --step 30 --domain tooling --no-profile > "$t\retrieval-escalation.txt" 2>$null
 Assert-NoDiff "retrieval-escalation" "$b\retrieval-escalation.txt" "$t\retrieval-escalation.txt"
 
 # File mutation
@@ -97,7 +105,7 @@ if (Test-Path memory\quarantine.jsonl) {
 
 # Consolidation
 Restore-Fixture; Copy-Item "$b\fixture-agents.md" AGENTS.md -Force -ErrorAction SilentlyContinue
-Remove-Item memory\archive -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item memory\archive\sprint-*.jsonl -Force -ErrorAction SilentlyContinue
 & $python $filter --consolidate --sprint 1 > "$t\consolidate.txt" 2>$null
 Assert-NoDiff "consolidate" "$b\consolidate.txt" "$t\consolidate.txt"
 
