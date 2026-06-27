@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from agent_memory.engine.auto_learn import auto_learn_core
 from agent_memory.engine.consolidation import consolidate_core
 from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
 from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
@@ -372,6 +373,18 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
             "consolidation": c,
         }
 
+    # -- Auto-Learn --
+
+    @app.post("/api/auto-learn")
+    async def auto_learn():
+        result = auto_learn_core(paths, ctx)
+        await event_hub.broadcast({"event": "auto-learn", "status": result.get("status"),
+                                   "generated": len(result.get("generated", []))})
+        invalidate_metrics_cache()
+        if dashboard:
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
+        return result
+
     # -- Consolidate --
 
     @app.post("/api/consolidate")
@@ -391,6 +404,19 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                     suggested_action="Use force=true to overwrite, or specify a different sprint_number.",
                 ).model_dump(),
             )
+        # Run auto-learning only on successful consolidation
+        if result.get("status") == "reported":
+            try:
+                al_result = auto_learn_core(paths, ctx)
+                result["auto_learning"] = {
+                    "generated": len(al_result.get("generated", [])),
+                    "deduped": al_result.get("deduped", 0),
+                    "skipped": al_result.get("skipped", 0),
+                    "capped": al_result.get("capped", False),
+                    "git_available": al_result.get("git_available", True),
+                }
+            except Exception:
+                result["auto_learning"] = {"error": "auto-learning failed"}
         await event_hub.broadcast({"event": "consolidate",
                                  "sprint": result.get("sprint_number"),
                                  "status": result.get("status")})

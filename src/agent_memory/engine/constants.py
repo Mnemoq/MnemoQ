@@ -29,6 +29,18 @@ ESCALATION_THRESHOLD = 30
 SLEEP_CYCLE_DAYS = 7
 SLEEP_CYCLE_QUARANTINE_THRESHOLD = 20
 
+AUTO_LEARN_ENABLED = True
+AUTO_LEARN_GIT_SCAN_DEPTH = 20
+AUTO_LEARN_FIX_COMMIT_THRESHOLD = 3
+AUTO_LEARN_UNDER_RETRIEVED_ACCESS = 2
+AUTO_LEARN_UNDER_RETRIEVED_REINFORCEMENT = 5
+AUTO_LEARN_OVER_INJECTED_ACCESS = 10
+AUTO_LEARN_OVER_INJECTED_REINFORCEMENT = 2
+AUTO_LEARN_STALENESS_THRESHOLD = 500
+AUTO_LEARN_MAX_FILES_PER_COMMIT = 5
+AUTO_LEARN_MAX_PER_RUN = 20
+AUTO_LEARN_RETRIEVAL_FAILURE_CAP = 100
+
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 EMBEDDING_ALPHA = 0.5
 EMBEDDING_CACHE_DIR = "~/.agent-memory/models/"
@@ -44,7 +56,7 @@ VALID_RERANKERS = {"none", "cross-encoder", "llm-local"}
 
 VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer",
                        "basic-reviewer", "meta-agent", "fuzzer", "docs-writer",
-                       "security", "explorer", "refactorer"}
+                       "security", "explorer", "refactorer", "system"}
 
 # Universal schema constraints — not configurable per-project.
 #
@@ -60,7 +72,7 @@ VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-revi
 # If all projects use the same schema, learnings can be shared between projects.
 # If each project has custom schema, sharing breaks (a learning with type
 # "feature_request" from Project A would fail validation in Project B).
-VALID_TYPES = {"bug_fix", "optimization", "architectural_pattern"}
+VALID_TYPES = {"bug_fix", "optimization", "architectural_pattern", "meta_learning"}
 VALID_DOMAINS = {"ui", "data", "tooling", "performance", "testing", "security",
                  "api", "backend", "frontend", "database", "deployment", "documentation"}
 VALID_SEVERITIES = {"minor", "major", "critical"}
@@ -134,4 +146,15 @@ DEFAULTS = {
     "VALID_RERANKERS": VALID_RERANKERS,
     "SLEEP_CYCLE_DAYS": SLEEP_CYCLE_DAYS,
     "SLEEP_CYCLE_QUARANTINE_THRESHOLD": SLEEP_CYCLE_QUARANTINE_THRESHOLD,
+    "AUTO_LEARN_ENABLED": AUTO_LEARN_ENABLED,
+    "AUTO_LEARN_GIT_SCAN_DEPTH": AUTO_LEARN_GIT_SCAN_DEPTH,
+    "AUTO_LEARN_FIX_COMMIT_THRESHOLD": AUTO_LEARN_FIX_COMMIT_THRESHOLD,
+    "AUTO_LEARN_UNDER_RETRIEVED_ACCESS": AUTO_LEARN_UNDER_RETRIEVED_ACCESS,
+    "AUTO_LEARN_UNDER_RETRIEVED_REINFORCEMENT": AUTO_LEARN_UNDER_RETRIEVED_REINFORCEMENT,
+    "AUTO_LEARN_OVER_INJECTED_ACCESS": AUTO_LEARN_OVER_INJECTED_ACCESS,
+    "AUTO_LEARN_OVER_INJECTED_REINFORCEMENT": AUTO_LEARN_OVER_INJECTED_REINFORCEMENT,
+    "AUTO_LEARN_STALENESS_THRESHOLD": AUTO_LEARN_STALENESS_THRESHOLD,
+    "AUTO_LEARN_MAX_FILES_PER_COMMIT": AUTO_LEARN_MAX_FILES_PER_COMMIT,
+    "AUTO_LEARN_MAX_PER_RUN": AUTO_LEARN_MAX_PER_RUN,
+    "AUTO_LEARN_RETRIEVAL_FAILURE_CAP": AUTO_LEARN_RETRIEVAL_FAILURE_CAP,
 }

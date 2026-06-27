@@ -241,6 +241,15 @@ def load_config():
             
             result[python_key] = float(value)
     
+    # Boolean parameters
+    bool_params = {"auto_learn_enabled": "AUTO_LEARN_ENABLED"}
+    for config_key, python_key in bool_params.items():
+        if config_key in tuning:
+            value = tuning[config_key]
+            if not isinstance(value, bool):
+                raise TypeError(f"tuning.{config_key} must be a boolean, got {type(value).__name__}")
+            result[python_key] = value
+
     # Integer parameters with range validation
     int_params = {
         "max_warnings": ("MAX_WARNINGS", 0, None),
@@ -251,6 +260,16 @@ def load_config():
         "rrf_k": ("RRF_K", 1, None),
         "sleep_cycle_days": ("SLEEP_CYCLE_DAYS", 0, None),
         "sleep_cycle_quarantine_threshold": ("SLEEP_CYCLE_QUARANTINE_THRESHOLD", 0, None),
+        "auto_learn_git_scan_depth": ("AUTO_LEARN_GIT_SCAN_DEPTH", 1, None),
+        "auto_learn_fix_commit_threshold": ("AUTO_LEARN_FIX_COMMIT_THRESHOLD", 1, None),
+        "auto_learn_under_retrieved_access": ("AUTO_LEARN_UNDER_RETRIEVED_ACCESS", 0, None),
+        "auto_learn_under_retrieved_reinforcement": ("AUTO_LEARN_UNDER_RETRIEVED_REINFORCEMENT", 0, None),
+        "auto_learn_over_injected_access": ("AUTO_LEARN_OVER_INJECTED_ACCESS", 0, None),
+        "auto_learn_over_injected_reinforcement": ("AUTO_LEARN_OVER_INJECTED_REINFORCEMENT", 0, None),
+        "auto_learn_staleness_threshold": ("AUTO_LEARN_STALENESS_THRESHOLD", 1, None),
+        "auto_learn_max_files_per_commit": ("AUTO_LEARN_MAX_FILES_PER_COMMIT", 1, None),
+        "auto_learn_max_per_run": ("AUTO_LEARN_MAX_PER_RUN", 1, None),
+        "auto_learn_retrieval_failure_cap": ("AUTO_LEARN_RETRIEVAL_FAILURE_CAP", 1, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
@@ -523,6 +542,59 @@ def handle_confirm_reset():
     return _con_handle_confirm_reset(_get_paths(), _build_ctx())
 
 
+def _print_auto_learn_verbose(result):
+    """Print verbose auto-learning output for --auto-learn standalone."""
+    if result.get("disabled"):
+        print("## AUTO-LEARNING\nAuto-learning is disabled (auto_learn_enabled: false).")
+        return
+
+    scanned = result["scanned"]
+    print("## AUTO-LEARNING")
+    print(f"Scanned: {scanned['metrics_events']} metrics events, "
+          f"{scanned['learnings']} learnings, "
+          f"{scanned['git_commits']} git commits")
+
+    generated = result["generated"]
+    print(f"\nGenerated: {len(generated)} learnings")
+    for entry in generated:
+        comps = ", ".join(entry.get("components", []))
+        files = ", ".join(entry.get("files_touched", []))
+        domain = entry.get("domain", "tooling")
+        if files:
+            print(f"  [{entry['type']}] file: {files} [{domain}]")
+        else:
+            print(f"  [{entry['type']}] components: {comps}")
+        print(f'    -> "{entry["trigger"]}: {entry["action"]}"')
+
+    print(f"\nDeduped: {result['deduped']} (incremented access_count on existing entries)")
+    print(f"Skipped: {result['skipped']}")
+    if result.get("capped"):
+        print("WARNING: Generation capped at auto_learn_max_per_run.")
+    if not result.get("git_available"):
+        print("WARNING: Git unavailable — git-based detectors skipped.")
+
+
+def _print_auto_learn_compact(result):
+    """Print compact auto-learning output for --consolidate integration."""
+    if result.get("disabled"):
+        return
+    scanned = result["scanned"]
+    print("\n## AUTO-LEARNING")
+    print(f"  Scanned: {scanned['metrics_events']} events / "
+          f"{scanned['learnings']} learnings / "
+          f"{scanned['git_commits']} commits")
+    generated = result["generated"]
+    type_counts = {}
+    for entry in generated:
+        t = entry["type"]
+        type_counts[t] = type_counts.get(t, 0) + 1
+    types_str = ", ".join(f"{count} {t}" for t, count in type_counts.items()) if type_counts else "none"
+    print(f"  Generated: {len(generated)}  |  Deduped: {result['deduped']}  |  Skipped: {result['skipped']}")
+    print(f"  Types: {types_str}")
+    if result.get("capped"):
+        print("  WARNING: Generation capped.")
+    if not result.get("git_available"):
+        print("  WARNING: Git unavailable.")
 
 
 # --- Main ---
@@ -611,6 +683,8 @@ Examples:
     parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
     parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
+    parser.add_argument("--auto-learn", action="store_true",
+                        help="Run auto-learning: detect patterns from git history, retrieval gaps, and corpus analysis")
     parser.add_argument("--verify", action="store_true", help="Validate every entry in learnings.jsonl against schema")
 
     args = parser.parse_args()
@@ -718,9 +792,18 @@ Examples:
     if args.verify and any(
         [args.step is not None, log_json, args.resolve, args.update,
          args.review_agents, args.consolidate, args.stats, args.metrics,
-         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp]
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
+         args.auto_learn]
     ):
         parser.error("--verify cannot be combined with other operational flags")
+
+    if args.auto_learn and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
+         args.verify]
+    ):
+        parser.error("--auto-learn cannot be combined with other operational flags")
 
     if args.migrate_schema:
         from agent_memory.engine.migrate import run_migration
@@ -785,8 +868,22 @@ Examples:
     if args.review_agents:
         return handle_review_agents(args.step, args.threshold)
 
+    if args.auto_learn:
+        from agent_memory.engine.auto_learn import auto_learn_core
+        result = auto_learn_core(_get_paths(), _build_ctx())
+        _print_auto_learn_verbose(result)
+        return result["exit_code"]
+
     if args.consolidate:
-        return handle_consolidate(args.sprint, args.confirm_reset, args.force)
+        exit_code = handle_consolidate(args.sprint, args.confirm_reset, args.force)
+        if not args.confirm_reset and exit_code == 0:
+            try:
+                from agent_memory.engine.auto_learn import auto_learn_core
+                al_result = auto_learn_core(_get_paths(), _build_ctx())
+                _print_auto_learn_compact(al_result)
+            except Exception as e:
+                print(f"\n## AUTO-LEARNING\n  Error: {e}")
+        return exit_code
 
     if args.resolve:
         return handle_resolve(args.resolve)
