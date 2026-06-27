@@ -24,6 +24,37 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      - name: Deploy engine to ~/.agent-memory
+        run: |
+          mkdir -p ~/.agent-memory/engine
+          cp -r src/agent_memory ~/.agent-memory/engine/agent_memory
+          cp -r templates ~/.agent-memory/engine/templates
+          cp VERSION ~/.agent-memory/engine/VERSION
+          cat > ~/.agent-memory/engine/filter.py <<'EOF'
+          #!/usr/bin/env python3
+          """Backward-compat wrapper - delegates to installed agent_memory package."""
+          import sys
+          from agent_memory.cli import main
+          if __name__ == "__main__":
+              sys.exit(main())
+          EOF
+          cat > ~/.agent-memory/engine/scaffold.py <<'EOF'
+          #!/usr/bin/env python3
+          """Backward-compat wrapper - delegates to installed agent_memory package."""
+          import sys
+          from agent_memory.scaffold import main
+          if __name__ == "__main__":
+              sys.exit(main())
+          EOF
+          cat > ~/.agent-memory/engine/update.py <<'EOF'
+          #!/usr/bin/env python3
+          """Backward-compat wrapper - delegates to installed agent_memory package."""
+          import sys
+          from agent_memory.update import main
+          if __name__ == "__main__":
+              sys.exit(main())
+          EOF
+
       - name: Lint
         run: ruff check .
 
