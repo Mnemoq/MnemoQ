@@ -34,12 +34,14 @@ def stamp_entry(entry, repo_root):
     return entry
 
 
-def check_staleness(entry, repo_root):
+def check_staleness(entry, repo_root, ctx=None):
     """Check if an entry is stale based on git diff.
 
     Returns (is_stale, lines_changed, error_message).
     error_message is None on success, or a string describing the failure.
     """
+    ctx = ctx or {}
+    threshold = ctx.get("auto_learn_staleness_threshold", 500)
     if "commit" not in entry or not entry.get("files_touched"):
         return False, 0, None
 
@@ -68,8 +70,7 @@ def check_staleness(entry, repo_root):
                     except ValueError:
                         pass
 
-        # Staleness threshold: >500 lines changed
-        is_stale = lines_changed > 500
+        is_stale = lines_changed > threshold
 
         return is_stale, lines_changed, None
 

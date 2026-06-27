@@ -297,7 +297,7 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
 
     stale_entries = []
     for entry in unresolved:
-        is_stale, lines_changed, error = check_staleness(entry, paths.repo_root)
+        is_stale, lines_changed, error = check_staleness(entry, paths.repo_root, ctx)
         stale_entries.append((is_stale, lines_changed, error, entry))
 
     stale_count = sum(1 for is_stale, _, _, _ in stale_entries if is_stale)

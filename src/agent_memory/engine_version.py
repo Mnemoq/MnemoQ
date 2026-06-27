@@ -13,7 +13,7 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 # Hardcoded fallback — update this when bumping version
-FALLBACK_VERSION = "1.20.6"
+FALLBACK_VERSION = "1.21.0"
 
 
 def _read_version_file() -> str | None:

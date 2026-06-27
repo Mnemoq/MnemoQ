@@ -181,3 +181,19 @@ Ready-made config presets live in `templates/config-presets/`:
 - **`generic.json`** — Minimal config with engine defaults, no embeddings or reranking. Good starting point for new projects.
 
 Copy a preset to your project's `memory/config.json` and customize as needed.
+
+## Auto-Learning Parameters (11 params, under `tuning`)
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `auto_learn_enabled` | bool | `true` | bool | Master toggle for auto-learning (opt-out) |
+| `auto_learn_git_scan_depth` | int | `20` | >= 1 | Number of recent git commits to scan |
+| `auto_learn_fix_commit_threshold` | int | `3` | >= 1 | Min fix commits for a file to trigger repeated-fix detection |
+| `auto_learn_under_retrieved_access` | int | `2` | >= 0 | Max access_count for under-retrieved detection |
+| `auto_learn_under_retrieved_reinforcement` | int | `5` | >= 0 | Min reinforcement_count for under-retrieved detection |
+| `auto_learn_over_injected_access` | int | `10` | >= 0 | Min access_count for over-injection detection |
+| `auto_learn_over_injected_reinforcement` | int | `2` | >= 0 | Max reinforcement_count for over-injection detection |
+| `auto_learn_staleness_threshold` | int | `500` | >= 1 | Lines changed for staleness (also used by `check_staleness`) |
+| `auto_learn_max_files_per_commit` | int | `5` | >= 1 | Skip commits touching more than this many files |
+| `auto_learn_max_per_run` | int | `20` | >= 1 | Cap on generated entries per run |
+| `auto_learn_retrieval_failure_cap` | int | `100` | >= 1 | Max retrieval events scanned when `since_ts` is `None` |

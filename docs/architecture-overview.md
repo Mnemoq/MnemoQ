@@ -427,3 +427,25 @@ Core functions receive `ctx` and `paths` as parameters and never mutate them. No
 | [Open-Core Architecture](open-core-architecture.md) | AGPL core vs proprietary Pro boundary |
 | [ROADMAP](ROADMAP.md) | Shipped features, Tier 3 plans (v1.22–v1.28), future phases, Pro tier |
 | [AGENTS.md](../AGENTS.md) | Coding conventions, intentional design decisions |
+
+## Auto-Learning System
+
+MnemoQ's auto-learning system self-improves the memory corpus without agent intervention. Three detection sources generate new learnings automatically:
+
+1. **Meta-learnings (corpus signals)**: Detects under-retrieved entries (high reinforcement, low access), over-injected entries (high access, low reinforcement, no subsequent coverage), and conflicting entries with opposing actions in the same components.
+2. **Git-derived signals**: Scans recent commit history for repeated fix patterns (3+ fixes to the same file) and revert commits, generating actionable `bug_fix` entries.
+3. **Retrieval-failure correlation**: Cross-references zero-result retrieval events with subsequent `bug_fix` log entries to identify patterns that were missed during retrieval.
+
+### Trigger Points
+
+- **`--auto-learn`** CLI flag: on-demand run with verbose output.
+- **`--consolidate`**: auto-learning runs automatically after successful consolidation (compact summary in report).
+- **`POST /api/auto-learn`**: HTTP API endpoint for programmatic access.
+
+### Key Design Decisions
+
+- Meta-learnings use `type: "meta_learning"` with `resolved: true`, so they're excluded from retrieval via the existing resolved-skip (no retrieval filter needed).
+- Git-derived learnings use `type: "bug_fix"` with `resolved: false`, making them active in retrieval.
+- All generated entries pass through `log_core()`, so dedup, semantic matching, and validation apply normally.
+- `source_agent: "system"` identifies auto-generated entries.
+- Configurable via `auto_learn_*` tuning parameters in `config.json`.
