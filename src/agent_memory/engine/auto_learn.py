@@ -18,7 +18,6 @@ from agent_memory.engine.metrics import read_metrics
 from agent_memory.engine.triggers import _last_consolidation_ts
 from agent_memory.engine.validation import actions_oppose
 
-
 # ---------------------------------------------------------------------------
 # Path-to-domain heuristic
 # ---------------------------------------------------------------------------
