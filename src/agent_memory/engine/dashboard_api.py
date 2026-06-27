@@ -12,35 +12,36 @@ import os
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from agent_memory.engine.handlers import stats_core
-from agent_memory.engine.consolidation import (
-    is_promotion_candidate,
-    detect_contradictions,
-    review_quarantine,
-    check_staleness,
+from agent_memory.engine.analysis import (
+    alerts_list,
+    get_metrics_data,
+    health_score,
+    make_project_paths,
+    parse_since,
+    recommendations,
 )
+from agent_memory.engine.consolidation import (
+    check_staleness,
+    detect_contradictions,
+    is_promotion_candidate,
+    review_quarantine,
+)
+from agent_memory.engine.handlers import stats_core
 from agent_memory.engine.io import _read_raw_jsonl, read_learnings
 from agent_memory.engine.metrics import (
-    read_metrics,
-    _retrieval_stats,
-    _logging_stats,
-    _consolidation_stats,
-    _trend_stats,
-    _lifecycle_stats,
     _agent_stats,
+    _consolidation_stats,
     _dedup_stats,
-    _load_project_paths,
     _get_project_id,
-)
-from agent_memory.engine.analysis import (
-    get_metrics_data,
-    parse_since,
-    make_project_paths,
-    health_score,
-    recommendations,
-    alerts_list,
+    _lifecycle_stats,
+    _load_project_paths,
+    _logging_stats,
+    _retrieval_stats,
+    _trend_stats,
+    read_metrics,
 )
 from agent_memory.engine.models import ErrorResponse
 
@@ -57,7 +58,8 @@ def _validate_config_update(body):
         if not isinstance(body["project_name"], str) or not body["project_name"].strip():
             raise HTTPException(
                 status_code=400,
-                detail=ErrorResponse(code="BAD_REQUEST", message="project_name must be a non-empty string.").model_dump(),
+                detail=ErrorResponse(code="BAD_REQUEST",
+                         message="project_name must be a non-empty string.").model_dump(),
             )
 
     if "api_key" in body:
@@ -73,7 +75,8 @@ def _validate_config_update(body):
             if val is not None and not (isinstance(val, list) and all(isinstance(x, str) for x in val)):
                 raise HTTPException(
                     status_code=400,
-                    detail=ErrorResponse(code="BAD_REQUEST", message=f"{key} must be a list of strings or null.").model_dump(),
+                    detail=ErrorResponse(code="BAD_REQUEST",
+                             message=f"{key} must be a list of strings or null.").model_dump(),
                 )
 
     tuning = body.get("tuning")
@@ -95,7 +98,8 @@ def _validate_config_update(body):
                 if not (0 <= val <= 1):
                     raise HTTPException(
                         status_code=400,
-                        detail=ErrorResponse(code="BAD_REQUEST", message=f"{key} must be between 0 and 1.").model_dump(),
+                        detail=ErrorResponse(code="BAD_REQUEST",
+                                 message=f"{key} must be between 0 and 1.").model_dump(),
                     )
         for key in ("component_weight", "file_weight", "domain_weight", "no_match_weight"):
             if key in tuning:
@@ -117,14 +121,16 @@ def _validate_config_update(body):
                 if not isinstance(val, int) or val <= 0:
                     raise HTTPException(
                         status_code=400,
-                        detail=ErrorResponse(code="BAD_REQUEST", message=f"{key} must be a positive integer.").model_dump(),
+                        detail=ErrorResponse(code="BAD_REQUEST",
+                                 message=f"{key} must be a positive integer.").model_dump(),
                     )
         for key, val in tuning.items():
             if key.startswith("retention_"):
                 if not isinstance(val, int) or val <= 0:
                     raise HTTPException(
                         status_code=400,
-                        detail=ErrorResponse(code="BAD_REQUEST", message=f"{key} must be a positive integer.").model_dump(),
+                        detail=ErrorResponse(code="BAD_REQUEST",
+                                 message=f"{key} must be a positive integer.").model_dump(),
                     )
 
 
@@ -136,7 +142,7 @@ def _list_archives(paths):
     for fname in sorted(os.listdir(paths.archive_dir)):
         if fname.endswith(".jsonl"):
             fpath = os.path.join(paths.archive_dir, fname)
-            with open(fpath, "r", encoding="utf-8") as f:
+            with open(fpath, encoding="utf-8") as f:
                 count = sum(1 for line in f if line.strip())
             archives.append({"file": fname, "entries": count})
     return archives
@@ -173,7 +179,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     async def consolidation_state():
         entries = read_learnings(paths)
         unresolved = [e for e in entries if not e.get("resolved", False)]
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
 
@@ -181,11 +187,11 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         last_consolidation_ts = None
         try:
             if os.path.exists(paths.session_file):
-                with open(paths.session_file, "r", encoding="utf-8") as f:
+                with open(paths.session_file, encoding="utf-8") as f:
                     session = json.load(f)
                 last_sprint = session.get("sprint")
                 last_consolidation_ts = session.get("timestamp")
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             pass
 
         if last_sprint is None:
@@ -305,7 +311,8 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
             entries = [e for e in entries if e.get("step", 0) <= step_max]
         if q:
             ql = q.lower()
-            entries = [e for e in entries if ql in f"{e.get('trigger', '')} {e.get('action', '')} {e.get('reason', '')}".lower()]
+            entries = [e for e in entries
+                       if ql in f"{e.get('trigger', '')} {e.get('action', '')} {e.get('reason', '')}".lower()]
         total = len(entries)
         if offset:
             entries = entries[offset:]
@@ -332,26 +339,26 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     @router.get("/api/metrics/summary")
     async def metrics_summary(since: str | None = Query(None)):
         since_dt = parse_since(since)
-        events, r, l, c = get_metrics_data(paths, since_dt)
-        return {"total_events": len(events), "retrieval": r, "logging": l, "consolidation": c}
+        events, r, log_stats, c = get_metrics_data(paths, since_dt)
+        return {"total_events": len(events), "retrieval": r, "logging": log_stats, "consolidation": c}
 
     @router.get("/api/metrics/health")
     async def metrics_health():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        _, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        _, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         score = health_score(stats, md)
         return {"score": score, "rating": "good" if score >= 70 else "warn" if score >= 40 else "bad"}
 
     @router.get("/api/metrics/alerts")
     async def metrics_alerts():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        _, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        _, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         return {"alerts": alerts_list(stats, md)}
 
     @router.get("/api/metrics/retrieval-quality")
@@ -384,15 +391,15 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     @router.get("/api/metrics/snapshot")
     async def metrics_snapshot():
         entries = read_learnings(paths)
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        _, r, l, c = get_metrics_data(paths)
+        _, r, log_stats, c = get_metrics_data(paths)
         return {
             "stats": stats,
             "lifecycle": _lifecycle_stats(entries),
             "retrieval": r,
-            "logging": l,
+            "logging": log_stats,
             "consolidation": c,
         }
 
@@ -423,49 +430,49 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     async def metrics_config_tuning():
         config_path = paths.config_path
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             config = {}
         tuning = config.get("tuning", {})
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        _, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        _, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         recs = recommendations(stats, md, config)
         tuning_recs = [r for r in recs if r["category"] == "config"]
         return {"current_tuning": tuning, "recommendations": tuning_recs}
 
     @router.get("/api/metrics/recommendations")
     async def metrics_recommendations():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         config_path = paths.config_path
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             config = {}
-        _, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        _, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         return {"recommendations": recommendations(stats, md, config)}
 
     @router.get("/api/metrics/dashboard")
     async def metrics_dashboard():
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
         entries = read_learnings(paths)
-        events, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        events, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         trends = _trend_stats(events, days=30)
         config_path = paths.config_path
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             config = {}
         return {
             "stats": stats,
@@ -474,7 +481,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
             "recommendations": recommendations(stats, md, config),
             "trends": trends,
             "retrieval": r,
-            "logging": l,
+            "logging": log_stats,
             "consolidation": c,
             "lifecycle": _lifecycle_stats(entries),
         }
@@ -484,9 +491,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
     @router.get("/api/config")
     async def get_config():
         try:
-            with open(paths.config_path, "r", encoding="utf-8") as f:
+            with open(paths.config_path, encoding="utf-8") as f:
                 return json.load(f)
-        except (IOError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(
                 status_code=500,
                 detail=ErrorResponse(
@@ -521,9 +528,9 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         existing = {}
         if os.path.exists(paths.config_path):
             try:
-                with open(paths.config_path, "r", encoding="utf-8") as f:
+                with open(paths.config_path, encoding="utf-8") as f:
                     existing = json.load(f)
-            except (IOError, json.JSONDecodeError):
+            except (OSError, json.JSONDecodeError):
                 pass
         merged_config = _merge_config(existing, body)
 
@@ -536,7 +543,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, paths.config_path)
-        except IOError as e:
+        except OSError as e:
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -578,9 +585,10 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
                 continue
             events = read_metrics(pp)
             r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-            l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+            log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
             c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-            return {"project": id, "total_events": len(events), "retrieval": r, "logging": l, "consolidation": c}
+            return {"project": id, "total_events": len(events),
+                    "retrieval": r, "logging": log_stats, "consolidation": c}
         raise HTTPException(
             status_code=404,
             detail=ErrorResponse(code="NOT_FOUND", message=f"Project {id} not found").model_dump(),
@@ -598,7 +606,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
             events = read_metrics(pp)
             all_events.extend(events)
             r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-            l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+            log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
             c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
             stats = stats_core(pp, emit_event=False)
             stats.pop("exit_code", None)
@@ -611,14 +619,14 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
             project_summaries.append({
                 "project": _get_project_id(pp),
                 "path": str(project_root),
-                "health": health_score(stats, {"retrieval": r, "logging": l, "consolidation": c}),
+                "health": health_score(stats, {"retrieval": r, "logging": log_stats, "consolidation": c}),
                 "total_entries": len(entries),
                 "unresolved": stats.get("unresolved", 0),
                 "retrievals": r.get("total_retrievals", 0),
                 "hit_rate": r.get("hit_rate", 0),
-                "logs": l.get("total_logs", 0),
-                "dup_rate": l.get("duplicate_rate", 0),
-                "quar_rate": l.get("quarantine_rate", 0),
+                "logs": log_stats.get("total_logs", 0),
+                "dup_rate": log_stats.get("duplicate_rate", 0),
+                "quar_rate": log_stats.get("quarantine_rate", 0),
                 "last_consolidation": last_consolidation,
                 "domains": domains,
                 "trends": _trend_stats(events, days=30),

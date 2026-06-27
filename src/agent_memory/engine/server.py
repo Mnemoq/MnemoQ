@@ -13,23 +13,22 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from agent_memory.engine.handlers import log_core, update_core, resolve_core, stats_core
-from agent_memory.engine.retrieval import retrieve_core
 from agent_memory.engine.consolidation import consolidate_core
-from agent_memory.engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
+from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
+from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
 from agent_memory.engine.models import (
-    LogRequest,
-    UpdateRequest,
-    ResolveRequest,
     ConsolidateRequest,
     ErrorResponse,
+    LogRequest,
+    ResolveRequest,
+    UpdateRequest,
 )
+from agent_memory.engine.retrieval import retrieve_core
 
 
 class EventHub:
@@ -118,7 +117,7 @@ class EventHub:
                 size = os.path.getsize(mp)
                 if size < state["size"]:
                     state["size"] = 0
-                with open(mp, "r", encoding="utf-8") as f:
+                with open(mp, encoding="utf-8") as f:
                     f.seek(state["size"])
                     new_lines = f.readlines()
                 state["size"] = size
@@ -140,19 +139,19 @@ class EventHub:
                         })
                     except json.JSONDecodeError:
                         pass
-            except (IOError, OSError):
+            except OSError:
                 pass
 
 
-async def _check_and_broadcast_alerts(paths, event_hub):
+async def _check_and_broadcast_alerts(paths, ctx, event_hub):
     """Check for new alerts after a write op and broadcast any new ones via WS."""
     try:
         from agent_memory.engine.analysis import alerts_list, get_metrics_data
-        stats = stats_core(paths, emit_event=False)
+        stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        _, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        _, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         current = alerts_list(stats, md)
         current_count = len(current)
         if current_count > event_hub.last_alert_count:
@@ -264,13 +263,14 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                 detail=ErrorResponse(
                     code=result.get("status", "ERROR").upper(),
                     message=result.get("message", "Unknown error"),
-                    entry_ref=result.get("matched_entry", {}).get("ts") if isinstance(result.get("matched_entry"), dict) else None,
+                    entry_ref=(result.get("matched_entry", {}).get("ts")
+                              if isinstance(result.get("matched_entry"), dict) else None),
                 ).model_dump(),
             )
         await event_hub.broadcast({"event": "log", "status": result.get("status"), "entry": result.get("entry")})
         invalidate_metrics_cache()
         if dashboard:
-            await _check_and_broadcast_alerts(paths, event_hub)
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
     # -- Update --
@@ -318,14 +318,14 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         await event_hub.broadcast({"event": "resolve", "ts": req.ts, "status": result.get("status")})
         invalidate_metrics_cache()
         if dashboard:
-            await _check_and_broadcast_alerts(paths, event_hub)
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
     # -- Stats --
 
     @app.get("/api/stats")
     async def stats():
-        result = stats_core(paths)
+        result = stats_core(paths, ctx=ctx)
         result.pop("exit_code", None)
         result.pop("status", None)
         return result
@@ -363,12 +363,12 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                 return {"total_events": len(filtered), "events": filtered}
             return {"total_events": len(filtered), "events": filtered}
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
         return {
             "total_events": len(events),
             "retrieval": r,
-            "logging": l,
+            "logging": log_stats,
             "consolidation": c,
         }
 
@@ -391,10 +391,12 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                     suggested_action="Use force=true to overwrite, or specify a different sprint_number.",
                 ).model_dump(),
             )
-        await event_hub.broadcast({"event": "consolidate", "sprint": result.get("sprint_number"), "status": result.get("status")})
+        await event_hub.broadcast({"event": "consolidate",
+                                 "sprint": result.get("sprint_number"),
+                                 "status": result.get("status")})
         invalidate_metrics_cache()
         if dashboard:
-            await _check_and_broadcast_alerts(paths, event_hub)
+            await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
     # -- WebSocket --
@@ -428,7 +430,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
             _index_html = None
             _index_path = os.path.join(static_dir, "index.html")
             if os.path.isfile(_index_path):
-                with open(_index_path, "r", encoding="utf-8") as f:
+                with open(_index_path, encoding="utf-8") as f:
                     _index_html = f.read()
 
             @app.get("/")

@@ -22,16 +22,14 @@ import os
 from datetime import datetime
 from typing import Any
 
-from agent_memory.sdk.exceptions import APIError, ConflictError, NotFoundError, ValidationError
-
 from agent_memory import cli as filter
-from agent_memory.engine.constants import DEFAULTS
 from agent_memory.engine.consolidation import consolidate_core
+from agent_memory.engine.constants import DEFAULTS
 from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
 from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
 from agent_memory.engine.models import LearningEntry
 from agent_memory.engine.retrieval import retrieve_core
-
+from agent_memory.sdk.exceptions import APIError, ConflictError, NotFoundError, ValidationError
 
 # ---------------------------------------------------------------------------
 # Transport helpers
@@ -117,7 +115,7 @@ class _LocalTransport:
         return result
 
     def stats(self):
-        result = stats_core(self.paths)
+        result = stats_core(self.paths, ctx=self.ctx)
         result.pop("exit_code", None)
         result.pop("status", None)
         return result
@@ -142,9 +140,9 @@ class _LocalTransport:
                 return {"total_events": len(filtered), "events": filtered}
             return {"total_events": len(filtered), "events": filtered}
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-        return {"total_events": len(events), "retrieval": r, "logging": l, "consolidation": c}
+        return {"total_events": len(events), "retrieval": r, "logging": log_stats, "consolidation": c}
 
     def consolidate(self, sprint_number=None, force=False):
         result = consolidate_core(sprint_number, False, force, self.paths, self.ctx)

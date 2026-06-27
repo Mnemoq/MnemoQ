@@ -25,7 +25,7 @@ import json
 import os
 import sys
 from collections import namedtuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ENGINE_DIR = Path.home() / ".agent-memory" / "engine"
@@ -52,12 +52,12 @@ def _get_project_id(paths):
     config_path = Path(paths.config_path)
     if config_path.exists():
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
             name = config.get("project_name")
             if name and isinstance(name, str):
                 return name
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
     return os.path.basename(paths.repo_root) or "unknown"
 
@@ -100,7 +100,7 @@ def read_metrics(paths, event_type=None, since=None):
         return []
 
     events = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -136,7 +136,7 @@ def _load_project_paths():
         return []
 
     projects = []
-    with open(projects_file, "r", encoding="utf-8") as f:
+    with open(projects_file, encoding="utf-8") as f:
         for line in f:
             s = line.strip()
             if not s or s.startswith("#"):
@@ -700,12 +700,12 @@ def handle_metrics(args, paths):
 def _report_summary(events, json_out=False):
     """Print summary dashboard."""
     r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-    l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+    log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
     c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
 
     if json_out:
         print(json.dumps({"summary": {"total_events": len(events),
-              "retrieval": r, "logging": l, "consolidation": c}},
+              "retrieval": r, "logging": log_stats, "consolidation": c}},
               indent=2, default=str))
         return 0
 
@@ -721,10 +721,10 @@ def _report_summary(events, json_out=False):
     print()
 
     print("### Logging")
-    if l:
-        print(f"  Total: {l['total_logs']}, Added: {l['added']}, Dup: {l['duplicate']}, "
-              f"Conflict: {l['conflict']}, Quar: {l['quarantined']}")
-        print(f"  Dup rate: {l['duplicate_rate']:.1%}, Quar rate: {l['quarantine_rate']:.1%}")
+    if log_stats:
+        print(f"  Total: {log_stats['total_logs']}, Added: {log_stats['added']}, Dup: {log_stats['duplicate']}, "
+              f"Conflict: {log_stats['conflict']}, Quar: {log_stats['quarantined']}")
+        print(f"  Dup rate: {log_stats['duplicate_rate']:.1%}, Quar rate: {log_stats['quarantine_rate']:.1%}")
     else:
         print("  No logging events.")
     print()
@@ -861,15 +861,15 @@ def _report_cross_project(since, json_out=False):
     summaries = []
     for pid, events in all_m:
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         summaries.append({
             "project": pid,
             "total_events": len(events),
             "retrievals": r.get("total_retrievals", 0),
             "hit_rate": r.get("hit_rate", 0),
-            "logs": l.get("total_logs", 0),
-            "dup_rate": l.get("duplicate_rate", 0),
-            "quar_rate": l.get("quarantine_rate", 0),
+            "logs": log_stats.get("total_logs", 0),
+            "dup_rate": log_stats.get("duplicate_rate", 0),
+            "quar_rate": log_stats.get("quarantine_rate", 0),
         })
 
     if json_out:

@@ -37,6 +37,26 @@ python -m pytest tests/
 
 All tests must pass before a PR can be merged. Add tests for new functionality.
 
+## Stress Testing
+
+`scripts/generate_fakes.py` generates synthetic memory entries for stress-testing the engine.
+
+```bash
+# Preview without writing (always safe)
+python scripts/generate_fakes.py --count 100 --dry-run
+
+# Write to memory/fakes.jsonl (does not touch learnings.jsonl)
+python scripts/generate_fakes.py --count 100 --clean
+
+# Route through the full pipeline into learnings.jsonl (requires --confirm)
+python scripts/generate_fakes.py --count 50 --pipeline --confirm --clean
+
+# Reproducible runs
+python scripts/generate_fakes.py --count 10 --seed 123 --clean
+```
+
+**Warning:** `--pipeline` writes to `learnings.jsonl`. Always use `--dry-run` first to preview, then `--confirm` to proceed. `--clean` deletes the target file before generating.
+
 ## Open-Core Boundary
 
 MnemoQ is an open-core project. The AGPL-licensed core lives in this repo. A proprietary Pro tier (cloud sync, multi-tenant, billing) lives in a separate private repo.

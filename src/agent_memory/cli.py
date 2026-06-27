@@ -22,6 +22,8 @@ CLI modes:
       Sleep Cycle: archive learnings, generate promotion report.
   --consolidate --confirm-reset
       Clear learnings.jsonl after review (requires recent --consolidate run).
+  --verify
+      Validate every entry in learnings.jsonl against the schema.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
 from agent_memory.engine_version import get_engine_version
 
 # --- Paths Dataclass ---
@@ -189,7 +192,7 @@ def load_config():
         return {}
     
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
     except json.JSONDecodeError as e:
         print(f"WARNING: config.json is malformed: {e}", file=sys.stderr)
@@ -204,7 +207,8 @@ def load_config():
     
     # Float parameters with range validation
     float_params = {
-        "decay_rate": ("DECAY_RATE", 0.0, 1.0, False, False),  # (config_key, python_key, min, max, min_inclusive, max_inclusive)
+        # (config_key, python_key, min, max, min_inclusive, max_inclusive)
+        "decay_rate": ("DECAY_RATE", 0.0, 1.0, False, False),
         "score_threshold": ("SCORE_THRESHOLD", 0.0, 1.0, True, True),
         "component_weight": ("COMPONENT_WEIGHT", 0.0, None, True, None),
         "file_weight": ("FILE_WEIGHT", 0.0, None, True, None),
@@ -245,6 +249,8 @@ def load_config():
         "major_retention": ("MAJOR_RETENTION", 0, None),
         "escalation_threshold": ("ESCALATION_THRESHOLD", 0, None),
         "rrf_k": ("RRF_K", 1, None),
+        "sleep_cycle_days": ("SLEEP_CYCLE_DAYS", 0, None),
+        "sleep_cycle_quarantine_threshold": ("SLEEP_CYCLE_QUARANTINE_THRESHOLD", 0, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
@@ -374,10 +380,16 @@ def _build_ctx():
 # Each delegates to the engine module, passing paths and ctx.
 
 from agent_memory.engine.io import (
-    read_learnings as _io_read_learnings,
     append_learning as _io_append_learning,
-    write_learnings as _io_write_learnings,
+)
+from agent_memory.engine.io import (
     quarantine as _io_quarantine,
+)
+from agent_memory.engine.io import (
+    read_learnings as _io_read_learnings,
+)
+from agent_memory.engine.io import (
+    write_learnings as _io_write_learnings,
 )
 
 
@@ -403,9 +415,6 @@ def quarantine(raw_input, reason):
 
 from agent_memory.engine.validation import (
     validate_entry as _val_validate_entry,
-    jaccard_similarity,
-    actions_oppose,
-    find_best_match,
 )
 
 
@@ -416,6 +425,8 @@ def validate_entry(entry):
 
 from agent_memory.engine.agents_review import (
     check_agents_conflict as _ar_check_agents_conflict,
+)
+from agent_memory.engine.agents_review import (
     handle_review_agents as _ar_handle_review_agents,
 )
 
@@ -432,9 +443,15 @@ def handle_review_agents(current_step, threshold):
 
 from agent_memory.engine.handlers import (
     handle_log as _h_handle_log,
-    handle_update as _h_handle_update,
+)
+from agent_memory.engine.handlers import (
     handle_resolve as _h_handle_resolve,
+)
+from agent_memory.engine.handlers import (
     handle_stats as _h_handle_stats,
+)
+from agent_memory.engine.handlers import (
+    handle_update as _h_handle_update,
 )
 
 
@@ -455,13 +472,17 @@ def handle_resolve(ts):
 
 def handle_stats():
     """Handle --stats mode."""
-    return _h_handle_stats(_get_paths())
+    return _h_handle_stats(_get_paths(), ctx=_CTX)
 
 
 from agent_memory.engine.retrieval import (
-    score_entry as _ret_score_entry,
-    is_in_retention as _ret_is_in_retention,
     handle_retrieval as _ret_handle_retrieval,
+)
+from agent_memory.engine.retrieval import (
+    is_in_retention as _ret_is_in_retention,
+)
+from agent_memory.engine.retrieval import (
+    score_entry as _ret_score_entry,
 )
 
 
@@ -475,16 +496,20 @@ def is_in_retention(entry, current_step):
     return _ret_is_in_retention(entry, current_step, _build_ctx())
 
 
-def handle_retrieval(current_step, task_components, task_files, task_domain):
+def handle_retrieval(current_step, task_components, task_files, task_domain, no_profile=False):
     """Handle retrieval mode: score, filter, and print relevant learnings."""
-    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_ctx(), _get_paths())
+    return _ret_handle_retrieval(
+        current_step, task_components, task_files, task_domain,
+        _build_ctx(), _get_paths(), no_profile=no_profile,
+    )
 
 
 from agent_memory.engine.consolidation import (
-    handle_consolidate as _con_handle_consolidate,
     handle_confirm_reset as _con_handle_confirm_reset,
 )
-
+from agent_memory.engine.consolidation import (
+    handle_consolidate as _con_handle_consolidate,
+)
 from agent_memory.engine.metrics import handle_metrics as _met_handle_metrics
 
 
@@ -498,7 +523,6 @@ def handle_confirm_reset():
     return _con_handle_confirm_reset(_get_paths(), _build_ctx())
 
 
-from agent_memory.engine.git_utils import stamp_entry, check_staleness
 
 
 # --- Main ---
@@ -528,12 +552,9 @@ Examples:
 
     parser.add_argument("--version", action="store_true", help="Show engine version and exit")
 
-    # Note: MAX_STEP help text uses default value (30) since config not loaded yet
-    max_step_default = _CTX["max_step"]
+    max_step_default = _CTX.get("max_step")
     if max_step_default is None:
         step_help = "Current plan step number (no upper bound)"
-    elif max_step_default == 30:
-        step_help = "Current plan step number (1-30)"
     else:
         step_help = f"Current plan step number (1-{max_step_default})"
     parser.add_argument("--step", type=int, help=step_help)
@@ -541,37 +562,56 @@ Examples:
     parser.add_argument("--files", type=str, help="Comma-separated file paths")
     parser.add_argument("--domain", type=str, help="Coarse domain tag")
     parser.add_argument("--log", type=str, help="JSON string to log")
-    parser.add_argument("--log-file", type=str, metavar="PATH", help="Path to JSON file to log (PowerShell-safe alternative to --log)")
-    parser.add_argument("--update", type=str, metavar="TS", help="Timestamp of existing entry to amend (requires --log or --log-file)")
-    parser.add_argument("--resolve", type=str, metavar="TS", help="Timestamp of existing entry to mark as resolved")
+    parser.add_argument("--log-file", type=str, metavar="PATH",
+                        help="Path to JSON file to log (PowerShell-safe alternative to --log)")
+    parser.add_argument("--update", type=str, metavar="TS",
+                        help="Timestamp of existing entry to amend (requires --log or --log-file)")
+    parser.add_argument("--resolve", type=str, metavar="TS",
+                        help="Timestamp of existing entry to mark as resolved")
     parser.add_argument("--stats", action="store_true", help="Print memory system statistics")
-    parser.add_argument("--review-agents", action="store_true", help="Diagnostic report on AGENTS.md section health")
+    parser.add_argument("--review-agents", action="store_true",
+                        help="Diagnostic report on AGENTS.md section health")
     major_ret_default = _CTX["major_retention"]
-    parser.add_argument("--threshold", type=int, default=major_ret_default, help=f"Step window for --review-agents (default: {major_ret_default})")
-    parser.add_argument("--consolidate", action="store_true", help="Sleep Cycle: archive learnings, generate promotion report")
+    parser.add_argument("--threshold", type=int, default=major_ret_default,
+                        help=f"Step window for --review-agents (default: {major_ret_default})")
+    parser.add_argument("--consolidate", action="store_true",
+                        help="Sleep Cycle: archive learnings, generate promotion report")
     parser.add_argument("--sprint", type=int, help="Sprint number for --consolidate (default: inferred from max step)")
-    parser.add_argument("--confirm-reset", action="store_true", help="Clear learnings.jsonl after review (requires recent --consolidate)")
+    parser.add_argument("--confirm-reset", action="store_true",
+                        help="Clear learnings.jsonl after review (requires recent --consolidate)")
     parser.add_argument("--force", action="store_true", help="Force overwrite existing archive in --consolidate")
-    parser.add_argument("--migrate-schema", action="store_true", help="Run schema migration on learnings.jsonl and write updated file")
-    parser.add_argument("--eval", action="store_true", help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
-    parser.add_argument("--memory-dir", type=str, help="Path to memory directory (default: <cwd>/memory)")
+    parser.add_argument("--migrate-schema", action="store_true",
+                        help="Run schema migration on learnings.jsonl and write updated file")
+    parser.add_argument("--eval", action="store_true",
+                        help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
+    parser.add_argument("--memory-dir", type=str,
+                        help="Path to memory directory (default: <cwd>/memory)")
+    parser.add_argument("--no-profile", action="store_true",
+                        help="Skip developer profile loading (for deterministic output)")
 
     # Metrics flags
     parser.add_argument("--metrics", action="store_true", help="Print metrics summary report")
-    parser.add_argument("--metrics-retrieval", action="store_true", help="Deep-dive on retrieval effectiveness")
+    parser.add_argument("--metrics-retrieval", action="store_true",
+                        help="Deep-dive on retrieval effectiveness")
     parser.add_argument("--metrics-logging", action="store_true", help="Deep-dive on logging patterns")
-    parser.add_argument("--metrics-consolidation", action="store_true", help="Consolidation history")
+    parser.add_argument("--metrics-consolidation", action="store_true",
+                        help="Consolidation history")
     parser.add_argument("--metrics-trend", action="store_true", help="Time-series trend (last 30 days)")
-    parser.add_argument("--metrics-all-projects", action="store_true", help="Cross-project comparison across all registered projects")
+    parser.add_argument("--metrics-all-projects", action="store_true",
+                        help="Cross-project comparison across all registered projects")
     parser.add_argument("--metrics-json", action="store_true", help="Output metrics as JSON (for piping to jq/scripts)")
-    parser.add_argument("--metrics-since", type=str, metavar="YYYY-MM-DD", help="Only include events on or after this date")
-    parser.add_argument("--metrics-export", type=str, metavar="PATH", help="Export raw metrics events to a file (JSONL format)")
+    parser.add_argument("--metrics-since", type=str, metavar="YYYY-MM-DD",
+                        help="Only include events on or after this date")
+    parser.add_argument("--metrics-export", type=str, metavar="PATH",
+                        help="Export raw metrics events to a file (JSONL format)")
 
     # API server flags
-    parser.add_argument("--serve", action="store_true", help="Start HTTP API server (requires agent-memory[api])")
+    parser.add_argument("--serve", action="store_true",
+                        help="Start HTTP API server (requires agent-memory[api])")
     parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
     parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
+    parser.add_argument("--verify", action="store_true", help="Validate every entry in learnings.jsonl against schema")
 
     args = parser.parse_args()
 
@@ -607,47 +647,80 @@ Examples:
     log_json = args.log
     if args.log_file:
         try:
-            with open(args.log_file, "r", encoding="utf-8-sig") as f:
+            with open(args.log_file, encoding="utf-8-sig") as f:
                 log_json = f.read()
-        except (IOError, OSError) as e:
+        except OSError as e:
             print(f"ERROR: Cannot read --log-file: {e}", file=sys.stderr)
             sys.exit(1)
 
     if args.update and not log_json:
         parser.error("--update requires --log or --log-file")
 
-    if args.stats and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate]):
-        parser.error("--stats cannot be combined with --step, --log, --log-file, --resolve, --update, --review-agents, or --consolidate")
+    _op_flags = (args.step is not None, log_json, args.resolve, args.update,
+                 args.review_agents, args.consolidate)
+    if args.stats and any(_op_flags):
+        parser.error(
+            "--stats cannot be combined with --step, --log, --log-file, "
+            "--resolve, --update, --review-agents, or --consolidate"
+        )
 
     if args.review_agents and args.step is None:
         parser.error("--review-agents requires --step")
 
     if args.review_agents and any([log_json, args.resolve, args.update, args.consolidate]):
-        parser.error("--review-agents cannot be combined with --log, --log-file, --resolve, --update, or --consolidate")
+        parser.error(
+            "--review-agents cannot be combined with --log, --log-file, "
+            "--resolve, --update, or --consolidate"
+        )
 
-    if args.consolidate and any([args.step, log_json, args.resolve, args.update, args.review_agents, args.stats]):
-        parser.error("--consolidate cannot be combined with --step, --log, --log-file, --resolve, --update, --review-agents, or --stats")
+    if args.consolidate and any([args.step, log_json, args.resolve, args.update,
+                                  args.review_agents, args.stats]):
+        parser.error(
+            "--consolidate cannot be combined with --step, --log, --log-file, "
+            "--resolve, --update, --review-agents, or --stats"
+        )
 
     if args.confirm_reset and not args.consolidate:
         parser.error("--confirm-reset requires --consolidate")
 
-    if args.metrics and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats]):
+    if args.metrics and any([args.step is not None, log_json, args.resolve,
+                             args.update, args.review_agents, args.consolidate, args.stats]):
         parser.error("--metrics cannot be combined with operational flags")
 
-    if any([args.metrics_retrieval, args.metrics_logging, args.metrics_consolidation, args.metrics_trend]) and not args.metrics:
+    if any([args.metrics_retrieval, args.metrics_logging,
+            args.metrics_consolidation, args.metrics_trend]) and not args.metrics:
         parser.error("--metrics-* deep-dive flags require --metrics")
 
-    if args.migrate_schema and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics]):
+    if args.migrate_schema and any([args.step is not None, log_json, args.resolve,
+                                     args.update, args.review_agents, args.consolidate,
+                                     args.stats, args.metrics]):
         parser.error("--migrate-schema cannot be combined with other operational flags")
 
-    if args.eval and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema]):
+    if args.eval and any([args.step is not None, log_json, args.resolve,
+                          args.update, args.review_agents, args.consolidate,
+                          args.stats, args.metrics, args.migrate_schema]):
         parser.error("--eval cannot be combined with other operational flags")
 
-    if (args.serve or args.dashboard) and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval]):
+    if (args.serve or args.dashboard) and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval]
+    ):
         parser.error("--serve/--dashboard cannot be combined with other operational flags")
 
-    if args.mcp and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard]):
+    if args.mcp and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard]
+    ):
         parser.error("--mcp cannot be combined with other operational flags")
+
+    if args.verify and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp]
+    ):
+        parser.error("--verify cannot be combined with other operational flags")
 
     if args.migrate_schema:
         from agent_memory.engine.migrate import run_migration
@@ -675,12 +748,35 @@ Examples:
         url = f"http://127.0.0.1:{args.port}"
         if args.dashboard:
             print(f"Agent Memory Dashboard starting on {url}", file=sys.stderr)
-            import threading, webbrowser
+            import threading
+            import webbrowser
             threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         else:
             print(f"Agent Memory Engine API starting on {url}", file=sys.stderr)
             print(f"API docs at {url}/docs", file=sys.stderr)
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+        return 0
+
+    if args.verify:
+        entries = read_learnings()
+        if not entries:
+            print("learnings.jsonl is empty or does not exist.", file=sys.stderr)
+            return 0
+        ctx = _build_ctx()
+        bad = []
+        for i, entry in enumerate(entries):
+            errs = _val_validate_entry(entry, ctx)
+            if errs:
+                bad.append((i, entry.get("ts", "?"), errs))
+        total = len(entries)
+        if bad:
+            print(f"VERIFICATION FAILED: {len(bad)}/{total} entries invalid", file=sys.stderr)
+            for idx, ts, errs in bad[:20]:
+                print(f"  line {idx+1} (ts={ts}): {'; '.join(errs)}", file=sys.stderr)
+            if len(bad) > 20:
+                print(f"  ... and {len(bad) - 20} more", file=sys.stderr)
+            return 1
+        print(f"VERIFICATION PASSED: {total} entries valid", file=sys.stderr)
         return 0
 
     if args.metrics:
@@ -705,7 +801,7 @@ Examples:
         task_components = [c.strip() for c in args.components.split(",")] if args.components else []
         task_files = [f.strip() for f in args.files.split(",")] if args.files else []
         task_domain = args.domain
-        return handle_retrieval(args.step, task_components, task_files, task_domain)
+        return handle_retrieval(args.step, task_components, task_files, task_domain, no_profile=args.no_profile)
     else:
         parser.print_help()
         return 1

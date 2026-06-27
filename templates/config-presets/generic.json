@@ -17,6 +17,8 @@
     "max_patterns": 15,
     "minor_retention": 5,
     "major_retention": 20,
-    "escalation_threshold": 30
+    "escalation_threshold": 30,
+    "sleep_cycle_days": 7,
+    "sleep_cycle_quarantine_threshold": 20
   }
 }

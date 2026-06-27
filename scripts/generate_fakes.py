@@ -2,7 +2,7 @@
 """Bulk-generate valid synthetic memory entries for stress-testing.
 
 Direct mode writes to <memory_dir>/fakes.jsonl.
-Pipeline mode routes each entry through filter.py --log-file.
+Pipeline mode routes each entry through mnemoq --log-file.
 """
 
 from __future__ import annotations
@@ -17,25 +17,19 @@ import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
-repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-src_dir = os.path.join(repo_root, "src")
-if src_dir not in sys.path:
-    sys.path.insert(0, src_dir)
-
-import filter
-from filter import setup_paths, load_config
-from engine.constants import (
+import agent_memory.cli as cli
+from agent_memory.cli import load_config, setup_paths
+from agent_memory.engine.constants import (
     DEFAULTS,
     VALID_DOMAINS,
+    VALID_RETRIEVAL_ONLY_AGENTS,
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
-    VALID_RETRIEVAL_ONLY_AGENTS,
 )
-from engine.migrate import CURRENT_SCHEMA_VERSION
-from engine.retrieval import cosine_similarity, embed_entry, encode_embedding
-from engine.metrics import _get_project_id
-from engine.validation import validate_entry
-
+from agent_memory.engine.metrics import _get_project_id
+from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
+from agent_memory.engine.retrieval import cosine_similarity, embed_entry, encode_embedding
+from agent_memory.engine.validation import validate_entry
 
 # --- Bootstrap ---
 
@@ -51,7 +45,7 @@ def _get_commit(repo_root):
 
 def build_ctx(memory_dir):
     paths = setup_paths(memory_dir)
-    filter.PATHS = paths  # load_config() reads from filter._get_paths()
+    cli.PATHS = paths  # must be set before load_config()
     config = load_config()
     ctx = {k.lower(): v for k, v in DEFAULTS.items()}
     if config:
@@ -533,6 +527,10 @@ def generate_duplicate(source, rng, max_step, ctx):
 
 def run_direct(args, entries, ctx, paths):
     target = args.target or os.path.join(paths.memory_dir, "fakes.jsonl")
+    if args.dry_run:
+        print(f"[dry-run] Would write {len(entries)} entries -> {target}")
+        print("Validation errors: 0")
+        return
     if args.clean and os.path.exists(target):
         os.remove(target)
 
@@ -546,7 +544,14 @@ def run_direct(args, entries, ctx, paths):
 
 def run_pipeline(args, entries, ctx, paths):
     if args.target:
-        raise SystemExit("ERROR: --target cannot be used with --pipeline (filter.py writes to learnings.jsonl)")
+        raise SystemExit("ERROR: --target cannot be used with --pipeline (mnemoq writes to learnings.jsonl)")
+    if args.dry_run:
+        print(f"[dry-run] Would route {len(entries)} entries through mnemoq --log-file pipeline")
+        print(f"[dry-run] Target: {paths.learnings_path}")
+        if args.clean:
+            print(f"[dry-run] --clean would delete {paths.learnings_path}")
+        print("Validation errors: 0")
+        return
     if args.clean and os.path.exists(paths.learnings_path):
         os.remove(paths.learnings_path)
 
@@ -555,7 +560,7 @@ def run_pipeline(args, entries, ctx, paths):
         tmp = os.path.join(paths.memory_dir, f"_fake_entry_{uuid.uuid4().hex}.json")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(entry, f, ensure_ascii=False)
-        cmd = [sys.executable, os.path.join(paths.repo_root, "src", "filter.py"), "--log-file", tmp]
+        cmd = [sys.executable, "-m", "agent_memory.cli", "--log-file", tmp]
         if args.memory_dir:
             cmd += ["--memory-dir", args.memory_dir]
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=paths.repo_root)
@@ -596,12 +601,13 @@ def build_parser():
         epilog="""
 Examples:
   python scripts/generate_fakes.py --count 100 --clean
-  python scripts/generate_fakes.py --count 50 --pipeline --clean
+  python scripts/generate_fakes.py --count 50 --pipeline --confirm --clean
   python scripts/generate_fakes.py --count 10 --seed 123 --clean
+  python scripts/generate_fakes.py --count 50 --pipeline --dry-run
         """,
     )
     parser.add_argument("--count", type=int, required=True, help="Number of entries to generate")
-    parser.add_argument("--pipeline", action="store_true", help="Route each entry through filter.py")
+    parser.add_argument("--pipeline", action="store_true", help="Route each entry through mnemoq --log-file")
     parser.add_argument("--stop-on-error", action="store_true", help="Halt on first pipeline failure")
     parser.add_argument("--type", type=str, help="Restrict to one type")
     parser.add_argument("--domain", type=str, help="Restrict to one domain")
@@ -615,7 +621,9 @@ Examples:
     parser.add_argument("--duplicates", type=float, default=0, help="Percentage of entries that are near-duplicates")
     parser.add_argument("--resolved", type=float, default=5, help="Percentage of entries marked resolved")
     parser.add_argument("--seed", type=int, help="Random seed for reproducible generation")
-    parser.add_argument("--memory-dir", type=str, help="Memory directory (passed to filter.py)")
+    parser.add_argument("--dry-run", action="store_true", help="Validate and print summary without writing anything")
+    parser.add_argument("--confirm", action="store_true", help="Required to use --pipeline without --dry-run (safety guard against corrupting learnings.jsonl)")
+    parser.add_argument("--memory-dir", type=str, help="Memory directory (passed to mnemoq)")
     return parser
 
 
@@ -636,6 +644,8 @@ def main():
             parser.error("--target cannot be used with --pipeline")
         if args.embed:
             parser.error("--embed cannot be used with --pipeline")
+        if not args.dry_run and not args.confirm:
+            parser.error("--pipeline writes to learnings.jsonl — use --confirm to proceed or --dry-run to preview")
 
     try:
         ctx, paths = build_ctx(args.memory_dir)

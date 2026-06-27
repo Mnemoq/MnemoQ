@@ -14,14 +14,13 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from agent_memory.engine.metrics import (
-    read_metrics,
-    _retrieval_stats,
-    _logging_stats,
     _consolidation_stats,
+    _logging_stats,
     _ProjectPaths,
+    _retrieval_stats,
+    read_metrics,
 )
 from agent_memory.engine.models import ErrorResponse
-
 
 # -- Metrics cache (only used by dashboard endpoints) --
 
@@ -46,9 +45,9 @@ def get_metrics_data(paths, since_dt=None):
             return cached["data"]
     events = read_metrics(paths, since=since_dt)
     r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-    l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+    log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
     c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-    result = (events, r, l, c)
+    result = (events, r, log_stats, c)
     if since_dt is None:
         _metrics_cache[key] = {"ts": time.monotonic(), "data": result}
     return result
@@ -124,8 +123,8 @@ def health_score(stats, metrics_data):
     if hit_rate < 0.5:
         score -= 10
 
-    l = metrics_data.get("logging", {})
-    dup_rate = l.get("duplicate_rate", 0) if l else 0
+    log_stats = metrics_data.get("logging", {})
+    dup_rate = log_stats.get("duplicate_rate", 0) if log_stats else 0
     if dup_rate > 0.5:
         score -= 10
 
@@ -137,10 +136,20 @@ def recommendations(stats, metrics_data, config=None):
     recs = []
 
     if stats.get("sleep_cycle_due"):
+        reasons = stats.get("sleep_cycle_reasons", [])
+        messages = []
+        if "threshold" in reasons:
+            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of 50")
+        if "time" in reasons:
+            days = (config or {}).get("tuning", {}).get("sleep_cycle_days", 7)
+            messages.append(f"more than {days} days since last consolidation")
+        if "quarantine" in reasons:
+            messages.append("quarantine entries exceed threshold")
+        msg = "Sleep cycle due — " + "; ".join(messages) + "."
         recs.append({
             "priority": "high",
             "category": "consolidation",
-            "message": f"Sleep cycle due — {stats['unresolved']} unresolved entries exceed threshold of 50.",
+            "message": msg,
             "action": "Run consolidation to archive resolved learnings and promote candidates.",
         })
 
@@ -169,12 +178,12 @@ def recommendations(stats, metrics_data, config=None):
             "action": "Lower score_threshold in config.json or improve component/file tagging in entries.",
         })
 
-    l = metrics_data.get("logging", {})
-    if l and l.get("duplicate_rate", 0) > 0.4:
+    log_stats = metrics_data.get("logging", {})
+    if log_stats and log_stats.get("duplicate_rate", 0) > 0.4:
         recs.append({
             "priority": "low",
             "category": "logging",
-            "message": f"Duplicate rate is {l['duplicate_rate']:.0%} — high redundancy.",
+            "message": f"Duplicate rate is {log_stats['duplicate_rate']:.0%} — high redundancy.",
             "action": "Agents may be re-logging known patterns. Consider retrieval before logging.",
         })
 
@@ -205,9 +214,18 @@ def alerts_list(stats, metrics_data):
     alerts = []
 
     if stats.get("sleep_cycle_due"):
+        reasons = stats.get("sleep_cycle_reasons", [])
+        messages = []
+        if "threshold" in reasons:
+            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of 50")
+        if "time" in reasons:
+            messages.append("more than 7 days since last consolidation")
+        if "quarantine" in reasons:
+            messages.append("quarantine entries exceed threshold")
+        msg = "Sleep cycle due — " + "; ".join(messages) + "."
         alerts.append({
             "type": "danger",
-            "message": f"Sleep cycle due — {stats['unresolved']} unresolved entries exceed threshold of 50.",
+            "message": msg,
         })
 
     if stats.get("over_injected", 0) > 0:
