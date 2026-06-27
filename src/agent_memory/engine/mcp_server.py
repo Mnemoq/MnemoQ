@@ -138,13 +138,17 @@ def _build_ctx(paths: _Paths) -> dict:
 TOOLS = [
     {
         "name": "retrieve_learnings",
-        "description": "Retrieve relevant learnings for the current task context. Returns warnings (critical issues) and patterns (architectural guidance), scored and ranked by relevance.",
+        "description": ("Retrieve relevant learnings for the current task context. "
+                       "Returns warnings (critical issues) and patterns (architectural guidance), "
+                       "scored and ranked by relevance."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "step": {"type": "integer", "minimum": 1, "description": "Current plan step number"},
-                "components": {"type": "array", "items": {"type": "string"}, "description": "Component names relevant to the task"},
-                "files": {"type": "array", "items": {"type": "string"}, "description": "File paths being worked on"},
+                "components": {"type": "array", "items": {"type": "string"},
+                               "description": "Component names relevant to the task"},
+                "files": {"type": "array", "items": {"type": "string"},
+                          "description": "File paths being worked on"},
                 "domain": {"type": "string", "description": "Coarse domain tag (e.g. 'ui', 'data', 'tooling')"},
             },
             "required": ["step"],
@@ -152,13 +156,17 @@ TOOLS = [
     },
     {
         "name": "log_learning",
-        "description": "Log a new learning entry. Validates, checks for duplicates/semantic duplicates, and appends to memory. Returns status (added/duplicate/semantic_duplicate/conflict/quarantined) and entry details.",
+        "description": ("Log a new learning entry. Validates, checks for duplicates/semantic duplicates, "
+                       "and appends to memory. Returns status (added/duplicate/semantic_duplicate/"
+                       "conflict/quarantined) and entry details."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entry": {
                     "type": "object",
-                    "description": "Learning entry object with fields: step, source_agent, type, domain, components, files_touched, trigger, action, reason, importance, severity, scope, debt_level, etc.",
+                    "description": ("Learning entry object with fields: step, source_agent, type, "
+                                    "domain, components, files_touched, trigger, action, reason, "
+                                    "importance, severity, scope, debt_level, etc."),
                     "properties": {
                         "step": {"type": "integer", "minimum": 1},
                         "source_agent": {"type": "string"},
@@ -194,17 +202,23 @@ TOOLS = [
     },
     {
         "name": "get_stats",
-        "description": "Get memory system statistics: total entries, unresolved/resolved counts, severity/type/scope breakdowns, reinforcement patterns, and sleep cycle status.",
+        "description": ("Get memory system statistics: total entries, unresolved/resolved counts, "
+                       "severity/type/scope breakdowns, reinforcement patterns, and sleep cycle status."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "consolidate",
-        "description": "Trigger a Sleep Cycle (consolidation): archives unresolved entries, generates promotion candidates, detects contradictions, and checks for stale entries.",
+        "description": ("Trigger a Sleep Cycle (consolidation): archives unresolved entries, "
+                       "generates promotion candidates, detects contradictions, "
+                       "and checks for stale entries."),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "sprint_number": {"type": "integer", "description": "Sprint number for archive file naming. Auto-inferred if omitted."},
-                "force": {"type": "boolean", "description": "Overwrite existing archive if one exists.", "default": False},
+                "sprint_number": {"type": "integer",
+                                  "description": "Sprint number for archive file naming. Auto-inferred if omitted."},
+                "force": {"type": "boolean",
+                          "description": "Overwrite existing archive if one exists.",
+                          "default": False},
             },
         },
     },
@@ -280,9 +294,9 @@ def _read_resource(uri: str, paths: _Paths) -> dict:
     elif uri.startswith("metrics://project/"):
         events = read_metrics(paths)
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-        summary = {"total_events": len(events), "retrieval": r, "logging": l, "consolidation": c}
+        summary = {"total_events": len(events), "retrieval": r, "logging": log_stats, "consolidation": c}
         return {"contents": [{"uri": uri, "mimeType": "application/json",
                               "text": json.dumps(summary, ensure_ascii=False, default=str)}]}
 

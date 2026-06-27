@@ -58,7 +58,8 @@ def run_eval(paths, ctx):
         print("No grading fixtures found.")
         print(f"  Expected: {fixture_path}")
         print("  Create one with lines like:")
-        print('    {"step": 5, "components": "Player,Collision", "files": "", "domain": "gameplay", "expected_trigger": "When AABB collision detected"}')
+        print('    {"step": 5, "components": "Player,Collision", "files": "", '
+              '"domain": "gameplay", "expected_trigger": "When AABB collision detected"}')
         return 1
 
     # ponytail: invoke the installed cli module directly; replaces old src/filter.py path math

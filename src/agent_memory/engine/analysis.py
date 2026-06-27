@@ -45,9 +45,9 @@ def get_metrics_data(paths, since_dt=None):
             return cached["data"]
     events = read_metrics(paths, since=since_dt)
     r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-    l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+    log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
     c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-    result = (events, r, l, c)
+    result = (events, r, log_stats, c)
     if since_dt is None:
         _metrics_cache[key] = {"ts": time.monotonic(), "data": result}
     return result
@@ -123,8 +123,8 @@ def health_score(stats, metrics_data):
     if hit_rate < 0.5:
         score -= 10
 
-    l = metrics_data.get("logging", {})
-    dup_rate = l.get("duplicate_rate", 0) if l else 0
+    log_stats = metrics_data.get("logging", {})
+    dup_rate = log_stats.get("duplicate_rate", 0) if log_stats else 0
     if dup_rate > 0.5:
         score -= 10
 
@@ -178,12 +178,12 @@ def recommendations(stats, metrics_data, config=None):
             "action": "Lower score_threshold in config.json or improve component/file tagging in entries.",
         })
 
-    l = metrics_data.get("logging", {})
-    if l and l.get("duplicate_rate", 0) > 0.4:
+    log_stats = metrics_data.get("logging", {})
+    if log_stats and log_stats.get("duplicate_rate", 0) > 0.4:
         recs.append({
             "priority": "low",
             "category": "logging",
-            "message": f"Duplicate rate is {l['duplicate_rate']:.0%} — high redundancy.",
+            "message": f"Duplicate rate is {log_stats['duplicate_rate']:.0%} — high redundancy.",
             "action": "Agents may be re-logging known patterns. Consider retrieval before logging.",
         })
 

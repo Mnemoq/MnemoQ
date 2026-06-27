@@ -464,7 +464,9 @@ def copy_prompts(target_path, src_dir=None, dst_dir=None, files=None):
     return copied, skipped, failed
 
 
-def append_or_create_file(target_path, filename, section_content, section_marker=r'^#+\s+Memory\s*$', create_header="# Agent Rules\n\n"):
+def append_or_create_file(target_path, filename, section_content,
+                         section_marker=r'^#+\s+Memory\s*$',
+                         create_header="# Agent Rules\n\n"):
     """Append section to file, or create file with header + section. Skip if section already present."""
     file_path = target_path / filename
     
@@ -672,7 +674,8 @@ Examples:
     parser.add_argument("--defaults", action="store_true", help="Skip prompts, use all defaults")
     parser.add_argument("--force", action="store_true", help="Overwrite engine files only")
     parser.add_argument("--ide", type=str, default=None,
-        help="Wire memory into IDE/agent platform(s): opencode, windsurf, cursor, claude-code, copilot, all (comma-separated). Use --ide ? to list platforms.")
+        help="Wire memory into IDE/agent platform(s): opencode, windsurf, cursor, "
+             "claude-code, copilot, all (comma-separated). Use --ide ? to list platforms.")
     parser.add_argument("--opencode", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="store_true", help="Show version and exit")
     

@@ -207,7 +207,8 @@ def load_config():
     
     # Float parameters with range validation
     float_params = {
-        "decay_rate": ("DECAY_RATE", 0.0, 1.0, False, False),  # (config_key, python_key, min, max, min_inclusive, max_inclusive)
+        # (config_key, python_key, min, max, min_inclusive, max_inclusive)
+        "decay_rate": ("DECAY_RATE", 0.0, 1.0, False, False),
         "score_threshold": ("SCORE_THRESHOLD", 0.0, 1.0, True, True),
         "component_weight": ("COMPONENT_WEIGHT", 0.0, None, True, None),
         "file_weight": ("FILE_WEIGHT", 0.0, None, True, None),
@@ -497,7 +498,10 @@ def is_in_retention(entry, current_step):
 
 def handle_retrieval(current_step, task_components, task_files, task_domain, no_profile=False):
     """Handle retrieval mode: score, filter, and print relevant learnings."""
-    return _ret_handle_retrieval(current_step, task_components, task_files, task_domain, _build_ctx(), _get_paths(), no_profile=no_profile)
+    return _ret_handle_retrieval(
+        current_step, task_components, task_files, task_domain,
+        _build_ctx(), _get_paths(), no_profile=no_profile,
+    )
 
 
 from agent_memory.engine.consolidation import (
@@ -558,35 +562,52 @@ Examples:
     parser.add_argument("--files", type=str, help="Comma-separated file paths")
     parser.add_argument("--domain", type=str, help="Coarse domain tag")
     parser.add_argument("--log", type=str, help="JSON string to log")
-    parser.add_argument("--log-file", type=str, metavar="PATH", help="Path to JSON file to log (PowerShell-safe alternative to --log)")
-    parser.add_argument("--update", type=str, metavar="TS", help="Timestamp of existing entry to amend (requires --log or --log-file)")
-    parser.add_argument("--resolve", type=str, metavar="TS", help="Timestamp of existing entry to mark as resolved")
+    parser.add_argument("--log-file", type=str, metavar="PATH",
+                        help="Path to JSON file to log (PowerShell-safe alternative to --log)")
+    parser.add_argument("--update", type=str, metavar="TS",
+                        help="Timestamp of existing entry to amend (requires --log or --log-file)")
+    parser.add_argument("--resolve", type=str, metavar="TS",
+                        help="Timestamp of existing entry to mark as resolved")
     parser.add_argument("--stats", action="store_true", help="Print memory system statistics")
-    parser.add_argument("--review-agents", action="store_true", help="Diagnostic report on AGENTS.md section health")
+    parser.add_argument("--review-agents", action="store_true",
+                        help="Diagnostic report on AGENTS.md section health")
     major_ret_default = _CTX["major_retention"]
-    parser.add_argument("--threshold", type=int, default=major_ret_default, help=f"Step window for --review-agents (default: {major_ret_default})")
-    parser.add_argument("--consolidate", action="store_true", help="Sleep Cycle: archive learnings, generate promotion report")
+    parser.add_argument("--threshold", type=int, default=major_ret_default,
+                        help=f"Step window for --review-agents (default: {major_ret_default})")
+    parser.add_argument("--consolidate", action="store_true",
+                        help="Sleep Cycle: archive learnings, generate promotion report")
     parser.add_argument("--sprint", type=int, help="Sprint number for --consolidate (default: inferred from max step)")
-    parser.add_argument("--confirm-reset", action="store_true", help="Clear learnings.jsonl after review (requires recent --consolidate)")
+    parser.add_argument("--confirm-reset", action="store_true",
+                        help="Clear learnings.jsonl after review (requires recent --consolidate)")
     parser.add_argument("--force", action="store_true", help="Force overwrite existing archive in --consolidate")
-    parser.add_argument("--migrate-schema", action="store_true", help="Run schema migration on learnings.jsonl and write updated file")
-    parser.add_argument("--eval", action="store_true", help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
-    parser.add_argument("--memory-dir", type=str, help="Path to memory directory (default: <cwd>/memory)")
-    parser.add_argument("--no-profile", action="store_true", help="Skip developer profile loading (for deterministic output)")
+    parser.add_argument("--migrate-schema", action="store_true",
+                        help="Run schema migration on learnings.jsonl and write updated file")
+    parser.add_argument("--eval", action="store_true",
+                        help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
+    parser.add_argument("--memory-dir", type=str,
+                        help="Path to memory directory (default: <cwd>/memory)")
+    parser.add_argument("--no-profile", action="store_true",
+                        help="Skip developer profile loading (for deterministic output)")
 
     # Metrics flags
     parser.add_argument("--metrics", action="store_true", help="Print metrics summary report")
-    parser.add_argument("--metrics-retrieval", action="store_true", help="Deep-dive on retrieval effectiveness")
+    parser.add_argument("--metrics-retrieval", action="store_true",
+                        help="Deep-dive on retrieval effectiveness")
     parser.add_argument("--metrics-logging", action="store_true", help="Deep-dive on logging patterns")
-    parser.add_argument("--metrics-consolidation", action="store_true", help="Consolidation history")
+    parser.add_argument("--metrics-consolidation", action="store_true",
+                        help="Consolidation history")
     parser.add_argument("--metrics-trend", action="store_true", help="Time-series trend (last 30 days)")
-    parser.add_argument("--metrics-all-projects", action="store_true", help="Cross-project comparison across all registered projects")
+    parser.add_argument("--metrics-all-projects", action="store_true",
+                        help="Cross-project comparison across all registered projects")
     parser.add_argument("--metrics-json", action="store_true", help="Output metrics as JSON (for piping to jq/scripts)")
-    parser.add_argument("--metrics-since", type=str, metavar="YYYY-MM-DD", help="Only include events on or after this date")
-    parser.add_argument("--metrics-export", type=str, metavar="PATH", help="Export raw metrics events to a file (JSONL format)")
+    parser.add_argument("--metrics-since", type=str, metavar="YYYY-MM-DD",
+                        help="Only include events on or after this date")
+    parser.add_argument("--metrics-export", type=str, metavar="PATH",
+                        help="Export raw metrics events to a file (JSONL format)")
 
     # API server flags
-    parser.add_argument("--serve", action="store_true", help="Start HTTP API server (requires agent-memory[api])")
+    parser.add_argument("--serve", action="store_true",
+                        help="Start HTTP API server (requires agent-memory[api])")
     parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
     parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
@@ -635,40 +656,70 @@ Examples:
     if args.update and not log_json:
         parser.error("--update requires --log or --log-file")
 
-    if args.stats and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate]):
-        parser.error("--stats cannot be combined with --step, --log, --log-file, --resolve, --update, --review-agents, or --consolidate")
+    _op_flags = (args.step is not None, log_json, args.resolve, args.update,
+                 args.review_agents, args.consolidate)
+    if args.stats and any(_op_flags):
+        parser.error(
+            "--stats cannot be combined with --step, --log, --log-file, "
+            "--resolve, --update, --review-agents, or --consolidate"
+        )
 
     if args.review_agents and args.step is None:
         parser.error("--review-agents requires --step")
 
     if args.review_agents and any([log_json, args.resolve, args.update, args.consolidate]):
-        parser.error("--review-agents cannot be combined with --log, --log-file, --resolve, --update, or --consolidate")
+        parser.error(
+            "--review-agents cannot be combined with --log, --log-file, "
+            "--resolve, --update, or --consolidate"
+        )
 
-    if args.consolidate and any([args.step, log_json, args.resolve, args.update, args.review_agents, args.stats]):
-        parser.error("--consolidate cannot be combined with --step, --log, --log-file, --resolve, --update, --review-agents, or --stats")
+    if args.consolidate and any([args.step, log_json, args.resolve, args.update,
+                                  args.review_agents, args.stats]):
+        parser.error(
+            "--consolidate cannot be combined with --step, --log, --log-file, "
+            "--resolve, --update, --review-agents, or --stats"
+        )
 
     if args.confirm_reset and not args.consolidate:
         parser.error("--confirm-reset requires --consolidate")
 
-    if args.metrics and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats]):
+    if args.metrics and any([args.step is not None, log_json, args.resolve,
+                             args.update, args.review_agents, args.consolidate, args.stats]):
         parser.error("--metrics cannot be combined with operational flags")
 
-    if any([args.metrics_retrieval, args.metrics_logging, args.metrics_consolidation, args.metrics_trend]) and not args.metrics:
+    if any([args.metrics_retrieval, args.metrics_logging,
+            args.metrics_consolidation, args.metrics_trend]) and not args.metrics:
         parser.error("--metrics-* deep-dive flags require --metrics")
 
-    if args.migrate_schema and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics]):
+    if args.migrate_schema and any([args.step is not None, log_json, args.resolve,
+                                     args.update, args.review_agents, args.consolidate,
+                                     args.stats, args.metrics]):
         parser.error("--migrate-schema cannot be combined with other operational flags")
 
-    if args.eval and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema]):
+    if args.eval and any([args.step is not None, log_json, args.resolve,
+                          args.update, args.review_agents, args.consolidate,
+                          args.stats, args.metrics, args.migrate_schema]):
         parser.error("--eval cannot be combined with other operational flags")
 
-    if (args.serve or args.dashboard) and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval]):
+    if (args.serve or args.dashboard) and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval]
+    ):
         parser.error("--serve/--dashboard cannot be combined with other operational flags")
 
-    if args.mcp and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard]):
+    if args.mcp and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard]
+    ):
         parser.error("--mcp cannot be combined with other operational flags")
 
-    if args.verify and any([args.step is not None, log_json, args.resolve, args.update, args.review_agents, args.consolidate, args.stats, args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp]):
+    if args.verify and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp]
+    ):
         parser.error("--verify cannot be combined with other operational flags")
 
     if args.migrate_schema:

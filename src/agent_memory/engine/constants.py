@@ -42,7 +42,9 @@ RERANKER_LLM_MODEL = None
 API_KEY = None
 VALID_RERANKERS = {"none", "cross-encoder", "llm-local"}
 
-VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "meta-agent", "fuzzer", "docs-writer", "security", "explorer", "refactorer"}
+VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-reviewer",
+                       "basic-reviewer", "meta-agent", "fuzzer", "docs-writer",
+                       "security", "explorer", "refactorer"}
 
 # Universal schema constraints — not configurable per-project.
 #
@@ -59,7 +61,8 @@ VALID_SOURCE_AGENTS = {"gm", "code-reviewer", "test-writer", "scout", "plan-revi
 # If each project has custom schema, sharing breaks (a learning with type
 # "feature_request" from Project A would fail validation in Project B).
 VALID_TYPES = {"bug_fix", "optimization", "architectural_pattern"}
-VALID_DOMAINS = {"ui", "data", "tooling", "performance", "testing", "security", "api", "backend", "frontend", "database", "deployment", "documentation"}
+VALID_DOMAINS = {"ui", "data", "tooling", "performance", "testing", "security",
+                 "api", "backend", "frontend", "database", "deployment", "documentation"}
 VALID_SEVERITIES = {"minor", "major", "critical"}
 VALID_SCOPES = {"file", "module", "system"}
 VALID_DEBT_LEVELS = {"proper", "workaround", "temporary"}

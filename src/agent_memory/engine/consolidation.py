@@ -32,7 +32,8 @@ def _sprint_metrics(paths):
             hits = sum(1 for e in retrievals
                        if (e.get("warnings_returned", 0) or 0) + (e.get("patterns_returned", 0) or 0) > 0)
             avg_lat = sum(e.get("latency_ms", 0) or 0 for e in retrievals) / len(retrievals)
-            lines.append(f"  Retrieval: {len(retrievals)} calls, {hits/len(retrievals):.0%} hit rate, {avg_lat:.0f}ms avg")
+            lines.append(f"  Retrieval: {len(retrievals)} calls, "
+                         f"{hits/len(retrievals):.0%} hit rate, {avg_lat:.0f}ms avg")
 
         if logs:
             dups = sum(1 for e in logs if e.get("outcome") == "DUPLICATE")
@@ -258,7 +259,8 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
     if not unresolved:
         log_event(paths, "consolidate", outcome="NO_ENTRIES",
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        return {"exit_code": 0, "status": "no_entries", "message": "No unresolved entries to consolidate. Archive not created."}
+        return {"exit_code": 0, "status": "no_entries",
+                "message": "No unresolved entries to consolidate. Archive not created."}
 
     if sprint_number is None:
         sprint_number = infer_sprint_number(unresolved)
@@ -268,7 +270,10 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
     if os.path.exists(archive_path) and not force:
         log_event(paths, "consolidate", outcome="ARCHIVE_EXISTS", sprint_number=sprint_number,
                   latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        return {"exit_code": 1, "status": "archive_exists", "message": f"Warning: {archive_path} already exists. Use --force to overwrite, or specify a different sprint number.", "archive_path": archive_path}
+        return {"exit_code": 1, "status": "archive_exists",
+                "message": (f"Warning: {archive_path} already exists. "
+                            "Use --force to overwrite, or specify a different sprint number."),
+                "archive_path": archive_path}
 
     os.makedirs(paths.archive_dir, exist_ok=True)
 
@@ -337,7 +342,9 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
         "stale": {
             "count": stale_count,
             "error_count": error_count,
-            "entries": [{"is_stale": s, "lines_changed": l, "error": err, "entry": e} for s, l, err, e in stale_entries],
+            "entries": [{"is_stale": s, "lines_changed": lc,
+                         "error": err, "entry": e}
+                        for s, lc, err, e in stale_entries],
         },
         "agents_md_suggestions": agents_suggestions,
         "metrics_summary": _metrics_summary,
@@ -378,11 +385,15 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     if candidates:
         for i, c in enumerate(candidates, 1):
             entry = c["entry"]
-            print(f"### Candidate {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+            print(f"### Candidate {i}: [step-{entry.get('step', '?')}, "
+                  f"{entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
             print(f"**Trigger:** {entry.get('trigger', '')}")
             print(f"**Action:** {entry.get('action', '')}")
             print(f"**Reason:** {entry.get('reason', '')}")
-            print(f"**Promotion score:** {c['score']:.2f} (access_count={entry.get('access_count', 0)}, severity={entry.get('severity', 'minor')}, step_diff={result['current_step'] - entry.get('step', 0)})")
+            print(f"**Promotion score:** {c['score']:.2f} "
+                  f"(access_count={entry.get('access_count', 0)}, "
+                  f"severity={entry.get('severity', 'minor')}, "
+                  f"step_diff={result['current_step'] - entry.get('step', 0)})")
             print()
     else:
         print("No promotion candidates found.\n")
@@ -394,7 +405,8 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
 
     if contradictions:
         for i, entry in enumerate(contradictions, 1):
-            print(f"### Contradiction {i}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+            print(f"### Contradiction {i}: [step-{entry.get('step', '?')}, "
+                  f"{entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
             print(f"**Trigger:** {entry.get('trigger', '')}")
             print(f"**Action:** {entry.get('action', '')}")
             print(f"**Reason:** {entry.get('reason', '')}")
@@ -436,14 +448,16 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         for item in stale["entries"]:
             if item["error"]:
                 entry = item["entry"]
-                print(f"### Uncheckable {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+                print(f"### Uncheckable {idx}: [step-{entry.get('step', '?')}, "
+                      f"{entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
                 print(f"**Status:**  Could not check staleness — {item['error']}")
                 print(f"**Entry:** {entry.get('trigger', '')}")
                 print()
                 idx += 1
             elif item["is_stale"]:
                 entry = item["entry"]
-                print(f"### Stale {idx}: [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
+                print(f"### Stale {idx}: [step-{entry.get('step', '?')}, "
+                      f"{entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
                 print(f"**Commit:** {entry.get('commit', 'unknown')}")
                 print(f"**Files touched:** {', '.join(entry.get('files_touched', []))}")
                 print(f"**Lines changed since entry:** {item['lines_changed']}")
@@ -458,7 +472,8 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         print(f"\n## AGENTS.md Updates Suggested ({len(result['agents_md_suggestions'])} entries)")
         print("The following learnings reference AGENTS.md and may suggest updates.\n")
         for entry in result["agents_md_suggestions"]:
-            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, {entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
+            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, "
+                  f"{entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
             print("  → Suggests reviewing AGENTS.md for potential updates")
         print()
 
