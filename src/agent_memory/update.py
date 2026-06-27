@@ -20,9 +20,9 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
+
 from agent_memory.engine_version import get_engine_version
 from agent_memory.shim import SHIM_TEMPLATE, is_shim
-
 
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.1
@@ -102,7 +102,7 @@ def load_projects(dry_run=False):
     stale_entries = []
     all_lines = []
     
-    with open(projects_file, 'r', encoding='utf-8') as f:
+    with open(projects_file, encoding='utf-8') as f:
         all_lines = f.readlines()
     
     for line in all_lines:
@@ -429,7 +429,8 @@ def update_project(project_path, engine_version, engine_path, dry_run=False,
     
     if cmp > 0:
         if not force:
-            return False, f"Project version (v{project_version}) is newer than engine (v{engine_version}). Use --force to downgrade.", None
+            return False, (f"Project version (v{project_version}) is newer than "
+                           f"engine (v{engine_version}). Use --force to downgrade."), None
         # If force is True, continue with the downgrade
     
     if dry_run:
@@ -500,7 +501,8 @@ Examples:
     parser.add_argument("--dry-run", action="store_true", help="Show what would be updated without making changes")
     parser.add_argument("--force", action="store_true", help="Force update even if versions match")
     parser.add_argument("--no-backup", action="store_true", help="Skip backup creation (default: create backup)")
-    parser.add_argument("--update-config", action="store_true", help="Update config.json with new schema (default: False)")
+    parser.add_argument("--update-config", action="store_true",
+                        help="Update config.json with new schema (default: False)")
     parser.add_argument("--migrate-to-shim", action="store_true", help="Replace full engine copies with shims")
     parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt for multi-project updates")
     parser.add_argument("--version", action="store_true", help="Show update.py version")

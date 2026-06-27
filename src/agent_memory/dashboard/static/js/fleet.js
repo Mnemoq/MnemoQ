@@ -19,7 +19,7 @@ async function loadFleet() {
     el.innerHTML = renderFleet(fleet, projects);
     renderFleetCharts(fleet);
   } catch (e) {
-    el.innerHTML = `<p class="placeholder">Error: ${e.message}</p>`;
+    el.innerHTML = `<p class="placeholder">Could not load data. Check that the engine is running.</p>`;
   }
 }
 

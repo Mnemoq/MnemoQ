@@ -12,11 +12,11 @@ import os
 import re
 import time
 
+from agent_memory.engine.constants import EMBEDDING_CACHE_DIR, EMBEDDING_MODEL
 from agent_memory.engine.io import read_learnings, write_learnings
 from agent_memory.engine.metrics import log_event
-from agent_memory.engine.profile import load_profile, get_profile_context
-from agent_memory.engine.constants import EMBEDDING_MODEL, EMBEDDING_CACHE_DIR
-
+from agent_memory.engine.profile import get_profile_context, load_profile
+from agent_memory.engine.triggers import check_sleep_cycle
 
 _TOKEN_SPLIT = re.compile(r'[^a-z0-9]+')
 
@@ -254,7 +254,7 @@ def is_in_retention(entry, current_step, ctx):
     return False
 
 
-def retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths):
+def retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths, no_profile=False):
     """Shared logic for retrieval mode. Returns dict, no printing.
 
     Returns:
@@ -406,18 +406,14 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     if warnings or patterns:
         write_learnings(paths, entries)
 
-    profile = load_profile()
-    profile_context = get_profile_context(profile, task_domain, domain_mappings=ctx.get("domain_mappings"))
+    if no_profile:
+        profile_context = []
+    else:
+        profile = load_profile()
+        profile_context = get_profile_context(profile, task_domain, domain_mappings=ctx.get("domain_mappings"))
 
     unresolved_count = sum(1 for e in entries if not e.get("resolved", False))
-    max_step = ctx.get("max_step")
-    sleep_cycle_steps = {10, 20, max_step} if max_step is not None else {10, 20}
-    sleep_cycle_due = unresolved_count > 50 or current_step in sleep_cycle_steps
-    sleep_cycle_reasons = []
-    if unresolved_count > 50:
-        sleep_cycle_reasons.append("threshold")
-    if current_step in sleep_cycle_steps:
-        sleep_cycle_reasons.append("sprint_boundary")
+    sleep_cycle_due, sleep_cycle_reasons = check_sleep_cycle(paths, ctx, unresolved_count)
 
     all_results = warnings + patterns
     top_score = all_results[0][2] if all_results else 0.0
@@ -457,7 +453,9 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     def _unwrap(results):
         out = []
         for final, rrf, tiered, entry in results:
-            out.append({**entry, "_final_score": round(final, 6), "_rrf_score": round(rrf, 6), "_tiered_score": round(tiered, 4)})
+            out.append({**entry, "_final_score": round(final, 6),
+                         "_rrf_score": round(rrf, 6),
+                         "_tiered_score": round(tiered, 4)})
         return out
 
     return {
@@ -482,41 +480,50 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     }
 
 
-def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths):
+def handle_retrieval(current_step, task_components, task_files, task_domain, ctx, paths, no_profile=False):
     """Handle retrieval mode: score, filter, and print relevant learnings. CLI wrapper."""
-    result = retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths)
+    result = retrieve_core(current_step, task_components, task_files, task_domain, ctx, paths, no_profile=no_profile)
 
     print("## ⚠ WARNINGS — Read before starting")
     if result["warnings"]:
         for entry in result["warnings"]:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
+            print(f"- [step-{entry['step']}, {entry['domain']}, "
+                  f"{entry['source_agent']}] {entry['trigger']}: {entry['action']} "
+                  f"Reason: {entry['reason']}")
             verified_str = "verified" if entry.get("verified", False) else "unverified"
             scope_str = entry.get("scope", "file")
             debt_str = entry.get("debt_level", "proper")
             symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
+            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, "
+                  f"accessed {entry.get('access_count', 0)}x, "
+                  f"reinforced {entry.get('reinforcement_count', 0)}x)")
             if symptoms_str:
                 print(f"  Symptoms: {symptoms_str}")
     else:
         print("(none)")
 
-    print("\n## 🎯 DEVELOPER PREFERENCES")
-    if result["profile_context"]:
-        for pref in result["profile_context"]:
-            print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
-            print(f"  Reason: {pref['reason']}")
-    else:
-        print("(none)")
+    if not no_profile:
+        print("\n## 🎯 DEVELOPER PREFERENCES")
+        if result["profile_context"]:
+            for pref in result["profile_context"]:
+                print(f"- [{pref['source']}] {pref['trigger']}: {pref['action']}")
+                print(f"  Reason: {pref['reason']}")
+        else:
+            print("(none)")
 
     print("\n## RELEVANT PATTERNS")
     if result["patterns"]:
         for entry in result["patterns"]:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
+            print(f"- [step-{entry['step']}, {entry['domain']}, "
+                  f"{entry['source_agent']}] {entry['trigger']}: {entry['action']} "
+                  f"Reason: {entry['reason']}")
             verified_str = "verified" if entry.get("verified", False) else "unverified"
             scope_str = entry.get("scope", "file")
             debt_str = entry.get("debt_level", "proper")
             symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
+            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, "
+                  f"accessed {entry.get('access_count', 0)}x, "
+                  f"reinforced {entry.get('reinforcement_count', 0)}x)")
             if symptoms_str:
                 print(f"  Symptoms: {symptoms_str}")
     else:
@@ -525,16 +532,21 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     if result["escalations"]:
         print("\n## ⚡ ESCALATION — Critical entries unresolved for 30+ steps")
         for entry in result["escalations"]:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']}")
+            print(f"- [step-{entry['step']}, {entry['domain']}, "
+                  f"{entry['source_agent']}] {entry['trigger']}: {entry['action']}")
 
     print(f"\n## STATS: {result['total_entries']} total entries, {result['unresolved_count']} unresolved")
 
     if result["sleep_cycle_due"]:
         reasons = result.get("sleep_cycle_reasons", [])
         if "threshold" in reasons:
-            print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} unresolved entries exceed threshold of 50")
-        if "sprint_boundary" in reasons:
-            print(f"\n## SLEEP CYCLE DUE — Sprint boundary at step {current_step} ({result['unresolved_count']} unresolved entries)")
+            print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} "
+                  f"unresolved entries exceed threshold of 50")
+        if "time" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — {ctx.get('sleep_cycle_days', 7)} days since last consolidation")
+        if "quarantine" in reasons:
+            print(f"\n## SLEEP CYCLE DUE — Quarantine entries exceed "
+                  f"threshold of {ctx.get('sleep_cycle_quarantine_threshold', 20)}")
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
 
     return 0

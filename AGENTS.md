@@ -16,6 +16,8 @@ VALID_DOMAINS and VALID_SOURCE_AGENTS constrain what entries are accepted.
 Run `python -m pytest tests/` before committing. Tests live in tests/test_memory.py.
 Engine modules are tested via cli.py CLI integration, not direct imports.
 Exception: `tests/test_server.py` may import `agent_memory.engine.server.create_app` directly to exercise the HTTP API surface.
+Exception: `tests/test_triggers.py` may import `agent_memory.engine.triggers` directly to exercise sleep cycle trigger logic.
+Exception: `tests/test_pure_functions.py` may import pure functions directly from engine modules (validation, retrieval, consolidation) for unit testing without side effects.
 
 ## Deployment
 Bump VERSION file, then run scripts/deploy.ps1. Deploy copies to ~/.agent-memory/engine/.

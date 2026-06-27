@@ -1,0 +1,16 @@
+# Grading Harness Fixtures
+#
+# One JSON object per line. Blank lines and # comments are skipped.
+#
+# Each fixture runs a retrieval query and checks if the expected_trigger
+# substring appears in the top results (warnings + patterns).
+#
+# Fields:
+#   step:              Step number for the retrieval query
+#   components:        Comma-separated component names (optional)
+#   files:             Comma-separated file paths (optional)
+#   domain:            Domain tag (optional)
+#   expected_trigger:  Substring expected in a result line (case-insensitive)
+#
+# Example:
+# {"step": 5, "components": "Player,Collision", "files": "", "domain": "gameplay", "expected_trigger": "When AABB collision detected"}

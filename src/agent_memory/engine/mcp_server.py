@@ -23,13 +23,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_memory.engine.handlers import log_core, resolve_core, stats_core
-from agent_memory.engine.retrieval import retrieve_core
 from agent_memory.engine.consolidation import consolidate_core
-from agent_memory.engine.io import read_learnings
-from agent_memory.engine.metrics import read_metrics, _retrieval_stats, _logging_stats, _consolidation_stats
 from agent_memory.engine.constants import DEFAULTS as _CONST_DEFAULTS
-
+from agent_memory.engine.handlers import log_core, resolve_core, stats_core
+from agent_memory.engine.io import read_learnings
+from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
+from agent_memory.engine.retrieval import retrieve_core
 
 # ---------------------------------------------------------------------------
 # Path / ctx setup (mirrors filter.py but self-contained)
@@ -85,7 +84,7 @@ def _load_config(paths: _Paths) -> dict:
     if not config_path.exists():
         return {}
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
@@ -139,13 +138,17 @@ def _build_ctx(paths: _Paths) -> dict:
 TOOLS = [
     {
         "name": "retrieve_learnings",
-        "description": "Retrieve relevant learnings for the current task context. Returns warnings (critical issues) and patterns (architectural guidance), scored and ranked by relevance.",
+        "description": ("Retrieve relevant learnings for the current task context. "
+                       "Returns warnings (critical issues) and patterns (architectural guidance), "
+                       "scored and ranked by relevance."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "step": {"type": "integer", "minimum": 1, "description": "Current plan step number"},
-                "components": {"type": "array", "items": {"type": "string"}, "description": "Component names relevant to the task"},
-                "files": {"type": "array", "items": {"type": "string"}, "description": "File paths being worked on"},
+                "components": {"type": "array", "items": {"type": "string"},
+                               "description": "Component names relevant to the task"},
+                "files": {"type": "array", "items": {"type": "string"},
+                          "description": "File paths being worked on"},
                 "domain": {"type": "string", "description": "Coarse domain tag (e.g. 'ui', 'data', 'tooling')"},
             },
             "required": ["step"],
@@ -153,13 +156,17 @@ TOOLS = [
     },
     {
         "name": "log_learning",
-        "description": "Log a new learning entry. Validates, checks for duplicates/semantic duplicates, and appends to memory. Returns status (added/duplicate/semantic_duplicate/conflict/quarantined) and entry details.",
+        "description": ("Log a new learning entry. Validates, checks for duplicates/semantic duplicates, "
+                       "and appends to memory. Returns status (added/duplicate/semantic_duplicate/"
+                       "conflict/quarantined) and entry details."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entry": {
                     "type": "object",
-                    "description": "Learning entry object with fields: step, source_agent, type, domain, components, files_touched, trigger, action, reason, importance, severity, scope, debt_level, etc.",
+                    "description": ("Learning entry object with fields: step, source_agent, type, "
+                                    "domain, components, files_touched, trigger, action, reason, "
+                                    "importance, severity, scope, debt_level, etc."),
                     "properties": {
                         "step": {"type": "integer", "minimum": 1},
                         "source_agent": {"type": "string"},
@@ -195,17 +202,23 @@ TOOLS = [
     },
     {
         "name": "get_stats",
-        "description": "Get memory system statistics: total entries, unresolved/resolved counts, severity/type/scope breakdowns, reinforcement patterns, and sleep cycle status.",
+        "description": ("Get memory system statistics: total entries, unresolved/resolved counts, "
+                       "severity/type/scope breakdowns, reinforcement patterns, and sleep cycle status."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "consolidate",
-        "description": "Trigger a Sleep Cycle (consolidation): archives unresolved entries, generates promotion candidates, detects contradictions, and checks for stale entries.",
+        "description": ("Trigger a Sleep Cycle (consolidation): archives unresolved entries, "
+                       "generates promotion candidates, detects contradictions, "
+                       "and checks for stale entries."),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "sprint_number": {"type": "integer", "description": "Sprint number for archive file naming. Auto-inferred if omitted."},
-                "force": {"type": "boolean", "description": "Overwrite existing archive if one exists.", "default": False},
+                "sprint_number": {"type": "integer",
+                                  "description": "Sprint number for archive file naming. Auto-inferred if omitted."},
+                "force": {"type": "boolean",
+                          "description": "Overwrite existing archive if one exists.",
+                          "default": False},
             },
         },
     },
@@ -253,7 +266,7 @@ def _call_tool(name: str, arguments: dict, paths: _Paths, ctx: dict) -> dict:
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     elif name == "get_stats":
-        result = stats_core(paths)
+        result = stats_core(paths, ctx=ctx)
         result.pop("exit_code", None)
         result.pop("status", None)
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
@@ -281,9 +294,9 @@ def _read_resource(uri: str, paths: _Paths) -> dict:
     elif uri.startswith("metrics://project/"):
         events = read_metrics(paths)
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-        summary = {"total_events": len(events), "retrieval": r, "logging": l, "consolidation": c}
+        summary = {"total_events": len(events), "retrieval": r, "logging": log_stats, "consolidation": c}
         return {"contents": [{"uri": uri, "mimeType": "application/json",
                               "text": json.dumps(summary, ensure_ascii=False, default=str)}]}
 
