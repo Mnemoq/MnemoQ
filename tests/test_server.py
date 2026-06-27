@@ -5,7 +5,6 @@ Skips if fastapi is not installed.
 """
 import json
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -17,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 fastapi = pytest.importorskip("fastapi")
 import httpx
+
 from agent_memory.engine.server import create_app
 
 
@@ -184,7 +184,8 @@ class TestLearningsFilters:
                 entry = {
                     "step": i + 1, "source_agent": "gm", "type": "anti_pattern",
                     "domain": domain, "components": ["api"], "files_touched": ["src/main.py"],
-                    "trigger": f"When testing {domain} domain filters", "action": "ALWAYS verify domain", "reason": "test reason",
+                    "trigger": f"When testing {domain} domain filters",
+                    "action": "ALWAYS verify domain", "reason": "test reason",
                     "importance": 5, "severity": "minor",
                 }
                 await c.post("/api/log", json={"entry": entry})
@@ -199,11 +200,15 @@ class TestLearningsFilters:
         ctx = _make_ctx()
         app = create_app(paths, ctx, api_key=None, dashboard=True)
         async with _make_client(app) as c:
-            for sev, step, comp, file in [("minor", 1, "Logger", "src/log.py"), ("major", 5, "Router", "src/router.py"), ("critical", 10, "Auth", "src/auth.py")]:
+            for sev, step, comp, file in [("minor", 1, "Logger", "src/log.py"),
+                                           ("major", 5, "Router", "src/router.py"),
+                                           ("critical", 10, "Auth", "src/auth.py")]:
                 entry = {
                     "step": step, "source_agent": "gm", "type": "anti_pattern",
                     "domain": "backend", "components": [comp], "files_touched": [file],
-                    "trigger": f"When {comp} raises {sev} error at step {step}", "action": f"ALWAYS handle {comp} {sev} errors", "reason": f"{comp} {sev} errors cause distinct failures",
+                    "trigger": f"When {comp} raises {sev} error at step {step}",
+                    "action": f"ALWAYS handle {comp} {sev} errors",
+                    "reason": f"{comp} {sev} errors cause distinct failures",
                     "importance": 5, "severity": sev,
                 }
                 await c.post("/api/log", json={"entry": entry})
@@ -227,7 +232,8 @@ class TestLearningsFilters:
             entry = {
                 "step": 1, "source_agent": "gm", "type": "anti_pattern",
                 "domain": "backend", "components": ["api"], "files_touched": ["src/main.py"],
-                "trigger": "When searching for unique_keyword_here", "action": "ALWAYS use q filter", "reason": "because",
+                "trigger": "When searching for unique_keyword_here",
+                "action": "ALWAYS use q filter", "reason": "because",
                 "importance": 5, "severity": "minor",
             }
             await c.post("/api/log", json={"entry": entry})
@@ -392,7 +398,9 @@ class TestDashboard:
             resp = await c.get("/")
             assert resp.status_code == 200
             assert "Agent Memory Engine" in resp.text
-            for js_file in ["api.js", "app.js", "dashboard.js", "learnings.js", "retrieval.js", "metrics.js", "consolidation.js", "fleet.js", "settings.js", "events.js"]:
+            for js_file in ["api.js", "app.js", "dashboard.js", "learnings.js",
+                            "retrieval.js", "metrics.js", "consolidation.js",
+                            "fleet.js", "settings.js", "events.js"]:
                 resp = await c.get(f"/js/{js_file}")
                 assert resp.status_code == 200, f"/js/{js_file} should be served"
 
@@ -548,13 +556,17 @@ class TestMetricsFields:
             entry1 = {
                 "step": 1, "source_agent": "alpha", "type": "anti_pattern",
                 "domain": "backend", "components": ["api"], "files_touched": ["src/main.py"],
-                "trigger": "When using global state", "action": "ALWAYS use EventBus or scene-local variables", "reason": "test reason",
+                "trigger": "When using global state",
+                "action": "ALWAYS use EventBus or scene-local variables",
+                "reason": "test reason",
                 "importance": 5, "severity": "major",
             }
             entry2 = {
                 "step": 1, "source_agent": "beta", "type": "anti_pattern",
                 "domain": "backend", "components": ["api"], "files_touched": ["src/main.py"],
-                "trigger": "When using global state", "action": "NEVER use global mutable state", "reason": "test reason",
+                "trigger": "When using global state",
+                "action": "NEVER use global mutable state",
+                "reason": "test reason",
                 "importance": 5, "severity": "major",
             }
             await c.post("/api/log", json={"entry": entry1})
@@ -699,7 +711,11 @@ class TestConfigUpdate:
             update = {
                 "project_name": "test",
                 "embedding_model": "all-MiniLM-L6-v2",
-                "tuning": {"score_threshold": 0.2, "decay_rate": 0.995, "component_weight": 1.0, "file_weight": 0.7, "domain_weight": 0.4, "no_match_weight": 0.1, "max_warnings": 5, "max_patterns": 15, "minor_retention": 5, "major_retention": 20},
+                "tuning": {"score_threshold": 0.2, "decay_rate": 0.995,
+                           "component_weight": 1.0, "file_weight": 0.7,
+                           "domain_weight": 0.4, "no_match_weight": 0.1,
+                           "max_warnings": 5, "max_patterns": 15,
+                           "minor_retention": 5, "major_retention": 20},
                 "custom_field": "kept",
             }
             resp = await c.put("/api/config", json=update)
@@ -713,7 +729,12 @@ class TestConfigUpdate:
         """A failed atomic write must leave the original config.json unchanged."""
         paths = _make_paths(temp_project)
         ctx = _make_ctx()
-        base_config = {"project_name": "original", "tuning": {"score_threshold": 0.15, "decay_rate": 0.995, "component_weight": 1.0, "file_weight": 0.7, "domain_weight": 0.4, "no_match_weight": 0.1, "max_warnings": 5, "max_patterns": 15, "minor_retention": 5, "major_retention": 20}}
+        base_config = {"project_name": "original",
+                        "tuning": {"score_threshold": 0.15, "decay_rate": 0.995,
+                                   "component_weight": 1.0, "file_weight": 0.7,
+                                   "domain_weight": 0.4, "no_match_weight": 0.1,
+                                   "max_warnings": 5, "max_patterns": 15,
+                                   "minor_retention": 5, "major_retention": 20}}
         with open(paths.config_path, "w", encoding="utf-8") as f:
             json.dump(base_config, f)
 
@@ -725,10 +746,15 @@ class TestConfigUpdate:
         tmp_path = os.path.join(os.path.dirname(paths.config_path), "config.json.tmp")
         app = create_app(paths, ctx, api_key=None, dashboard=True)
         async with _make_client(app) as c:
-            update = {"project_name": "new", "tuning": {"score_threshold": 0.2, "decay_rate": 0.995, "component_weight": 1.0, "file_weight": 0.7, "domain_weight": 0.4, "no_match_weight": 0.1, "max_warnings": 5, "max_patterns": 15, "minor_retention": 5, "major_retention": 20}}
+            update = {"project_name": "new",
+                      "tuning": {"score_threshold": 0.2, "decay_rate": 0.995,
+                                 "component_weight": 1.0, "file_weight": 0.7,
+                                 "domain_weight": 0.4, "no_match_weight": 0.1,
+                                 "max_warnings": 5, "max_patterns": 15,
+                                 "minor_retention": 5, "major_retention": 20}}
             resp = await c.put("/api/config", json=update)
             assert resp.status_code == 500
-            with open(paths.config_path, "r", encoding="utf-8") as f:
+            with open(paths.config_path, encoding="utf-8") as f:
                 saved = json.load(f)
             assert saved["project_name"] == "original"
             assert not os.path.exists(tmp_path), "Temporary config file should be removed after failed write"

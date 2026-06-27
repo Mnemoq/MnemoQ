@@ -1,6 +1,7 @@
 """
 Tests for multi-project memory system.
 """
+import importlib
 import json
 import os
 import shutil
@@ -527,8 +528,7 @@ class TestRetrievalStdoutStability:
     
     def test_retrieval_stdout_stable(self, temp_project, engine_dir):
         """Test that retrieval output is stable across runs."""
-        memory_dir = temp_project / "memory"
-        
+
         # Create a learning
         learning = {
             "step": 1,
@@ -645,6 +645,185 @@ class TestScaffoldIntegration:
         assert "agent" in opencode
         assert "gm" in opencode["agent"]
         assert "code-reviewer" in opencode["agent"]
+
+    def test_scaffold_ide_flag_opencode(self, fresh_project, engine_dir):
+        """Test that --ide opencode produces same results as --opencode."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "opencode"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / "opencode.json").exists()
+        assert (fresh_project / ".opencode" / "prompts" / "gm.md").exists()
+        assert (fresh_project / ".opencode" / "prompts" / "docs-writer.md").exists()
+
+    def test_scaffold_opencode_backward_compat(self, fresh_project, engine_dir):
+        """Test that --opencode hidden alias still works."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--opencode"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / "opencode.json").exists()
+
+    def test_scaffold_windsurf_wiring(self, fresh_project, engine_dir):
+        """Test that --ide windsurf creates workflows, Plans dir, and AGENTS.md."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "windsurf"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
+        assert (fresh_project / ".windsurf" / "workflows" / "code-reviewer.md").exists()
+        assert (fresh_project / ".windsurf" / "workflows" / "docs-writer.md").exists()
+        assert (fresh_project / ".windsurf" / "Plans").exists()
+        assert (fresh_project / ".windsurf" / "Plans" / ".gitkeep").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+        agents_content = (fresh_project / "AGENTS.md").read_text()
+        assert "## Memory" in agents_content
+
+    def test_scaffold_cursor_wiring(self, fresh_project, engine_dir):
+        """Test that --ide cursor creates .cursor/rules/*.mdc and AGENTS.md."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "cursor"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".cursor" / "rules" / "memory-protocol.mdc").exists()
+        assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
+        assert (fresh_project / ".cursor" / "rules" / "code-reviewer.mdc").exists()
+        assert (fresh_project / ".cursor" / "rules" / "docs-writer.mdc").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+        agents_content = (fresh_project / "AGENTS.md").read_text()
+        assert "## Memory" in agents_content
+
+    def test_scaffold_claude_code_wiring(self, fresh_project, engine_dir):
+        """Test that --ide claude-code creates CLAUDE.md with memory protocol."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "claude-code"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / "CLAUDE.md").exists()
+        claude_content = (fresh_project / "CLAUDE.md").read_text()
+        assert "## Memory" in claude_content
+        assert "filter.py" in claude_content
+
+    def test_scaffold_copilot_wiring(self, fresh_project, engine_dir):
+        """Test that --ide copilot creates .github/copilot-instructions.md and AGENTS.md."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "copilot"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".github" / "copilot-instructions.md").exists()
+        copilot_content = (fresh_project / ".github" / "copilot-instructions.md").read_text()
+        assert "## Memory" in copilot_content
+        assert (fresh_project / "AGENTS.md").exists()
+        agents_content = (fresh_project / "AGENTS.md").read_text()
+        assert "## Memory" in agents_content
+
+    def test_scaffold_multi_ide(self, fresh_project, engine_dir):
+        """Test that --ide windsurf,cursor wires both platforms."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project),
+             "--defaults", "--ide", "windsurf,cursor"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
+        assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+
+    def test_scaffold_ide_invalid_platform(self, fresh_project, engine_dir):
+        """Test that unknown IDE platform exits with error."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "foo"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode != 0
+        assert "Unknown IDE platform" in result.stderr or "Unknown IDE platform" in result.stdout
+
+    def test_scaffold_ide_list_platforms(self):
+        """Test that --ide ? lists available platforms and exits 0."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", "--ide", "?"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert "Available IDE platforms" in result.stdout
+        assert "windsurf" in result.stdout
+        assert "cursor" in result.stdout
+        assert "claude-code" in result.stdout
+        assert "copilot" in result.stdout
+        assert "all" in result.stdout
+
+    def test_scaffold_ide_all(self, fresh_project, engine_dir):
+        """Test that --ide all wires every platform."""
+        source_dir = Path(__file__).parent.parent / "src"
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "all"],
+            capture_output=True,
+            text=True,
+            cwd=str(source_dir)
+        )
+
+        assert result.returncode == 0
+        assert (fresh_project / ".windsurf" / "workflows" / "gm.md").exists()
+        assert (fresh_project / ".cursor" / "rules" / "gm.mdc").exists()
+        assert (fresh_project / "CLAUDE.md").exists()
+        assert (fresh_project / ".github" / "copilot-instructions.md").exists()
+        assert (fresh_project / "AGENTS.md").exists()
+        assert "Wired:" in result.stdout
+
+    def test_templates_are_platform_agnostic(self):
+        """Test that shared templates contain no opencode-specific bias."""
+        templates_dir = Path(__file__).parent.parent / "templates"
+        shared_files = list((templates_dir / "prompts").glob("*.md"))
+        shared_files.append(templates_dir / "agents-memory-section.md")
+        shared_files.extend((templates_dir / "windsurf" / "workflows").glob("*.md"))
+        shared_files.extend((templates_dir / "cursor-rules").glob("*.mdc"))
+        biased_patterns = [".opencode/", "opencode-go", "via opencode.json"]
+        for f in shared_files:
+            content = f.read_text(encoding='utf-8').lower()
+            for pattern in biased_patterns:
+                assert pattern not in content, f"Template {f.name} contains biased pattern '{pattern}'"
 
 
 class TestUpdateHygiene:
@@ -951,7 +1130,8 @@ class TestShim:
         
         # Run shim with retrieval
         result = subprocess.run(
-            [sys.executable, str(memory_dir / "filter.py"), "--step", "1", "--components", "Tooling", "--domain", "tooling"],
+            [sys.executable, str(memory_dir / "filter.py"), "--step", "1",
+             "--components", "Tooling", "--domain", "tooling"],
             capture_output=True,
             text=True,
             cwd=temp_project
@@ -1165,13 +1345,14 @@ class TestBM25Score:
 
     def test_bm25_rare_term_scores_higher(self):
         """Rare matching term should score higher than common matching term."""
-        from agent_memory.engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+        from agent_memory.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
 
         # Use empty stop_words for deterministic testing (real STOP_WORDS would filter "physics"/"AABB")
         stop_words = set()
         entries = []
         for i in range(5):
-            entries.append({"trigger": f"When physics test {i}", "action": "ALWAYS physics", "reason": "physics common"})
+            entries.append({"trigger": f"When physics test {i}",
+                            "action": "ALWAYS physics", "reason": "physics common"})
         entries.append({"trigger": "When AABB collision", "action": "NEVER AABB", "reason": "AABB rare"})
 
         doc_freqs, total_docs, avg_doc_len = _compute_corpus_stats(entries, stop_words)
@@ -1180,14 +1361,18 @@ class TestBM25Score:
         doc_physics = _tokenize("physics common", stop_words)
         doc_aabb = _tokenize("AABB collision rare", stop_words)
 
-        score_physics = bm25_score(query_tokens, doc_physics, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
-        score_aabb = bm25_score(query_tokens, doc_aabb, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
+        score_physics = bm25_score(query_tokens, doc_physics, doc_freqs,
+                                    total_docs, avg_doc_len, 1.5, 0.75)
+        score_aabb = bm25_score(query_tokens, doc_aabb, doc_freqs,
+                                total_docs, avg_doc_len, 1.5, 0.75)
 
-        assert score_aabb > score_physics, f"Rare term AABB ({score_aabb}) should score higher than common term physics ({score_physics})"
+        assert score_aabb > score_physics, (
+            f"Rare term AABB ({score_aabb}) should score higher than "
+            f"common term physics ({score_physics})")
 
     def test_bm25_no_match_scores_zero(self):
         """Doc with no matching query terms should score 0.0."""
-        from agent_memory.engine.retrieval import bm25_score, _tokenize, _compute_corpus_stats
+        from agent_memory.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
 
         stop_words = set()
         entries = [
@@ -1215,7 +1400,6 @@ class TestRRFFusion:
 
     def test_rrf_fusion_integration(self, temp_project, engine_dir):
         """RRF should rank entries that match both channels higher."""
-        memory_dir = temp_project / "memory"
 
         # Entry A: matches components AND has rare BM25 term "AABB"
         entry_a = {
@@ -1321,7 +1505,7 @@ class TestSchemaMigration:
 
     def test_migration_v0_to_v1(self):
         """Unit test: v0 entries get migrated to v1 with correct fields."""
-        from agent_memory.engine.migrate import migrate_entry, migrate_all, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
 
         v0_entry = {"step": 1, "type": "bug_fix", "trigger": "When test", "action": "ALWAYS test"}
         migrated = migrate_entry(dict(v0_entry))
@@ -1335,7 +1519,7 @@ class TestSchemaMigration:
 
     def test_migrate_entry_noop_on_current(self):
         """migrate_entry is a no-op on already-current entries."""
-        from agent_memory.engine.migrate import migrate_entry, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
 
         entry = {"schema_version": CURRENT_SCHEMA_VERSION, "step": 1, "embedding": [0.1, 0.2]}
         migrated = migrate_entry(dict(entry))
@@ -1345,7 +1529,7 @@ class TestSchemaMigration:
 
     def test_migrate_all_count(self):
         """migrate_all returns correct count of migrated entries."""
-        from agent_memory.engine.migrate import migrate_all, CURRENT_SCHEMA_VERSION
+        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_all
 
         entries = [
             {"step": 1, "type": "bug_fix"},  # v0, needs migration
@@ -1497,11 +1681,9 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding(self):
         """Base64 round-trip preserves vector values within float16 precision."""
-        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import decode_embedding, encode_embedding
 
-        try:
-            import numpy as np
-        except ImportError:
+        if importlib.util.find_spec("numpy") is None:
             pytest.skip("numpy not installed")
 
         original = [0.1, -0.2, 0.3, -0.4, 0.5, 0.0, 1.0, -1.0]
@@ -1515,14 +1697,14 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding_none(self):
         """encode_embedding(None) returns None, decode_embedding(None) returns None."""
-        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import decode_embedding, encode_embedding
 
         assert encode_embedding(None) is None
         assert decode_embedding(None) is None
 
     def test_embedding_encoding_plain_list_fallback(self):
         """encode_embedding falls back to plain list when numpy unavailable."""
-        from agent_memory.engine.retrieval import encode_embedding, decode_embedding
+        from agent_memory.engine.retrieval import decode_embedding
 
         # Test with a list (decode should handle plain lists too)
         original = [0.1, 0.2, 0.3]
@@ -1698,12 +1880,15 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_high_cosine(self):
         """find_semantic_duplicate detects match when embeddings are identical."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
-        entry = {"domain": "tooling", "trigger": "When collision", "action": "ALWAYS use AABB", "reason": "AABB is fast", "embedding": emb}
-        existing = [{"domain": "tooling", "trigger": "When overlap", "action": "NEVER skip AABB", "reason": "AABB detects overlap", "embedding": emb, "resolved": False}]
+        entry = {"domain": "tooling", "trigger": "When collision",
+                 "action": "ALWAYS use AABB", "reason": "AABB is fast", "embedding": emb}
+        existing = [{"domain": "tooling", "trigger": "When overlap",
+                     "action": "NEVER skip AABB", "reason": "AABB detects overlap",
+                     "embedding": emb, "resolved": False}]
         ctx = {"semantic_dedup_threshold": 0.85}
 
         cos, match = find_semantic_duplicate(entry, existing, ctx)
@@ -1713,12 +1898,15 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_resolved(self):
         """find_semantic_duplicate skips resolved entries."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
-        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
-        existing = [{"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb, "resolved": True}]
+        entry = {"domain": "tooling", "trigger": "When X",
+                 "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
+        existing = [{"domain": "tooling", "trigger": "When X",
+                     "action": "ALWAYS Y", "reason": "Z",
+                     "embedding": emb, "resolved": True}]
         ctx = {"semantic_dedup_threshold": 0.85}
 
         cos, match = find_semantic_duplicate(entry, existing, ctx)
@@ -1727,12 +1915,15 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_different_domain(self):
         """find_semantic_duplicate only checks same-domain entries."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
-        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
-        existing = [{"domain": "performance", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb, "resolved": False}]
+        entry = {"domain": "tooling", "trigger": "When X",
+                 "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
+        existing = [{"domain": "performance", "trigger": "When X",
+                     "action": "ALWAYS Y", "reason": "Z",
+                     "embedding": emb, "resolved": False}]
         ctx = {"semantic_dedup_threshold": 0.85}
 
         cos, match = find_semantic_duplicate(entry, existing, ctx)
@@ -1741,15 +1932,18 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_picks_highest(self):
         """find_semantic_duplicate returns the highest cosine match."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate, encode_embedding
+        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         entry_vec = [1.0, 0.0, 0.0]
         close_vec = [0.99, 0.01, 0.0]
         far_vec = [0.5, 0.5, 0.5]
-        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": encode_embedding(entry_vec)}
+        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y",
+                 "reason": "Z", "embedding": encode_embedding(entry_vec)}
         existing = [
-            {"domain": "tooling", "trigger": "When A", "action": "ALWAYS B", "reason": "C", "embedding": encode_embedding(far_vec), "resolved": False},
-            {"domain": "tooling", "trigger": "When D", "action": "ALWAYS E", "reason": "F", "embedding": encode_embedding(close_vec), "resolved": False},
+            {"domain": "tooling", "trigger": "When A", "action": "ALWAYS B",
+             "reason": "C", "embedding": encode_embedding(far_vec), "resolved": False},
+            {"domain": "tooling", "trigger": "When D", "action": "ALWAYS E",
+             "reason": "F", "embedding": encode_embedding(close_vec), "resolved": False},
         ]
         ctx = {"semantic_dedup_threshold": 0.85}
 
@@ -1785,7 +1979,6 @@ class TestSemanticDedup:
 
     def test_semantic_dedup_graceful_without_model(self, temp_project, engine_dir):
         """Semantic dedup should gracefully fall back to Jaccard when no embedding model is available."""
-        memory_dir = temp_project / "memory"
 
         # Log first entry
         learning1 = {
@@ -2069,7 +2262,8 @@ class TestReranker:
 
         # Retrieve
         result = subprocess.run(
-            [sys.executable, str(engine_dir / "filter.py"), "--step", "2", "--components", "TestComp", "--domain", "tooling"],
+            [sys.executable, str(engine_dir / "filter.py"), "--step", "2",
+             "--components", "TestComp", "--domain", "tooling"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 0

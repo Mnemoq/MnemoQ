@@ -8,7 +8,7 @@ async function loadConsolidation() {
     const state = await API.get("/consolidation");
     el.innerHTML = renderConsolidationState(state);
   } catch (e) {
-    el.innerHTML = `<p class="placeholder">Error: ${e.message}</p>`;
+    el.innerHTML = `<p class="placeholder">Could not load data. Check that the engine is running.</p>`;
   }
 }
 

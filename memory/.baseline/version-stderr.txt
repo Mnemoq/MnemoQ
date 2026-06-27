@@ -1,7 +1,7 @@
-﻿python.exe : agent-memory-engine v1.15.0
-At C:\AgentMemoryEngine\memory\.baseline\capture-baselines.ps1:85 char:1
+﻿python.exe : agent-memory-engine v1.20.6
+At C:\AgentMemoryEngine\memory\.baseline\capture-baselines.ps1:90 char:1
 + & $python $filter --version 2>&1 | Out-File memory\.baseline\version- ...
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (agent-memory-engine v1.15.0:String) [], RemoteException
+    + CategoryInfo          : NotSpecified: (agent-memory-engine v1.20.6:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
  

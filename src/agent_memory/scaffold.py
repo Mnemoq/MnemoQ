@@ -4,14 +4,14 @@ Agent Memory Scaffold Tool
 Creates a working memory/ directory in any project with a single command.
 
 Usage:
-    python scaffold.py <target-project-path> [--defaults] [--force] [--opencode]
+    python scaffold.py <target-project-path> [--defaults] [--force] [--ide <platforms>]
     python scaffold.py --version
 
 Flags:
     <target-project-path>  Path to target project (or use current directory)
     --defaults             Skip prompts, use all defaults (non-interactive)
     --force                Overwrite engine files only (never data files)
-    --opencode             Wire memory into opencode (merge opencode.json, copy prompts, append AGENTS.md)
+    --ide <platforms>      Wire memory into IDE/agent platform(s): opencode, windsurf, cursor, claude-code, copilot
     --version              Show version and exit
 """
 
@@ -23,6 +23,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+
 from agent_memory.engine_version import get_engine_version
 from agent_memory.shim import SHIM_TEMPLATE, is_shim
 
@@ -221,10 +222,8 @@ def create_starter_files(target_memory):
     # SYSTEM_INVARIANTS.md
     invariants_content = """# System Invariants
 
-Consolidated structural rules. Versioned by sprint/step range.
+Consolidated structural rules.
 IMMUTABLE during active tasks. Only updated during Sleep Cycle.
-
-## Steps 1-30 (Initial Development)
 
 (No invariants yet. They will be added during Sleep Cycle consolidation.)
 """
@@ -300,7 +299,7 @@ def verify_scaffold(target_memory):
             print("[OK] Verification passed: filter.py runs cleanly")
             return True
         else:
-            print(f"[FAIL] Verification failed:")
+            print("[FAIL] Verification failed:")
             print(f"  stdout: {result.stdout}")
             print(f"  stderr: {result.stderr}")
             return False
@@ -415,11 +414,11 @@ def merge_opencode_json(target_path):
                         perms["bash"] = bash_dict
     
     if not atomic_write_json(opencode_path, existing):
-        print(f"  ERROR: Failed to write opencode.json", file=sys.stderr)
+        print("  ERROR: Failed to write opencode.json", file=sys.stderr)
         if backup_path and backup_path.exists():
             try:
                 shutil.copy2(backup_path, opencode_path)
-                print(f"  Restored opencode.json from backup", file=sys.stderr)
+                print("  Restored opencode.json from backup", file=sys.stderr)
             except Exception as e:
                 print(f"  WARNING: Could not restore from backup: {e}", file=sys.stderr)
         return False, backup_path
@@ -427,13 +426,17 @@ def merge_opencode_json(target_path):
     return True, backup_path
 
 
-def copy_prompts(target_path):
-    """Copy 4 prompt files to .opencode/prompts/, skip if exists."""
-    prompts_src = ENGINE_DIR / "templates" / "prompts"
-    prompts_dst = target_path / ".opencode" / "prompts"
+def copy_prompts(target_path, src_dir=None, dst_dir=None, files=None):
+    """Copy prompt/rule files to destination, skip if exists."""
+    prompts_src = src_dir or (ENGINE_DIR / "templates" / "prompts")
+    prompts_dst = dst_dir or (target_path / ".opencode" / "prompts")
     prompts_dst.mkdir(parents=True, exist_ok=True)
     
-    agents = ["gm.md", "code-reviewer.md", "pro-reviewer.md", "test-writer.md"]
+    agents = files or [
+        "gm.md", "code-reviewer.md", "test-writer.md",
+        "meta-agent.md", "fuzzer.md", "docs-writer.md",
+        "security.md", "explorer.md", "refactorer.md",
+    ]
     copied = []
     skipped = []
     failed = []
@@ -461,35 +464,43 @@ def copy_prompts(target_path):
     return copied, skipped, failed
 
 
-def append_agents_md_memory_section(target_path):
-    """Append Memory section to AGENTS.md, skip if already present."""
-    agents_path = target_path / "AGENTS.md"
-    memory_section_path = ENGINE_DIR / "templates" / "agents-memory-section.md"
+def append_or_create_file(target_path, filename, section_content,
+                         section_marker=r'^#+\s+Memory\s*$',
+                         create_header="# Agent Rules\n\n"):
+    """Append section to file, or create file with header + section. Skip if section already present."""
+    file_path = target_path / filename
     
-    with open(memory_section_path, encoding='utf-8') as f:
-        memory_section = f.read()
-    
-    if agents_path.exists():
-        with open(agents_path, encoding='utf-8') as f:
+    if file_path.exists():
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
         
-        # Check for any heading level: # Memory, ## Memory, ### Memory (standalone only)
-        if re.search(r'^#+\s+Memory\s*$', content, re.MULTILINE | re.IGNORECASE):
+        if re.search(section_marker, content, re.MULTILINE | re.IGNORECASE):
             return "skipped"
         
-        with open(agents_path, 'a', encoding='utf-8') as f:
+        with open(file_path, 'a', encoding='utf-8') as f:
             if content.endswith('\n\n'):
-                f.write(memory_section)
+                f.write(section_content)
             elif content.endswith('\n'):
-                f.write('\n' + memory_section)
+                f.write('\n' + section_content)
             else:
-                f.write('\n\n' + memory_section)
+                f.write('\n\n' + section_content)
         return "appended"
     else:
-        with open(agents_path, 'w', encoding='utf-8') as f:
-            f.write("# Agent Rules\n\n")
-            f.write(memory_section)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(create_header)
+            f.write(section_content)
         return "created"
+
+
+def read_memory_section():
+    """Read the shared memory section template."""
+    with open(ENGINE_DIR / "templates" / "agents-memory-section.md", encoding='utf-8') as f:
+        return f.read()
+
+
+def append_agents_md_memory_section(target_path):
+    """Append Memory section to AGENTS.md, skip if already present."""
+    return append_or_create_file(target_path, "AGENTS.md", read_memory_section())
 
 
 def wire_opencode(target_path):
@@ -521,9 +532,126 @@ def wire_opencode(target_path):
     if backup_path:
         print(f"  Backed up opencode.json -> {backup_path.name}")
     else:
-        print(f"  Created opencode.json from snippet")
+        print("  Created opencode.json from snippet")
     
     return True
+
+
+def wire_windsurf(target_path):
+    """Wire memory into Windsurf: copy workflows, create Plans dir, append AGENTS.md."""
+    print("\nWiring windsurf...")
+    
+    workflows_src = ENGINE_DIR / "templates" / "windsurf" / "workflows"
+    workflows_dst = target_path / ".windsurf" / "workflows"
+    workflow_files = ["gm.md", "code-reviewer.md", "test-writer.md", "fuzzer.md",
+                      "meta-agent.md", "plan-deviation.md", "plan-reviewer.md",
+                      "docs-writer.md", "security.md", "explorer.md", "refactorer.md"]
+    copied, skipped, failed = copy_prompts(target_path, src_dir=workflows_src, dst_dir=workflows_dst,
+                                           files=workflow_files)
+    if copied:
+        print(f"  Created .windsurf/workflows/{', '.join(copied)}")
+    if skipped:
+        print(f"  Skipped existing: {', '.join(skipped)}")
+    if failed:
+        print(f"  WARNING: Failed to copy {len(failed)} workflows: {', '.join(failed)}", file=sys.stderr)
+    
+    plans_dir = target_path / ".windsurf" / "Plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    gitkeep = plans_dir / ".gitkeep"
+    if not gitkeep.exists():
+        gitkeep.touch()
+    print("  Created .windsurf/Plans/")
+    
+    mem_status = append_agents_md_memory_section(target_path)
+    if mem_status == "appended":
+        print("  Appended Memory section to AGENTS.md")
+    elif mem_status == "created":
+        print("  Created AGENTS.md with Memory section")
+    else:
+        print("  AGENTS.md already has Memory section (skipped)")
+    
+    return True
+
+
+def wire_cursor(target_path):
+    """Wire memory into Cursor: copy .mdc rules, append AGENTS.md."""
+    print("\nWiring cursor...")
+    
+    rules_src = ENGINE_DIR / "templates" / "cursor-rules"
+    rules_dst = target_path / ".cursor" / "rules"
+    rule_files = ["memory-protocol.mdc", "gm.mdc", "code-reviewer.mdc", "test-writer.mdc",
+                   "meta-agent.mdc", "fuzzer.mdc", "docs-writer.mdc",
+                   "security.mdc", "explorer.mdc", "refactorer.mdc"]
+    copied, skipped, failed = copy_prompts(target_path, src_dir=rules_src, dst_dir=rules_dst,
+                                           files=rule_files)
+    if copied:
+        print(f"  Created .cursor/rules/{', '.join(copied)}")
+    if skipped:
+        print(f"  Skipped existing: {', '.join(skipped)}")
+    if failed:
+        print(f"  WARNING: Failed to copy {len(failed)} rules: {', '.join(failed)}", file=sys.stderr)
+    
+    mem_status = append_agents_md_memory_section(target_path)
+    if mem_status == "appended":
+        print("  Appended Memory section to AGENTS.md")
+    elif mem_status == "created":
+        print("  Created AGENTS.md with Memory section")
+    else:
+        print("  AGENTS.md already has Memory section (skipped)")
+    
+    return True
+
+
+def wire_claude_code(target_path):
+    """Wire memory into Claude Code: create/append CLAUDE.md."""
+    print("\nWiring claude-code...")
+    
+    status = append_or_create_file(target_path, "CLAUDE.md", read_memory_section(),
+                                   create_header="# Project Instructions\n\n")
+    if status == "appended":
+        print("  Appended Memory section to CLAUDE.md")
+    elif status == "created":
+        print("  Created CLAUDE.md with Memory section")
+    else:
+        print("  CLAUDE.md already has Memory section (skipped)")
+    
+    return True
+
+
+def wire_copilot(target_path):
+    """Wire memory into GitHub Copilot: create/append copilot-instructions.md, append AGENTS.md."""
+    print("\nWiring copilot...")
+    
+    github_dir = target_path / ".github"
+    github_dir.mkdir(parents=True, exist_ok=True)
+    
+    status = append_or_create_file(target_path, ".github/copilot-instructions.md", read_memory_section(),
+                                   create_header="# Project Instructions\n\n")
+    if status == "appended":
+        print("  Appended Memory section to .github/copilot-instructions.md")
+    elif status == "created":
+        print("  Created .github/copilot-instructions.md with Memory section")
+    else:
+        print("  .github/copilot-instructions.md already has Memory section (skipped)")
+    
+    mem_status = append_agents_md_memory_section(target_path)
+    if mem_status == "appended":
+        print("  Appended Memory section to AGENTS.md")
+    elif mem_status == "created":
+        print("  Created AGENTS.md with Memory section")
+    else:
+        print("  AGENTS.md already has Memory section (skipped)")
+    
+    return True
+
+
+IDE_WIRERS = {
+    "opencode": wire_opencode,
+    "windsurf": wire_windsurf,
+    "cursor": wire_cursor,
+    "claude-code": wire_claude_code,
+    "copilot": wire_copilot,
+}
 
 
 def main():
@@ -535,17 +663,31 @@ Examples:
   python scaffold.py /path/to/project
   python scaffold.py . --defaults
   python scaffold.py /path/to/project --force
-  python scaffold.py /path/to/project --defaults --opencode
+  python scaffold.py /path/to/project --defaults --ide windsurf
+  python scaffold.py /path/to/project --defaults --ide windsurf,cursor,claude-code
+  python scaffold.py /path/to/project --defaults --ide all
+  python scaffold.py --ide ?
         """
     )
     
     parser.add_argument("target", nargs="?", help="Target project path (default: current directory)")
     parser.add_argument("--defaults", action="store_true", help="Skip prompts, use all defaults")
     parser.add_argument("--force", action="store_true", help="Overwrite engine files only")
-    parser.add_argument("--opencode", action="store_true", help="Wire memory system into opencode (merge opencode.json, copy prompts, append AGENTS.md)")
+    parser.add_argument("--ide", type=str, default=None,
+        help="Wire memory into IDE/agent platform(s): opencode, windsurf, cursor, "
+             "claude-code, copilot, all (comma-separated). Use --ide ? to list platforms.")
+    parser.add_argument("--opencode", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--version", action="store_true", help="Show version and exit")
     
     args = parser.parse_args()
+    
+    # --ide ? or --ide '' → list available platforms and exit
+    if args.ide is not None and args.ide.strip() in ("", "?"):
+        print("Available IDE platforms:")
+        for name, wirer in IDE_WIRERS.items():
+            print(f"  {name:14s} — {wirer.__doc__}")
+        print(f"  {'all':14s} — wire all platforms at once")
+        return 0
     
     if args.version:
         print(f"agent-memory-scaffold v{ENGINE_VERSION}", file=sys.stderr)
@@ -566,7 +708,7 @@ Examples:
             sys.exit(f"ERROR: {target_memory} already exists.\n"
                      f"Use --force to overwrite engine files (data files are never touched).")
         else:
-            print(f"  --force: overwriting engine files only")
+            print("  --force: overwriting engine files only")
     
     # Load template config
     template_path = ENGINE_DIR / "templates" / "config.json"
@@ -585,37 +727,56 @@ Examples:
     
     # Copy engine files
     copy_engine_files(target_memory, args.force)
-    print(f"  Wrote shim to filter.py")
+    print("  Wrote shim to filter.py")
     
     # Write config.json (create if absent, never overwrite)
     config_path = target_memory / "config.json"
     if not config_path.exists():
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"  Created config.json")
+        print("  Created config.json")
     else:
-        print(f"  config.json exists (not overwritten)")
+        print("  config.json exists (not overwritten)")
     
     # Create starter files (only if absent)
     create_starter_files(target_memory)
-    print(f"  Created starter files")
+    print("  Created starter files")
     
     # Register project
     register_project(target_path)
-    print(f"  Registered in projects.txt")
+    print("  Registered in projects.txt")
     
     # Verify
     verify_scaffold(target_memory)
     
-    # Wire opencode (if --opencode flag)
+    # Resolve IDE platforms to wire
+    platforms = []
+    if args.ide:
+        for p in args.ide.split(","):
+            p = p.strip()
+            if p == "all":
+                platforms = list(IDE_WIRERS.keys())
+                break
+            platforms.append(p)
     if args.opencode:
-        if not wire_opencode(target_path):
+        if "opencode" not in platforms:
+            platforms.append("opencode")
+    
+    # Wire IDE platform(s)
+    for platform in platforms:
+        wirer = IDE_WIRERS.get(platform)
+        if wirer is None:
+            valid = ", ".join(list(IDE_WIRERS.keys()) + ["all"])
+            sys.exit(f"ERROR: Unknown IDE platform '{platform}'. Valid: {valid}")
+        if not wirer(target_path):
             sys.exit(1)
     
     print(f"\n[OK] Scaffold complete: {target_memory}")
-    print(f"\nNext steps:")
+    if platforms:
+        print(f"  Wired: {', '.join(platforms)}")
+    print("\nNext steps:")
     print(f"  1. cd {target_path}")
-    print(f"  2. python memory/filter.py --step 1 --components YourComponent --domain tooling")
+    print("  2. python memory/filter.py --step 1 --components YourComponent --domain tooling")
     
     return 0
 

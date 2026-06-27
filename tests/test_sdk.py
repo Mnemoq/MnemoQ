@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -19,7 +17,6 @@ fastapi = pytest.importorskip("fastapi")
 from agent_memory.engine.server import create_app  # noqa: E402
 from agent_memory.sdk import AsyncMemoryClient, MemoryClient  # noqa: E402
 from agent_memory.sdk.exceptions import APIError, NotFoundError, ValidationError  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

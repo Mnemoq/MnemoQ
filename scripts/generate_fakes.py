@@ -18,19 +18,18 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import agent_memory.cli as cli
-from agent_memory.cli import setup_paths, load_config
+from agent_memory.cli import load_config, setup_paths
 from agent_memory.engine.constants import (
     DEFAULTS,
     VALID_DOMAINS,
+    VALID_RETRIEVAL_ONLY_AGENTS,
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
-    VALID_RETRIEVAL_ONLY_AGENTS,
 )
+from agent_memory.engine.metrics import _get_project_id
 from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
 from agent_memory.engine.retrieval import cosine_similarity, embed_entry, encode_embedding
-from agent_memory.engine.metrics import _get_project_id
 from agent_memory.engine.validation import validate_entry
-
 
 # --- Bootstrap ---
 

@@ -1,6 +1,6 @@
 ## Memory
 
-**Session start:** `memory/HANDOFF.md` and `memory/SYSTEM_INVARIANTS.md` are auto-loaded via `opencode.json` instructions. Act on HANDOFF's "next action" line if present.
+**Session start:** `memory/HANDOFF.md` and `memory/SYSTEM_INVARIANTS.md` are auto-loaded by your IDE/agent platform. Act on HANDOFF's "next action" line if present.
 
 **Before any task — retrieval:**
 1. Run `python memory/filter.py --step <N> --components <A,B> --files <f1,f2> --domain <d>`
@@ -91,9 +91,9 @@ python memory/filter.py --log-file "$env:TEMP\learning.json"
 
 **Consolidation (Sleep Cycle):**
 
-Run when `learnings.jsonl` exceeds 50 entries or at sprint boundaries. `filter.py` prints `## SLEEP CYCLE DUE` banner when threshold is hit.
+Run when unresolved entries exceed 50, N days pass since last consolidation, or quarantine exceeds threshold. `filter.py` prints `## SLEEP CYCLE DUE` banner when a trigger fires.
 
-1. **Trigger (automated):** `filter.py` prints banner when unresolved entry count > 50 or at configured sprint boundaries.
+1. **Trigger (automated):** `filter.py` prints banner when unresolved entry count > 50, N days since last consolidation, or quarantine entries exceed threshold.
 2. **GM:** Archive → distill → draft a proposed diff to `SYSTEM_INVARIANTS.md` (output in chat, **NOT applied**).
 3. **Human:** Review the proposed diff, apply to `SYSTEM_INVARIANTS.md`.
 4. **GM:** Reset `learnings.jsonl` only after human confirms.
