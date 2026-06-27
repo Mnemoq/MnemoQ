@@ -14,6 +14,7 @@ git diff --stat
 ```
 
 - Warn if the current branch is `main` or `master` — ask the user to confirm or switch to a feature branch first.
+- Warn if the branch name doesn't match any prefix from the Branch Naming Convention (see Reference section below). This is advisory — do not block.
 - Warn if there are untracked files that look like they should be committed (e.g. new source files, not build artefacts).
 
 ---
@@ -21,8 +22,10 @@ git diff --stat
 ### 2. Analyse the diff
 
 ```bash
-git diff
+git diff HEAD
 ```
+
+If this is the initial commit (no HEAD yet), use `git diff --staged` instead.
 
 Read the full diff and silently identify:
 
@@ -46,6 +49,13 @@ git diff --staged
 ```
 
 Show the user a summary and ask: *"Does this look right to stage?"* before proceeding.
+
+```bash
+ruff check .
+```
+
+- If **lint fails**: stop, surface the failure, do not commit. The user must fix lint errors before proceeding.
+- If **lint passes**: proceed to compose the commit message.
 
 ---
 
@@ -88,23 +98,23 @@ Present the proposed message to the user and ask for approval or edits before co
 
 ### 5. Commit
 
-Once the user approves:
+For a single-line message:
 
 ```bash
 git commit -m "<approved message>"
 ```
 
-If a body or footer is needed, use:
+For a multi-line message (body and/or footer), write to a temp file and commit with `-F` — this avoids shell escaping issues with quotes and backticks:
 
-```bash
-git commit -F- <<'EOF'
-feat(auth): add OAuth2 Google login
+```powershell
+# Write the commit message to a temp file
+"feat(auth): add OAuth2 Google login`n`nImplements the Google OAuth2 flow.`n`nCloses #42" | Set-Content -Path "$env:TEMP\commit-msg.txt" -Encoding utf8
 
-Implements the Google OAuth2 flow using Passport.js.
-Redirects unauthenticated users to /login on protected routes.
+# Commit using the temp file
+git commit -F "$env:TEMP\commit-msg.txt"
 
-Closes #42
-EOF
+# Clean up
+Remove-Item "$env:TEMP\commit-msg.txt"
 ```
 
 ---
@@ -120,6 +130,8 @@ Show the user:
 - The new commit in the log
 - Which files were changed and the line count
 
+If the commit needs fixing (wrong message, forgot a file), use `git commit --amend` before pushing.
+
 ---
 
 ### 7. Repeat for remaining changes (if split was needed)
@@ -130,17 +142,7 @@ If multiple logical groups were identified in Step 2, loop back to **Step 3** an
 
 ### 8. Push (optional)
 
-Ask the user if they want to push:
-
-```bash
-git push origin <current-branch>
-```
-
-If the branch has no upstream yet:
-
-```bash
-git push --set-upstream origin <current-branch>
-```
+Ask the user if they want to push. If yes, suggest running `/push` — it handles pre-flight checks, remote sync, CI verification, and PR creation.
 
 ---
 
