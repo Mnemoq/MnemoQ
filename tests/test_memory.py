@@ -751,7 +751,8 @@ class TestScaffoldIntegration:
         """Test that --ide windsurf,cursor wires both platforms."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "windsurf,cursor"],
+            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project),
+             "--defaults", "--ide", "windsurf,cursor"],
             capture_output=True,
             text=True,
             cwd=str(source_dir)
@@ -1129,7 +1130,8 @@ class TestShim:
         
         # Run shim with retrieval
         result = subprocess.run(
-            [sys.executable, str(memory_dir / "filter.py"), "--step", "1", "--components", "Tooling", "--domain", "tooling"],
+            [sys.executable, str(memory_dir / "filter.py"), "--step", "1",
+             "--components", "Tooling", "--domain", "tooling"],
             capture_output=True,
             text=True,
             cwd=temp_project
@@ -1349,7 +1351,8 @@ class TestBM25Score:
         stop_words = set()
         entries = []
         for i in range(5):
-            entries.append({"trigger": f"When physics test {i}", "action": "ALWAYS physics", "reason": "physics common"})
+            entries.append({"trigger": f"When physics test {i}",
+                            "action": "ALWAYS physics", "reason": "physics common"})
         entries.append({"trigger": "When AABB collision", "action": "NEVER AABB", "reason": "AABB rare"})
 
         doc_freqs, total_docs, avg_doc_len = _compute_corpus_stats(entries, stop_words)
@@ -1358,10 +1361,14 @@ class TestBM25Score:
         doc_physics = _tokenize("physics common", stop_words)
         doc_aabb = _tokenize("AABB collision rare", stop_words)
 
-        score_physics = bm25_score(query_tokens, doc_physics, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
-        score_aabb = bm25_score(query_tokens, doc_aabb, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
+        score_physics = bm25_score(query_tokens, doc_physics, doc_freqs,
+                                    total_docs, avg_doc_len, 1.5, 0.75)
+        score_aabb = bm25_score(query_tokens, doc_aabb, doc_freqs,
+                                total_docs, avg_doc_len, 1.5, 0.75)
 
-        assert score_aabb > score_physics, f"Rare term AABB ({score_aabb}) should score higher than common term physics ({score_physics})"
+        assert score_aabb > score_physics, (
+            f"Rare term AABB ({score_aabb}) should score higher than "
+            f"common term physics ({score_physics})")
 
     def test_bm25_no_match_scores_zero(self):
         """Doc with no matching query terms should score 0.0."""
@@ -1676,9 +1683,7 @@ class TestEmbeddingRetrieval:
         """Base64 round-trip preserves vector values within float16 precision."""
         from agent_memory.engine.retrieval import decode_embedding, encode_embedding
 
-        try:
-            importlib.util.find_spec("numpy")
-        except ImportError:
+        if importlib.util.find_spec("numpy") is None:
             pytest.skip("numpy not installed")
 
         original = [0.1, -0.2, 0.3, -0.4, 0.5, 0.0, 1.0, -1.0]
@@ -1879,8 +1884,11 @@ class TestSemanticDedup:
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
-        entry = {"domain": "tooling", "trigger": "When collision", "action": "ALWAYS use AABB", "reason": "AABB is fast", "embedding": emb}
-        existing = [{"domain": "tooling", "trigger": "When overlap", "action": "NEVER skip AABB", "reason": "AABB detects overlap", "embedding": emb, "resolved": False}]
+        entry = {"domain": "tooling", "trigger": "When collision",
+                 "action": "ALWAYS use AABB", "reason": "AABB is fast", "embedding": emb}
+        existing = [{"domain": "tooling", "trigger": "When overlap",
+                     "action": "NEVER skip AABB", "reason": "AABB detects overlap",
+                     "embedding": emb, "resolved": False}]
         ctx = {"semantic_dedup_threshold": 0.85}
 
         cos, match = find_semantic_duplicate(entry, existing, ctx)
@@ -1894,8 +1902,11 @@ class TestSemanticDedup:
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
-        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
-        existing = [{"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb, "resolved": True}]
+        entry = {"domain": "tooling", "trigger": "When X",
+                 "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
+        existing = [{"domain": "tooling", "trigger": "When X",
+                     "action": "ALWAYS Y", "reason": "Z",
+                     "embedding": emb, "resolved": True}]
         ctx = {"semantic_dedup_threshold": 0.85}
 
         cos, match = find_semantic_duplicate(entry, existing, ctx)
@@ -1908,8 +1919,11 @@ class TestSemanticDedup:
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
-        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
-        existing = [{"domain": "performance", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": emb, "resolved": False}]
+        entry = {"domain": "tooling", "trigger": "When X",
+                 "action": "ALWAYS Y", "reason": "Z", "embedding": emb}
+        existing = [{"domain": "performance", "trigger": "When X",
+                     "action": "ALWAYS Y", "reason": "Z",
+                     "embedding": emb, "resolved": False}]
         ctx = {"semantic_dedup_threshold": 0.85}
 
         cos, match = find_semantic_duplicate(entry, existing, ctx)
@@ -1923,10 +1937,13 @@ class TestSemanticDedup:
         entry_vec = [1.0, 0.0, 0.0]
         close_vec = [0.99, 0.01, 0.0]
         far_vec = [0.5, 0.5, 0.5]
-        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": encode_embedding(entry_vec)}
+        entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y",
+                 "reason": "Z", "embedding": encode_embedding(entry_vec)}
         existing = [
-            {"domain": "tooling", "trigger": "When A", "action": "ALWAYS B", "reason": "C", "embedding": encode_embedding(far_vec), "resolved": False},
-            {"domain": "tooling", "trigger": "When D", "action": "ALWAYS E", "reason": "F", "embedding": encode_embedding(close_vec), "resolved": False},
+            {"domain": "tooling", "trigger": "When A", "action": "ALWAYS B",
+             "reason": "C", "embedding": encode_embedding(far_vec), "resolved": False},
+            {"domain": "tooling", "trigger": "When D", "action": "ALWAYS E",
+             "reason": "F", "embedding": encode_embedding(close_vec), "resolved": False},
         ]
         ctx = {"semantic_dedup_threshold": 0.85}
 
@@ -2245,7 +2262,8 @@ class TestReranker:
 
         # Retrieve
         result = subprocess.run(
-            [sys.executable, str(engine_dir / "filter.py"), "--step", "2", "--components", "TestComp", "--domain", "tooling"],
+            [sys.executable, str(engine_dir / "filter.py"), "--step", "2",
+             "--components", "TestComp", "--domain", "tooling"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 0

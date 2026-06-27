@@ -150,8 +150,8 @@ async def _check_and_broadcast_alerts(paths, ctx, event_hub):
         stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        _, r, l, c = get_metrics_data(paths)
-        md = {"retrieval": r, "logging": l, "consolidation": c}
+        _, r, log_stats, c = get_metrics_data(paths)
+        md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         current = alerts_list(stats, md)
         current_count = len(current)
         if current_count > event_hub.last_alert_count:
@@ -263,7 +263,8 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                 detail=ErrorResponse(
                     code=result.get("status", "ERROR").upper(),
                     message=result.get("message", "Unknown error"),
-                    entry_ref=result.get("matched_entry", {}).get("ts") if isinstance(result.get("matched_entry"), dict) else None,
+                    entry_ref=(result.get("matched_entry", {}).get("ts")
+                              if isinstance(result.get("matched_entry"), dict) else None),
                 ).model_dump(),
             )
         await event_hub.broadcast({"event": "log", "status": result.get("status"), "entry": result.get("entry")})
@@ -362,12 +363,12 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                 return {"total_events": len(filtered), "events": filtered}
             return {"total_events": len(filtered), "events": filtered}
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
         return {
             "total_events": len(events),
             "retrieval": r,
-            "logging": l,
+            "logging": log_stats,
             "consolidation": c,
         }
 
@@ -390,7 +391,9 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
                     suggested_action="Use force=true to overwrite, or specify a different sprint_number.",
                 ).model_dump(),
             )
-        await event_hub.broadcast({"event": "consolidate", "sprint": result.get("sprint_number"), "status": result.get("status")})
+        await event_hub.broadcast({"event": "consolidate",
+                                 "sprint": result.get("sprint_number"),
+                                 "status": result.get("status")})
         invalidate_metrics_cache()
         if dashboard:
             await _check_and_broadcast_alerts(paths, ctx, event_hub)

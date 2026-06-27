@@ -700,12 +700,12 @@ def handle_metrics(args, paths):
 def _report_summary(events, json_out=False):
     """Print summary dashboard."""
     r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-    l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+    log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
     c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
 
     if json_out:
         print(json.dumps({"summary": {"total_events": len(events),
-              "retrieval": r, "logging": l, "consolidation": c}},
+              "retrieval": r, "logging": log_stats, "consolidation": c}},
               indent=2, default=str))
         return 0
 
@@ -721,10 +721,10 @@ def _report_summary(events, json_out=False):
     print()
 
     print("### Logging")
-    if l:
-        print(f"  Total: {l['total_logs']}, Added: {l['added']}, Dup: {l['duplicate']}, "
-              f"Conflict: {l['conflict']}, Quar: {l['quarantined']}")
-        print(f"  Dup rate: {l['duplicate_rate']:.1%}, Quar rate: {l['quarantine_rate']:.1%}")
+    if log_stats:
+        print(f"  Total: {log_stats['total_logs']}, Added: {log_stats['added']}, Dup: {log_stats['duplicate']}, "
+              f"Conflict: {log_stats['conflict']}, Quar: {log_stats['quarantined']}")
+        print(f"  Dup rate: {log_stats['duplicate_rate']:.1%}, Quar rate: {log_stats['quarantine_rate']:.1%}")
     else:
         print("  No logging events.")
     print()
@@ -861,15 +861,15 @@ def _report_cross_project(since, json_out=False):
     summaries = []
     for pid, events in all_m:
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         summaries.append({
             "project": pid,
             "total_events": len(events),
             "retrievals": r.get("total_retrievals", 0),
             "hit_rate": r.get("hit_rate", 0),
-            "logs": l.get("total_logs", 0),
-            "dup_rate": l.get("duplicate_rate", 0),
-            "quar_rate": l.get("quarantine_rate", 0),
+            "logs": log_stats.get("total_logs", 0),
+            "dup_rate": log_stats.get("duplicate_rate", 0),
+            "quar_rate": log_stats.get("quarantine_rate", 0),
         })
 
     if json_out:

@@ -453,7 +453,9 @@ def retrieve_core(current_step, task_components, task_files, task_domain, ctx, p
     def _unwrap(results):
         out = []
         for final, rrf, tiered, entry in results:
-            out.append({**entry, "_final_score": round(final, 6), "_rrf_score": round(rrf, 6), "_tiered_score": round(tiered, 4)})
+            out.append({**entry, "_final_score": round(final, 6),
+                         "_rrf_score": round(rrf, 6),
+                         "_tiered_score": round(tiered, 4)})
         return out
 
     return {
@@ -485,12 +487,16 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     print("## ⚠ WARNINGS — Read before starting")
     if result["warnings"]:
         for entry in result["warnings"]:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
+            print(f"- [step-{entry['step']}, {entry['domain']}, "
+                  f"{entry['source_agent']}] {entry['trigger']}: {entry['action']} "
+                  f"Reason: {entry['reason']}")
             verified_str = "verified" if entry.get("verified", False) else "unverified"
             scope_str = entry.get("scope", "file")
             debt_str = entry.get("debt_level", "proper")
             symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
+            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, "
+                  f"accessed {entry.get('access_count', 0)}x, "
+                  f"reinforced {entry.get('reinforcement_count', 0)}x)")
             if symptoms_str:
                 print(f"  Symptoms: {symptoms_str}")
     else:
@@ -508,12 +514,16 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     print("\n## RELEVANT PATTERNS")
     if result["patterns"]:
         for entry in result["patterns"]:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']} Reason: {entry['reason']}")
+            print(f"- [step-{entry['step']}, {entry['domain']}, "
+                  f"{entry['source_agent']}] {entry['trigger']}: {entry['action']} "
+                  f"Reason: {entry['reason']}")
             verified_str = "verified" if entry.get("verified", False) else "unverified"
             scope_str = entry.get("scope", "file")
             debt_str = entry.get("debt_level", "proper")
             symptoms_str = entry.get("symptoms", "")
-            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, accessed {entry.get('access_count', 0)}x, reinforced {entry.get('reinforcement_count', 0)}x)")
+            print(f"  ({verified_str}, scope: {scope_str}, debt: {debt_str}, "
+                  f"accessed {entry.get('access_count', 0)}x, "
+                  f"reinforced {entry.get('reinforcement_count', 0)}x)")
             if symptoms_str:
                 print(f"  Symptoms: {symptoms_str}")
     else:
@@ -522,18 +532,21 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
     if result["escalations"]:
         print("\n## ⚡ ESCALATION — Critical entries unresolved for 30+ steps")
         for entry in result["escalations"]:
-            print(f"- [step-{entry['step']}, {entry['domain']}, {entry['source_agent']}] {entry['trigger']}: {entry['action']}")
+            print(f"- [step-{entry['step']}, {entry['domain']}, "
+                  f"{entry['source_agent']}] {entry['trigger']}: {entry['action']}")
 
     print(f"\n## STATS: {result['total_entries']} total entries, {result['unresolved_count']} unresolved")
 
     if result["sleep_cycle_due"]:
         reasons = result.get("sleep_cycle_reasons", [])
         if "threshold" in reasons:
-            print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} unresolved entries exceed threshold of 50")
+            print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} "
+                  f"unresolved entries exceed threshold of 50")
         if "time" in reasons:
             print(f"\n## SLEEP CYCLE DUE — {ctx.get('sleep_cycle_days', 7)} days since last consolidation")
         if "quarantine" in reasons:
-            print(f"\n## SLEEP CYCLE DUE — Quarantine entries exceed threshold of {ctx.get('sleep_cycle_quarantine_threshold', 20)}")
+            print(f"\n## SLEEP CYCLE DUE — Quarantine entries exceed "
+                  f"threshold of {ctx.get('sleep_cycle_quarantine_threshold', 20)}")
         print("Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.")
 
     return 0

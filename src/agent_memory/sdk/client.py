@@ -140,9 +140,9 @@ class _LocalTransport:
                 return {"total_events": len(filtered), "events": filtered}
             return {"total_events": len(filtered), "events": filtered}
         r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
-        l = _logging_stats([e for e in events if e.get("event_type") == "log"])
+        log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
         c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-        return {"total_events": len(events), "retrieval": r, "logging": l, "consolidation": c}
+        return {"total_events": len(events), "retrieval": r, "logging": log_stats, "consolidation": c}
 
     def consolidate(self, sprint_number=None, force=False):
         result = consolidate_core(sprint_number, False, force, self.paths, self.ctx)

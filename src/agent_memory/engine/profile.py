@@ -69,7 +69,8 @@ def get_profile_context(profile, task_domain=None, domain_mappings=None):
 
     general_patterns = profile.get("general_patterns", [])
     if len(general_patterns) > MAX_GENERAL_PATTERNS:
-        print(f"WARNING: Profile has {len(general_patterns)} general_patterns, only first {MAX_GENERAL_PATTERNS} shown", file=sys.stderr)
+        print(f"WARNING: Profile has {len(general_patterns)} general_patterns, "
+              f"only first {MAX_GENERAL_PATTERNS} shown", file=sys.stderr)
 
     for pattern in general_patterns[:MAX_GENERAL_PATTERNS]:
         if _is_valid_preference(pattern):
@@ -82,7 +83,8 @@ def get_profile_context(profile, task_domain=None, domain_mappings=None):
 
     anti_patterns = profile.get("anti_patterns", [])
     if len(anti_patterns) > MAX_GENERAL_PATTERNS:
-        print(f"WARNING: Profile has {len(anti_patterns)} anti_patterns, only first {MAX_GENERAL_PATTERNS} shown", file=sys.stderr)
+        print(f"WARNING: Profile has {len(anti_patterns)} anti_patterns, "
+              f"only first {MAX_GENERAL_PATTERNS} shown", file=sys.stderr)
 
     for pattern in anti_patterns[:MAX_GENERAL_PATTERNS]:
         if _is_valid_preference(pattern):
