@@ -6,12 +6,6 @@ description: Full ship cycle — commit, push, rebase if needed, create PR, veri
 
 ### 1. Commit
 
-**If on `main` or `master`**: branch protection rules will block direct pushes. Ask the user for a branch name and create it before committing:
-
-```bash
-git checkout -b <branch-name>
-```
-
 Delegate to `/commit` — it handles branch hygiene, staging, lint, and Conventional Commit message.
 
 **If the working tree is already clean** (user pre-committed), skip `/commit` and jump straight to Step 2. Tell the user: *"No uncommitted changes — skipping commit step."*
