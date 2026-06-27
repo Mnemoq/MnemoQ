@@ -139,13 +139,9 @@ If the current branch is not `main`/`master`:
 git log origin/main..<current-branch> --oneline
 ```
 
-Generate a PR description from the Conventional Commit messages in the log. Ask the user if they want to create a PR.
+Show the user the commits that would go into a PR. Ask the user if they want to create a PR.
 
-If yes and `gh` is available, ask the user: *"Open as draft?"* Then:
-
-```bash
-gh pr create --base main --title "<type>(<scope>): <summary>" --body "<generated description>" [--draft]
-```
+If yes, suggest running `/pr` — it handles PR creation with options for base branch, draft mode, and auto-generated description.
 
 ---
 
