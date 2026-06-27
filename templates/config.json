@@ -43,6 +43,9 @@
     "auto_learn_staleness_threshold": 500,
     "auto_learn_max_files_per_commit": 5,
     "auto_learn_max_per_run": 20,
-    "auto_learn_retrieval_failure_cap": 100
+    "auto_learn_retrieval_failure_cap": 100,
+    "evaluate_enabled": true,
+    "evaluate_auto_log_threshold": 0.9,
+    "evaluate_max_per_turn": 3
   }
 }

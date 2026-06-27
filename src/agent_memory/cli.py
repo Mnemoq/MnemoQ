@@ -218,6 +218,7 @@ def load_config():
         "bm25_b": ("BM25_B", 0.0, 1.0, True, True),
         "embedding_alpha": ("EMBEDDING_ALPHA", 0.0, 1.0, True, True),
         "semantic_dedup_threshold": ("SEMANTIC_DEDUP_THRESHOLD", 0.0, 1.0, True, True),
+        "evaluate_auto_log_threshold": ("EVALUATE_AUTO_LOG_THRESHOLD", 0.0, 1.0, True, True),
     }
     
     for config_key, (python_key, min_val, max_val, min_inclusive, max_inclusive) in float_params.items():
@@ -242,7 +243,7 @@ def load_config():
             result[python_key] = float(value)
     
     # Boolean parameters
-    bool_params = {"auto_learn_enabled": "AUTO_LEARN_ENABLED"}
+    bool_params = {"auto_learn_enabled": "AUTO_LEARN_ENABLED", "evaluate_enabled": "EVALUATE_ENABLED"}
     for config_key, python_key in bool_params.items():
         if config_key in tuning:
             value = tuning[config_key]
@@ -270,6 +271,7 @@ def load_config():
         "auto_learn_max_files_per_commit": ("AUTO_LEARN_MAX_FILES_PER_COMMIT", 1, None),
         "auto_learn_max_per_run": ("AUTO_LEARN_MAX_PER_RUN", 1, None),
         "auto_learn_retrieval_failure_cap": ("AUTO_LEARN_RETRIEVAL_FAILURE_CAP", 1, None),
+        "evaluate_max_per_turn": ("EVALUATE_MAX_PER_TURN", 1, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
