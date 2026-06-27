@@ -14,7 +14,7 @@ git branch --show-current
 ```
 
 - Warn if the working tree is dirty (uncommitted changes) — ask the user to commit or stash first.
-- Warn if the current branch is `main` or `master` — ask the user to confirm intent or switch to a feature branch.
+- Warn if the current branch is `main` or `master` — many repos have branch protection rules that reject direct pushes. If the push is rejected with "push declined due to repository rule violations", tell the user to create a feature branch, commit there, and use `/pr` to merge via PR. Do not retry the direct push.
 - Validate branch naming against the convention in `commit.md` § Branch Naming Convention.
 
 Then run local checks to catch issues before CI does:

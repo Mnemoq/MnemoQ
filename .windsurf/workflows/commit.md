@@ -13,7 +13,7 @@ git status
 git diff --stat
 ```
 
-- Warn if the current branch is `main` or `master` — ask the user to confirm or switch to a feature branch first.
+- Warn if the current branch is `main` or `master` — ask the user to confirm or switch to a feature branch first. Note: if branch protection is enabled, commits to `main` cannot be pushed directly and must go through a PR.
 - Warn if the branch name doesn't match any prefix from the Branch Naming Convention (see Reference section below). This is advisory — do not block.
 - Warn if there are untracked files that look like they should be committed (e.g. new source files, not build artefacts).
 
