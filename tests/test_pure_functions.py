@@ -11,6 +11,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from agent_memory.engine.auto_learn import (
+    _derive_domain,
+    detect_conflicts,
+    detect_over_injected,
+    detect_repeated_fixes,
+    detect_retrieval_failure,
+    detect_reverts,
+    detect_under_retrieved,
+)
 from agent_memory.engine.consolidation import (
     detect_contradictions,
     get_agents_md_suggestions,
@@ -32,15 +41,6 @@ from agent_memory.engine.validation import (
     find_best_match,
     jaccard_similarity,
     validate_entry,
-)
-from agent_memory.engine.auto_learn import (
-    _derive_domain,
-    detect_conflicts,
-    detect_over_injected,
-    detect_repeated_fixes,
-    detect_retrieval_failure,
-    detect_reverts,
-    detect_under_retrieved,
 )
 
 # ---------------------------------------------------------------------------
