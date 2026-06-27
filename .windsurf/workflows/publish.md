@@ -6,7 +6,7 @@ description: Bumps VERSION, commits, tags, and pushes from main to trigger the P
 
 ### 1. Run tests
 
-Ensure dev dependencies are installed:
+Ensure your project venv is active, then install dev dependencies:
 ```bash
 pip install -e ".[dev]"
 ```
@@ -59,6 +59,7 @@ The `rev-list` output is `<behind>\t<ahead>`.
   git pull --rebase origin main
   ```
   Abort if the rebase fails. Re-check `git status --short` after rebase.
+  If the rebase brought in new commits, re-run Step 1 (tests) before proceeding.
 - If `main` is ahead of `origin/main` (second number > 0), warn the user — unpushed commits will go out with the release tag. Ask whether to proceed or push first.
 
 ---
@@ -159,16 +160,19 @@ Verify the main push succeeded before proceeding. If it fails (e.g., remote move
 git push origin v<NEW_VERSION>
 ```
 
+If the main push succeeded but the tag push fails, the release commit is already on `origin/main` but no workflow triggered. Re-run `git push origin v<NEW_VERSION>` once the issue is resolved.
+
 This triggers the GitHub Actions workflow at `.github/workflows/publish.yml`, which builds and publishes to PyPI using OIDC trusted publishing.
 
 ---
 
 ### 12. Verify the workflow triggered
 
-Capture the run ID to avoid watching the wrong workflow:
+Capture the run ID scoped to the release commit (GitHub may take a few seconds to register the run):
 ```bash
-gh run list --workflow=publish.yml --limit=1 --json databaseId --jq ".[0].databaseId"
+gh run list --workflow=publish.yml --commit $(git rev-parse HEAD) --limit=1 --json databaseId --jq ".[0].databaseId"
 ```
+If the command returns empty, wait a few seconds and retry — the run may not be queued yet.
 
 Then watch that specific run:
 ```bash
@@ -209,4 +213,4 @@ If the PyPI upload fails and the tag is already pushed:
   git revert HEAD --no-edit
   git push origin main
   ```
-- Fix the issue, then repeat from Step 6 with a new version number.
+- Fix the issue, then repeat from Step 1 with a new version number.
