@@ -74,7 +74,7 @@ def test_auto_learn_generates_entries():
 
     # Check learnings.jsonl has new entries
     with open(memory_dir / "learnings.jsonl") as f:
-        lines = [json.loads(l) for l in f if l.strip()]
+        lines = [json.loads(line) for line in f if line.strip()]
 
     # Original entry + at least one generated meta_learning
     assert len(lines) > 1
@@ -118,5 +118,5 @@ def test_auto_learn_disabled():
 
     # learnings.jsonl should be unchanged
     with open(memory_dir / "learnings.jsonl") as f:
-        lines = [json.loads(l) for l in f if l.strip()]
+        lines = [json.loads(line) for line in f if line.strip()]
     assert len(lines) == 1  # only the original entry
