@@ -27,7 +27,7 @@ python -m pytest
 Also scan the committed diff for unresolved conflict markers:
 
 ```bash
-git diff HEAD~1 HEAD | grep -E "^(<<<<<<<|=======|>>>>>>>)"
+git diff HEAD~1 HEAD | grep -E "^\+(<<<<<<<|=======|>>>>>>>)"
 ```
 
 If conflict markers are found, stop and surface them — do not push.
