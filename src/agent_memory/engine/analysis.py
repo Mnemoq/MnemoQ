@@ -194,7 +194,7 @@ def recommendations(stats, metrics_data, config=None):
             "priority": "low",
             "category": "quality",
             "message": f"{unverified}/{total} entries unverified.",
-            "action": "Run --review-agents to verify entries against AGENTS.md.",
+            "action": "Run --verify to validate entries against the schema.",
         })
 
     tuning = (config or {}).get("tuning", {})

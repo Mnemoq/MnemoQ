@@ -22,6 +22,10 @@ CLI modes:
       Sleep Cycle: archive learnings, generate promotion report.
   --consolidate --confirm-reset
       Clear learnings.jsonl after review (requires recent --consolidate run).
+  --evaluate '<json>'
+      Evaluate a structured prompt summary for learnable moments (heuristic detectors).
+  --evaluate-file PATH
+      Same as --evaluate but reads JSON from a file (PowerShell-safe).
   --verify
       Validate every entry in learnings.jsonl against the schema.
 """
@@ -454,7 +458,7 @@ from agent_memory.engine.agents_review import (
 
 def check_agents_conflict(entry):
     """Check if a learning overlaps with AGENTS.md sections."""
-    return _ar_check_agents_conflict(entry, _get_paths())
+    return _ar_check_agents_conflict(entry, _get_paths(), _CTX)
 
 
 def handle_review_agents(current_step, threshold):
@@ -599,6 +603,34 @@ def _print_auto_learn_compact(result):
         print("  WARNING: Git unavailable.")
 
 
+def _print_evaluate_verbose(result):
+    """Print verbose evaluate output for --evaluate standalone."""
+    if result.get("disabled"):
+        print("## EVALUATE\nPer-prompt evaluation is disabled (evaluate_enabled: false).")
+        return
+
+    print("## EVALUATE")
+    print(f"Signals detected: {result['signals_detected']}")
+
+    if result["auto_logged"]:
+        print(f"\nAuto-logged: {len(result['auto_logged'])}")
+        for entry in result["auto_logged"]:
+            print(f"  [{entry['status']}] {entry['type']}: {entry['trigger']}")
+            print(f"    -> {entry['action']}")
+
+    if result["suggestions"]:
+        print(f"\nSuggested: {len(result['suggestions'])}")
+        for s in result["suggestions"]:
+            c = s["candidate"]
+            print(f"  [{s['confidence']:.2f}] {c['type']}: {c['trigger']}")
+            print(f"    -> {c['action']}")
+
+    if result["skipped_invalid"]:
+        print(f"\nSkipped (invalid): {len(result['skipped_invalid'])}")
+        for s in result["skipped_invalid"]:
+            print(f"  [{s['confidence']:.2f}] {s['errors']}")
+
+
 # --- Main ---
 
 def main():
@@ -685,6 +717,10 @@ Examples:
     parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
     parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
+    parser.add_argument("--evaluate", type=str, metavar="JSON",
+                        help="Evaluate a structured prompt summary for learnable moments (JSON string)")
+    parser.add_argument("--evaluate-file", type=str, metavar="PATH",
+                        help="Path to JSON file with prompt summary (PowerShell-safe alternative to --evaluate)")
     parser.add_argument("--auto-learn", action="store_true",
                         help="Run auto-learning: detect patterns from git history, retrieval gaps, and corpus analysis")
     parser.add_argument("--verify", action="store_true", help="Validate every entry in learnings.jsonl against schema")
@@ -692,7 +728,10 @@ Examples:
     args = parser.parse_args()
 
     # --version is zero-dependency: works even if config.json is broken
-    if args.version and any([args.step, args.log, args.log_file, args.stats, args.consolidate, args.review_agents]):
+    if args.version and any([args.step, args.log, args.log_file, args.stats, args.consolidate,
+                             args.review_agents, args.auto_learn, args.evaluate, args.evaluate_file,
+                             args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard,
+                             args.mcp, args.verify]):
         parser.error("--version cannot be combined with other operational flags")
 
     if args.version:
@@ -729,38 +768,52 @@ Examples:
             print(f"ERROR: Cannot read --log-file: {e}", file=sys.stderr)
             sys.exit(1)
 
+    # Handle --evaluate-file: read JSON from file
+    if args.evaluate and args.evaluate_file:
+        parser.error("--evaluate and --evaluate-file are mutually exclusive")
+
+    evaluate_json = args.evaluate
+    if args.evaluate_file:
+        try:
+            with open(args.evaluate_file, encoding="utf-8-sig") as f:
+                evaluate_json = f.read()
+        except OSError as e:
+            print(f"ERROR: Cannot read --evaluate-file: {e}", file=sys.stderr)
+            sys.exit(1)
+
     if args.update and not log_json:
         parser.error("--update requires --log or --log-file")
 
     _op_flags = (args.step is not None, log_json, args.resolve, args.update,
-                 args.review_agents, args.consolidate)
+                 args.review_agents, args.consolidate, evaluate_json)
     if args.stats and any(_op_flags):
         parser.error(
             "--stats cannot be combined with --step, --log, --log-file, "
-            "--resolve, --update, --review-agents, or --consolidate"
+            "--resolve, --update, --review-agents, --consolidate, or --evaluate"
         )
 
     if args.review_agents and args.step is None:
         parser.error("--review-agents requires --step")
 
-    if args.review_agents and any([log_json, args.resolve, args.update, args.consolidate]):
+    if args.review_agents and any([log_json, args.resolve, args.update, args.consolidate, evaluate_json]):
         parser.error(
             "--review-agents cannot be combined with --log, --log-file, "
-            "--resolve, --update, or --consolidate"
+            "--resolve, --update, --consolidate, or --evaluate"
         )
 
     if args.consolidate and any([args.step, log_json, args.resolve, args.update,
-                                  args.review_agents, args.stats]):
+                                  args.review_agents, args.stats, evaluate_json]):
         parser.error(
             "--consolidate cannot be combined with --step, --log, --log-file, "
-            "--resolve, --update, --review-agents, or --stats"
+            "--resolve, --update, --review-agents, --stats, or --evaluate"
         )
 
     if args.confirm_reset and not args.consolidate:
         parser.error("--confirm-reset requires --consolidate")
 
     if args.metrics and any([args.step is not None, log_json, args.resolve,
-                             args.update, args.review_agents, args.consolidate, args.stats]):
+                             args.update, args.review_agents, args.consolidate, args.stats,
+                             evaluate_json]):
         parser.error("--metrics cannot be combined with operational flags")
 
     if any([args.metrics_retrieval, args.metrics_logging,
@@ -769,25 +822,25 @@ Examples:
 
     if args.migrate_schema and any([args.step is not None, log_json, args.resolve,
                                      args.update, args.review_agents, args.consolidate,
-                                     args.stats, args.metrics]):
+                                     args.stats, args.metrics, evaluate_json]):
         parser.error("--migrate-schema cannot be combined with other operational flags")
 
     if args.eval and any([args.step is not None, log_json, args.resolve,
                           args.update, args.review_agents, args.consolidate,
-                          args.stats, args.metrics, args.migrate_schema]):
+                          args.stats, args.metrics, args.migrate_schema, evaluate_json]):
         parser.error("--eval cannot be combined with other operational flags")
 
     if (args.serve or args.dashboard) and any(
         [args.step is not None, log_json, args.resolve, args.update,
          args.review_agents, args.consolidate, args.stats, args.metrics,
-         args.migrate_schema, args.eval]
+         args.migrate_schema, args.eval, evaluate_json]
     ):
         parser.error("--serve/--dashboard cannot be combined with other operational flags")
 
     if args.mcp and any(
         [args.step is not None, log_json, args.resolve, args.update,
          args.review_agents, args.consolidate, args.stats, args.metrics,
-         args.migrate_schema, args.eval, args.serve, args.dashboard]
+         args.migrate_schema, args.eval, args.serve, args.dashboard, evaluate_json]
     ):
         parser.error("--mcp cannot be combined with other operational flags")
 
@@ -795,7 +848,7 @@ Examples:
         [args.step is not None, log_json, args.resolve, args.update,
          args.review_agents, args.consolidate, args.stats, args.metrics,
          args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
-         args.auto_learn]
+         args.auto_learn, evaluate_json]
     ):
         parser.error("--verify cannot be combined with other operational flags")
 
@@ -803,9 +856,17 @@ Examples:
         [args.step is not None, log_json, args.resolve, args.update,
          args.review_agents, args.consolidate, args.stats, args.metrics,
          args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
-         args.verify]
+         args.verify, evaluate_json]
     ):
         parser.error("--auto-learn cannot be combined with other operational flags")
+
+    if evaluate_json and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
+         args.verify, args.auto_learn]
+    ):
+        parser.error("--evaluate cannot be combined with other operational flags")
 
     if args.migrate_schema:
         from agent_memory.engine.migrate import run_migration
@@ -874,6 +935,17 @@ Examples:
         from agent_memory.engine.auto_learn import auto_learn_core
         result = auto_learn_core(_get_paths(), _build_ctx())
         _print_auto_learn_verbose(result)
+        return result["exit_code"]
+
+    if evaluate_json:
+        from agent_memory.engine.evaluate import evaluate_core
+        try:
+            summary = json.loads(evaluate_json)
+        except json.JSONDecodeError as e:
+            print(f"ERROR: Invalid JSON for --evaluate: {e}", file=sys.stderr)
+            return 1
+        result = evaluate_core(summary, _get_paths(), _build_ctx())
+        _print_evaluate_verbose(result)
         return result["exit_code"]
 
     if args.consolidate:

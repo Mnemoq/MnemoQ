@@ -9,6 +9,8 @@ Tools exposed:
   - resolve_learning(timestamp)
   - get_stats()
   - consolidate(sprint_number)
+  - evaluate_prompt(summary)
+  - review_agents(step, threshold)
 
 Resources exposed:
   - learnings://project/<id>
@@ -23,8 +25,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_memory.engine.agents_review import review_agents_core
 from agent_memory.engine.consolidation import consolidate_core
 from agent_memory.engine.constants import DEFAULTS as _CONST_DEFAULTS
+from agent_memory.engine.evaluate import evaluate_core
 from agent_memory.engine.handlers import log_core, resolve_core, stats_core
 from agent_memory.engine.io import read_learnings
 from agent_memory.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
@@ -222,6 +226,48 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "evaluate_prompt",
+        "description": ("Evaluate a structured prompt summary for learnable moments. "
+                       "Runs heuristic detectors on the summary, auto-logs high-confidence signals, "
+                       "and returns suggestions for medium-confidence ones."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "step": {"type": "integer", "minimum": 1, "description": "Current plan step number"},
+                "prompt_type": {"type": "string", "enum": ["human", "agent"],
+                                "description": "Who issued the prompt being evaluated"},
+                "outcome": {"type": "string",
+                            "enum": ["correction", "preference", "bug_fixed", "decision", "workaround", "none"],
+                            "description": "Outcome category of the prompt/response cycle"},
+                "text": {"type": "string", "description": "Salient gist of the interaction"},
+                "corrected_action": {"type": "string", "description": "What the human said to do instead"},
+                "rejected_action": {"type": "string", "description": "What the human said not to do"},
+                "components": {"type": "array", "items": {"type": "string"},
+                               "description": "Components involved in the interaction"},
+                "files_touched": {"type": "array", "items": {"type": "string"},
+                                  "description": "Files modified or discussed"},
+                "error_text": {"type": "string", "description": "Error message if outcome is bug_fixed (optional)"},
+            },
+            "required": ["step", "prompt_type", "outcome", "components", "files_touched"],
+        },
+    },
+    {
+        "name": "review_agents",
+        "description": ("Diagnostic report on AGENTS.md section health. "
+                       "Cross-references recent learnings with AGENTS.md sections, "
+                       "categorizing sections as active (referenced by learnings), cold (no references), "
+                       "and identifying unmatched learnings."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "step": {"type": "integer", "minimum": 1, "description": "Current plan step number"},
+                "threshold": {"type": "integer", "minimum": 1, "default": 10,
+                              "description": "Step window for considering learnings recent"},
+            },
+            "required": ["step"],
+        },
+    },
 ]
 
 
@@ -275,6 +321,18 @@ def _call_tool(name: str, arguments: dict, paths: _Paths, ctx: dict) -> dict:
         sprint_number = arguments.get("sprint_number")
         force = arguments.get("force", False)
         result = consolidate_core(sprint_number, False, force, paths, ctx)
+        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
+
+    elif name == "evaluate_prompt":
+        summary = dict(arguments)
+        result = evaluate_core(summary, paths, ctx)
+        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
+
+    elif name == "review_agents":
+        step = arguments.get("step", 1)
+        threshold = arguments.get("threshold", 10)
+        result = review_agents_core(step, threshold, paths)
+        result.pop("exit_code", None)
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     else:

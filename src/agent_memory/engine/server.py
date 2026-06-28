@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from agent_memory.engine.agents_review import review_agents_core
 from agent_memory.engine.auto_learn import auto_learn_core
 from agent_memory.engine.consolidation import consolidate_core
 from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
@@ -426,6 +427,14 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         invalidate_metrics_cache()
         if dashboard:
             await _check_and_broadcast_alerts(paths, ctx, event_hub)
+        return result
+
+    # -- Review Agents --
+
+    @app.get("/api/review-agents")
+    async def review_agents(step: int = Query(..., ge=1), threshold: int = Query(10, ge=1)):
+        result = review_agents_core(step, threshold, paths)
+        result.pop("exit_code", None)
         return result
 
     # -- WebSocket --

@@ -79,7 +79,7 @@ def log_core(json_str, paths, ctx):
     entry["embedding"] = encode_embedding(embed_entry(entry, _emb_model, _emb_cache))
 
     # AGENTS.md conflict detection (informational, non-blocking)
-    conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry, paths)
+    conflict_detected, best_section, jaccard_score, containment_hits = check_agents_conflict(entry, paths, ctx)
     if conflict_detected:
         print(
             f"WARNING: Learning may overlap with AGENTS.md section '{best_section}'\n"
