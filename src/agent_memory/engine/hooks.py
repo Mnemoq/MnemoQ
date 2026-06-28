@@ -1,6 +1,14 @@
 """Git hook installation logic for the memory engine.
 
-Extracted from cli.py to keep cli.py a thin dispatcher.
+Two modes:
+  - Default: write hooks into the repo's resolved hooks dir (`git rev-parse
+    --git-path hooks`), normally `.git/hooks`. Untracked by git.
+  - --hooks-path DIR: write hooks into a tracked directory (e.g. `.githooks`)
+    and set `core.hooksPath` so the hooks are shared via git.
+
+Both modes install post-commit (runs `--auto-learn` in the background) and
+pre-commit (runs `--scan-staged`, never blocks the commit). Idempotent: an
+existing mnemoq hook is overwritten in place, a foreign hook is left alone.
 """
 from __future__ import annotations
 
@@ -9,30 +17,72 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Canonical post-commit hook body, written by --install-hooks. Mirrored for
-# reference in scripts/hooks/post-commit (keep in sync). Backgrounded with `&`
-# and `exit 0` so it never adds latency to or blocks a commit. POSIX sh: works
-# under git-for-windows' bundled sh as well as Linux/macOS.
+# POSIX sh scripts: work under git-for-windows' bundled sh as well as
+# Linux/macOS. Both invoke the `mnemoq` console script so a venv-installed
+# engine on PATH is picked up (falls back to `python -m agent_memory.cli`).
+
 POST_COMMIT_HOOK = """#!/bin/sh
-# agent-memory-engine (mnemoq) post-commit hook -- installed by `mnemoq --install-hooks`.
+# agent-memory-engine (mnemoq) post-commit hook — installed by `mnemoq --install-hooks`.
 # Runs auto-learning in the background after each commit. Never blocks the commit.
 LOG="$(git rev-parse --git-dir)/mnemoq-auto-learn.log"
 (
-  python -m agent_memory.cli --auto-learn >/dev/null 2>>"$LOG" \\
-    || echo "mnemoq auto-learn failed (see $LOG)" >>"$LOG"
+  if command -v mnemoq >/dev/null 2>&1; then
+    mnemoq --auto-learn >/dev/null 2>>"$LOG" \\
+      || echo "mnemoq auto-learn failed (see $LOG)" >>"$LOG"
+  else
+    python -m agent_memory.cli --auto-learn >/dev/null 2>>"$LOG" \\
+      || echo "mnemoq auto-learn failed (see $LOG)" >>"$LOG"
+  fi
 ) &
 exit 0
 """
 
+PRE_COMMIT_HOOK = """#!/bin/sh
+# agent-memory-engine (mnemoq) pre-commit hook — installed by `mnemoq --install-hooks`.
+# Scans staged diff for new TODO/FIXME/HACK/XXX markers. Best-effort: NEVER fails the commit.
+LOG="$(git rev-parse --git-dir)/mnemoq-scan-staged.log"
+if command -v mnemoq >/dev/null 2>&1; then
+  mnemoq --scan-staged 2>>"$LOG" || true
+else
+  python -m agent_memory.cli --scan-staged 2>>"$LOG" || true
+fi
+exit 0
+"""
 
-def install_hooks():
-    """Install the post-commit hook into the current repo's git hooks dir.
+_HOOK_BODIES = {
+    "post-commit": POST_COMMIT_HOOK,
+    "pre-commit": PRE_COMMIT_HOOK,
+}
 
-    Returns an exit code. Resolves the hooks dir via `git rev-parse --git-path
-    hooks` so it works inside worktrees and with custom core.hooksPath. chmod is
-    best-effort: it is a no-op on Windows, where git-for-windows runs hooks via
-    its bundled sh regardless of the executable bit.
-    """
+_MNEMOQ_MARKERS = ("mnemoq", "agent_memory.cli")
+
+
+def _is_mnemoq_hook(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return any(marker in text for marker in _MNEMOQ_MARKERS)
+
+
+def _write_hook(hook_path: Path, body: str) -> bool:
+    """Write a hook file. Returns True if written, False if a foreign hook blocks us."""
+    if hook_path.exists() and not _is_mnemoq_hook(hook_path):
+        print(f"WARNING: {hook_path} already exists and is not a mnemoq hook — skipping.",
+              file=sys.stderr)
+        print("  Remove or merge it manually, then re-run --install-hooks.", file=sys.stderr)
+        return False
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    hook_path.write_text(body, encoding="utf-8", newline="\n")
+    try:
+        os.chmod(hook_path, 0o755)
+    except OSError:
+        pass  # best-effort; no-op on Windows
+    return True
+
+
+def _resolve_default_hooks_dir() -> Path | None:
+    """Resolve the repo's effective hooks dir via git."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--git-path", "hooks"],
@@ -40,28 +90,71 @@ def install_hooks():
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("ERROR: --install-hooks must be run inside a git repository.", file=sys.stderr)
-        return 1
-
+        return None
     hooks_dir = Path(out.stdout.strip())
     if not hooks_dir.is_absolute():
         hooks_dir = Path.cwd() / hooks_dir
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    hook_path = hooks_dir / "post-commit"
+    return hooks_dir
 
-    if hook_path.exists():
-        existing = hook_path.read_text(encoding="utf-8", errors="replace")
-        if "mnemoq" not in existing and "agent_memory.cli --auto-learn" not in existing:
-            print(f"ERROR: {hook_path} already exists and is not a mnemoq hook.", file=sys.stderr)
-            print("Refusing to overwrite. Remove or merge it manually, then re-run.", file=sys.stderr)
-            return 1
 
-    # newline="\n" forces LF endings so the shebang/script is valid for sh.
-    hook_path.write_text(POST_COMMIT_HOOK, encoding="utf-8", newline="\n")
+def _set_core_hooks_path(value: str) -> bool:
     try:
-        os.chmod(hook_path, 0o755)
-    except OSError:
-        pass  # best-effort; no-op / unsupported on Windows
+        subprocess.run(
+            ["git", "config", "core.hooksPath", value],
+            check=True, capture_output=True, text=True,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"ERROR: failed to set core.hooksPath: {e}", file=sys.stderr)
+        return False
 
-    print(f"Installed post-commit hook: {hook_path}", file=sys.stderr)
-    print("Auto-learning now runs in the background after each commit.", file=sys.stderr)
+
+def install_hooks(hooks_path: str | None = None) -> int:
+    """Install post-commit + pre-commit hooks.
+
+    Args:
+        hooks_path: If provided (e.g. ".githooks"), write hooks into this
+            tracked directory and configure `core.hooksPath` to point at it.
+            If None, write into the repo's resolved hooks dir (`.git/hooks`).
+
+    Returns:
+        Exit code (0 = success, 1 = aborted).
+    """
+    if hooks_path:
+        target_dir = Path(hooks_path)
+        if not target_dir.is_absolute():
+            target_dir = Path.cwd() / target_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if not _set_core_hooks_path(hooks_path):
+            return 1
+        print(f"Configured core.hooksPath -> {hooks_path}", file=sys.stderr)
+    else:
+        resolved = _resolve_default_hooks_dir()
+        if resolved is None:
+            return 1
+        target_dir = resolved
+
+    wrote_any = False
+    refused_any = False
+    for hook_name, body in _HOOK_BODIES.items():
+        hook_path = target_dir / hook_name
+        if _write_hook(hook_path, body):
+            print(f"Installed {hook_name}: {hook_path}", file=sys.stderr)
+            wrote_any = True
+        else:
+            refused_any = True
+
+    if refused_any:
+        return 1
+
+    if wrote_any:
+        if hooks_path:
+            print(
+                "Done. Commit the tracked hooks directory so collaborators pick them up:\n"
+                f"  git add {hooks_path} && git commit -m 'chore: add mnemoq git hooks'",
+                file=sys.stderr,
+            )
+        else:
+            print("Done. Auto-learning + debt-marker scanning are now active for this clone.",
+                  file=sys.stderr)
     return 0
