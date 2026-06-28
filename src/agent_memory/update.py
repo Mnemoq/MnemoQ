@@ -22,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 
 from agent_memory.engine_version import get_engine_version
+from agent_memory.managed_section import sync_managed_section
+from agent_memory.scaffold import read_memory_section
 from agent_memory.shim import SHIM_TEMPLATE, is_shim
 
 RETRY_ATTEMPTS = 3
@@ -329,6 +331,32 @@ def update_config_schema(project_path, engine_path, new_version):
         return False
 
 
+# Instruction files that may embed the shared memory-protocol block. mnemoq-update
+# only REFRESHES files that already exist (create_if_absent=False) — it never wires
+# new IDE files into a project that did not opt into them at scaffold time.
+_INSTRUCTION_TARGETS = [
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".github/copilot-instructions.md",
+    ".cursor/rules/memory-protocol.mdc",
+]
+
+
+def sync_instructions(project_path, version):
+    """Refresh the managed Memory block in existing instruction files.
+
+    Returns {rel_path: status} for files that are present (absent files skipped).
+    """
+    section = read_memory_section()
+    results = {}
+    for rel in _INSTRUCTION_TARGETS:
+        status = sync_managed_section(project_path / rel, section, version,
+                                      create_if_absent=False)
+        if status != "absent":
+            results[rel] = status
+    return results
+
+
 def update_engine_files(project_path, engine_path, dry_run=False):
     """For shim projects, no file updates needed. For legacy copies, migrate to shim."""
     memory_dir = project_path / "memory"
@@ -405,8 +433,9 @@ def confirm_update(projects, dry_run=False):
     return response.lower() in ['y', 'yes']
 
 
-def update_project(project_path, engine_version, engine_path, dry_run=False, 
-                   create_backup_flag=True, update_config_flag=False, force=False):
+def update_project(project_path, engine_version, engine_path, dry_run=False,
+                   create_backup_flag=True, update_config_flag=False, force=False,
+                   sync_instructions_flag=False):
     """
     Update a single project.
     Returns: (success, status_message, backup_dir_or_None)
@@ -425,6 +454,14 @@ def update_project(project_path, engine_version, engine_path, dry_run=False,
     cmp = compare_versions(project_version, engine_version)
     
     if cmp == 0 and not force:
+        # Even when the engine version matches, allow an instruction-only refresh
+        # (e.g. the protocol template changed). Drift-protected per file.
+        if sync_instructions_flag and not dry_run:
+            instr = sync_instructions(project_path, engine_version)
+            changed = {k: v for k, v in instr.items() if v != "current"}
+            if changed:
+                summary = ", ".join(f"{k}={v}" for k, v in changed.items())
+                return True, f"Already up-to-date (v{project_version}); instructions: {summary}", None
         return True, f"Already up-to-date (v{project_version})", None
     
     if cmp > 0:
@@ -456,6 +493,11 @@ def update_project(project_path, engine_version, engine_path, dry_run=False,
     config_updated = False
     if update_config_flag:
         config_updated = update_config_schema(project_path, engine_path, engine_version)
+
+    # Refresh managed instruction blocks if requested (existing files only)
+    instr_results = {}
+    if sync_instructions_flag:
+        instr_results = sync_instructions(project_path, engine_version)
     
     # Clear __pycache__ (skip for shim projects - no compiled artifacts)
     if not dry_run:
@@ -478,7 +520,10 @@ def update_project(project_path, engine_version, engine_path, dry_run=False,
     status = f"Updated: v{project_version} -> v{engine_version}"
     if config_updated:
         status += " (config updated)"
-    
+    if instr_results:
+        summary = ", ".join(f"{k}={v}" for k, v in instr_results.items())
+        status += f" (instructions: {summary})"
+
     return True, status, backup_dir
 
 
@@ -503,6 +548,9 @@ Examples:
     parser.add_argument("--no-backup", action="store_true", help="Skip backup creation (default: create backup)")
     parser.add_argument("--update-config", action="store_true",
                         help="Update config.json with new schema (default: False)")
+    parser.add_argument("--sync-instructions", action="store_true",
+                        help="Refresh the managed Memory block in existing AGENTS.md/CLAUDE.md/"
+                             "copilot/cursor files (preserves user content; never creates new files)")
     parser.add_argument("--migrate-to-shim", action="store_true", help="Replace full engine copies with shims")
     parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt for multi-project updates")
     parser.add_argument("--version", action="store_true", help="Show update.py version")
@@ -562,7 +610,8 @@ Examples:
             dry_run=args.dry_run,
             create_backup_flag=not args.no_backup,
             update_config_flag=args.update_config,
-            force=args.force
+            force=args.force,
+            sync_instructions_flag=args.sync_instructions
         )
         
         print(f"  Status: {status}")

@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 from agent_memory.engine_version import get_engine_version
+from agent_memory.managed_section import status_message, sync_managed_section
 from agent_memory.shim import SHIM_TEMPLATE, is_shim
 
 ENGINE_VERSION = get_engine_version()
@@ -499,8 +500,8 @@ def read_memory_section():
 
 
 def append_agents_md_memory_section(target_path):
-    """Append Memory section to AGENTS.md, skip if already present."""
-    return append_or_create_file(target_path, "AGENTS.md", read_memory_section())
+    """Sync the managed Memory block into AGENTS.md (preserves user content)."""
+    return sync_managed_section(target_path / "AGENTS.md", read_memory_section(), ENGINE_VERSION)
 
 
 def wire_opencode(target_path):
@@ -517,13 +518,8 @@ def wire_opencode(target_path):
         # Continue anyway - opencode.json merge is more critical than prompt files
     
     mem_status = append_agents_md_memory_section(target_path)
-    if mem_status == "appended":
-        print("  Appended Memory section to AGENTS.md")
-    elif mem_status == "created":
-        print("  Created AGENTS.md with Memory section")
-    else:
-        print("  AGENTS.md already has Memory section (skipped)")
-    
+    print(f"  {status_message('AGENTS.md', mem_status)}")
+
     # Run destructive merge last
     success, backup_path = merge_opencode_json(target_path)
     if not success:
@@ -563,13 +559,8 @@ def wire_windsurf(target_path):
     print("  Created .windsurf/Plans/")
     
     mem_status = append_agents_md_memory_section(target_path)
-    if mem_status == "appended":
-        print("  Appended Memory section to AGENTS.md")
-    elif mem_status == "created":
-        print("  Created AGENTS.md with Memory section")
-    else:
-        print("  AGENTS.md already has Memory section (skipped)")
-    
+    print(f"  {status_message('AGENTS.md', mem_status)}")
+
     return True
 
 
@@ -608,24 +599,14 @@ def wire_cursor(target_path):
         print(f"  WARNING: Failed to copy {len(failed)} rules: {', '.join(failed)}", file=sys.stderr)
 
     rules_dst.mkdir(parents=True, exist_ok=True)
-    proto_status = append_or_create_file(
-        target_path, ".cursor/rules/memory-protocol.mdc", read_memory_section(),
-        create_header=CURSOR_MEMORY_PROTOCOL_FRONTMATTER)
-    if proto_status == "created":
-        print("  Created .cursor/rules/memory-protocol.mdc")
-    elif proto_status == "appended":
-        print("  Appended Memory section to .cursor/rules/memory-protocol.mdc")
-    else:
-        print("  .cursor/rules/memory-protocol.mdc already has Memory section (skipped)")
+    proto_status = sync_managed_section(
+        target_path / ".cursor" / "rules" / "memory-protocol.mdc", read_memory_section(),
+        ENGINE_VERSION, create_header=CURSOR_MEMORY_PROTOCOL_FRONTMATTER)
+    print(f"  {status_message('.cursor/rules/memory-protocol.mdc', proto_status)}")
 
     mem_status = append_agents_md_memory_section(target_path)
-    if mem_status == "appended":
-        print("  Appended Memory section to AGENTS.md")
-    elif mem_status == "created":
-        print("  Created AGENTS.md with Memory section")
-    else:
-        print("  AGENTS.md already has Memory section (skipped)")
-    
+    print(f"  {status_message('AGENTS.md', mem_status)}")
+
     return True
 
 
@@ -633,15 +614,10 @@ def wire_claude_code(target_path):
     """Wire memory into Claude Code: create/append CLAUDE.md."""
     print("\nWiring claude-code...")
     
-    status = append_or_create_file(target_path, "CLAUDE.md", read_memory_section(),
-                                   create_header="# Project Instructions\n\n")
-    if status == "appended":
-        print("  Appended Memory section to CLAUDE.md")
-    elif status == "created":
-        print("  Created CLAUDE.md with Memory section")
-    else:
-        print("  CLAUDE.md already has Memory section (skipped)")
-    
+    status = sync_managed_section(target_path / "CLAUDE.md", read_memory_section(), ENGINE_VERSION,
+                                  create_header="# Project Instructions\n\n")
+    print(f"  {status_message('CLAUDE.md', status)}")
+
     return True
 
 
@@ -652,23 +628,14 @@ def wire_copilot(target_path):
     github_dir = target_path / ".github"
     github_dir.mkdir(parents=True, exist_ok=True)
     
-    status = append_or_create_file(target_path, ".github/copilot-instructions.md", read_memory_section(),
-                                   create_header="# Project Instructions\n\n")
-    if status == "appended":
-        print("  Appended Memory section to .github/copilot-instructions.md")
-    elif status == "created":
-        print("  Created .github/copilot-instructions.md with Memory section")
-    else:
-        print("  .github/copilot-instructions.md already has Memory section (skipped)")
-    
+    status = sync_managed_section(target_path / ".github" / "copilot-instructions.md",
+                                  read_memory_section(), ENGINE_VERSION,
+                                  create_header="# Project Instructions\n\n")
+    print(f"  {status_message('.github/copilot-instructions.md', status)}")
+
     mem_status = append_agents_md_memory_section(target_path)
-    if mem_status == "appended":
-        print("  Appended Memory section to AGENTS.md")
-    elif mem_status == "created":
-        print("  Created AGENTS.md with Memory section")
-    else:
-        print("  AGENTS.md already has Memory section (skipped)")
-    
+    print(f"  {status_message('AGENTS.md', mem_status)}")
+
     return True
 
 
