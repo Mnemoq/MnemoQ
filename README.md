@@ -142,7 +142,7 @@ See [docs/cli-reference.md](docs/cli-reference.md) for all flags, examples, and 
 | `tuning.rrf_k` | `60` | Reciprocal rank fusion constant |
 | `tuning.embedding_alpha` | `0.5` | Blend weight: `alpha * rrf + (1-alpha) * cosine` |
 | `tuning.semantic_dedup_threshold` | `0.85` | Cosine similarity for duplicate detection |
-| `tuning.sleep_cycle_days` | `7` | Days between consolidation triggers |
+| `tuning.sleep_cycle_days` | `1` | Days between consolidation triggers |
 | `tuning.sleep_cycle_quarantine_threshold` | `20` | Quarantine count that triggers consolidation |
 
 ## Data Schema

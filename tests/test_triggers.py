@@ -39,36 +39,50 @@ def _write_metrics(paths, events):
 
 
 class TestThresholdTrigger:
-    def test_fires_above_25(self, temp_memory):
+    def test_fires_above_default(self, temp_memory):
         ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0}
-        due, reasons = check_sleep_cycle(temp_memory, ctx, 26)
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 21)
         assert due
         assert "threshold" in reasons
 
-    def test_does_not_fire_at_25(self, temp_memory):
+    def test_does_not_fire_at_default(self, temp_memory):
         ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0}
-        due, reasons = check_sleep_cycle(temp_memory, ctx, 25)
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 20)
         assert not due
         assert reasons == []
+
+    def test_respects_configured_threshold(self, temp_memory):
+        ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0,
+               "sleep_cycle_unresolved_threshold": 50}
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 26)
+        assert not due
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 51)
+        assert "threshold" in reasons
+
+    def test_disabled_when_zero(self, temp_memory):
+        ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0,
+               "sleep_cycle_unresolved_threshold": 0}
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 1000)
+        assert "threshold" not in reasons
 
 
 class TestTimeTrigger:
     def test_fires_when_never_consolidated(self, temp_memory):
-        ctx = {"sleep_cycle_days": 7, "sleep_cycle_quarantine_threshold": 0}
+        ctx = {"sleep_cycle_days": 1, "sleep_cycle_quarantine_threshold": 0}
         due, reasons = check_sleep_cycle(temp_memory, ctx, 0)
         assert "time" in reasons
 
     def test_fires_when_old_consolidation(self, temp_memory):
         old_ts = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_metrics(temp_memory, [{"event_type": "consolidate", "ts": old_ts}])
-        ctx = {"sleep_cycle_days": 7, "sleep_cycle_quarantine_threshold": 0}
+        ctx = {"sleep_cycle_days": 1, "sleep_cycle_quarantine_threshold": 0}
         due, reasons = check_sleep_cycle(temp_memory, ctx, 0)
         assert "time" in reasons
 
     def test_does_not_fire_when_recent(self, temp_memory):
         recent_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         _write_metrics(temp_memory, [{"event_type": "consolidate", "ts": recent_ts}])
-        ctx = {"sleep_cycle_days": 7, "sleep_cycle_quarantine_threshold": 0}
+        ctx = {"sleep_cycle_days": 1, "sleep_cycle_quarantine_threshold": 0}
         due, reasons = check_sleep_cycle(temp_memory, ctx, 0)
         assert "time" not in reasons
 
@@ -137,7 +151,7 @@ class TestMultipleTriggers:
         with open(temp_memory.quarantine_path, "w") as f:
             for _ in range(25):
                 f.write('{"raw": "x", "reason": "test"}\n')
-        ctx = {"sleep_cycle_days": 7, "sleep_cycle_quarantine_threshold": 20}
+        ctx = {"sleep_cycle_days": 1, "sleep_cycle_quarantine_threshold": 20}
         due, reasons = check_sleep_cycle(temp_memory, ctx, 60)
         assert due
         assert "threshold" in reasons

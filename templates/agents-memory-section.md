@@ -37,7 +37,7 @@ Required fields (11) + Optional fields (4):
 |-------|------|------------|
 | `step` | int | See `max_step` in `memory/config.json`. If `max_step` is `null`, no upper bound. |
 | `source_agent` | string | See `valid_source_agents` in `memory/config.json` |
-| `type` | string | `bug_fix`, `optimization`, `architectural_pattern` |
+| `type` | string | `bug_fix`, `optimization`, `architectural_pattern`, `meta_learning` |
 | `domain` | string | See `valid_domains` in `memory/config.json` |
 | `components` | string[] | Non-empty array of class/system names |
 | `files_touched` | string[] | Non-empty array of file paths |
@@ -91,9 +91,9 @@ python memory/filter.py --log-file "$env:TEMP\learning.json"
 
 **Consolidation (Sleep Cycle):**
 
-Run when unresolved entries exceed 25, 1 days pass since last consolidation, or quarantine exceeds threshold. The engine prints `## SLEEP CYCLE DUE` banner when a trigger fires.
+Run when unresolved entries exceed threshold (default 20), 1 day passes since last consolidation, or quarantine exceeds threshold (default 20). All three thresholds are configurable under `tuning` in `memory/config.json` (`sleep_cycle_unresolved_threshold`, `sleep_cycle_days`, `sleep_cycle_quarantine_threshold`; set any to `0` to disable). The engine prints `## SLEEP CYCLE DUE` banner when a trigger fires.
 
-1. **Trigger (automated):** The engine prints banner when unresolved entry count > 25, 1 days since last consolidation, or quarantine entries exceed threshold.
+1. **Trigger (automated):** The engine prints banner when unresolved entry count exceeds `sleep_cycle_unresolved_threshold` (default 20), `sleep_cycle_days` since last consolidation (default 1), or quarantine entries exceed `sleep_cycle_quarantine_threshold` (default 20).
 2. **GM:** Archive → distill → draft a proposed diff to `SYSTEM_INVARIANTS.md` (output in chat, **NOT applied**).
 3. **Human:** Review the proposed diff, apply to `SYSTEM_INVARIANTS.md`.
 4. **GM:** Reset `learnings.jsonl` only after human confirms.

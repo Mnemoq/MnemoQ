@@ -38,11 +38,12 @@ def check_sleep_cycle(paths, ctx, unresolved_count):
     reasons = []
 
     # Threshold: unresolved entries
-    if unresolved_count > 25:
+    unresolved_threshold = ctx.get("sleep_cycle_unresolved_threshold", 20)
+    if unresolved_threshold and unresolved_threshold > 0 and unresolved_count > unresolved_threshold:
         reasons.append("threshold")
 
     # Time-based: days since last consolidation
-    sleep_cycle_days = ctx.get("sleep_cycle_days", 7)
+    sleep_cycle_days = ctx.get("sleep_cycle_days", 1)
     if sleep_cycle_days and sleep_cycle_days > 0:
         last_ts = _last_consolidation_ts(paths)
         if not last_ts:

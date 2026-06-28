@@ -231,10 +231,11 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
                     "diff_url": f"/api/diff?ts={e.get('ts')}",
                 })
 
+        unresolved_threshold = stats.get("sleep_cycle_unresolved_threshold", 20)
         return {
             "unresolved": len(unresolved),
             "total_entries": len(entries),
-            "sleep_cycle_due": stats.get("sleep_cycle_due", len(unresolved) > 50),
+            "sleep_cycle_due": stats.get("sleep_cycle_due", len(unresolved) > unresolved_threshold),
             "last_sprint": last_sprint,
             "last_consolidation_ts": last_consolidation_ts,
             "promotion_candidates": candidates,

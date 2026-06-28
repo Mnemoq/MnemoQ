@@ -1415,8 +1415,8 @@ class TestTemplateConfigDrift:
     template (and vice versa)."""
 
     # Keys whose template value intentionally differs from the constant default.
-    # sleep_cycle_days: constant default is 1 (eager), template recommends 7.
-    KNOWN_DIVERGENCES = {"sleep_cycle_days"}
+    # (none — template and constant defaults are kept in sync.)
+    KNOWN_DIVERGENCES = set()
 
     def test_template_tuning_matches_defaults(self):
         import json
