@@ -68,10 +68,33 @@ tabs.forEach((tab) => {
 window.addEventListener("hashchange", handleHash);
 
 // ---------------------------------------------------------------------------
+// Data source toggle (Real / Fakes)
+// ---------------------------------------------------------------------------
+async function initDataSourceToggle() {
+  const select = document.getElementById("data-source-toggle");
+  try {
+    const config = await API.get("/config");
+    select.value = config.data_source || "real";
+  } catch (e) {
+    select.value = "real";
+  }
+  select.addEventListener("change", async () => {
+    try {
+      await API.put("/config", { data_source: select.value });
+      toast(`Switched to ${select.value} data`, "success");
+      handleHash();
+    } catch (e) {
+      toast(`Switch failed: ${e.message}`, "error");
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   initProjectSwitcher();
+  initDataSourceToggle();
   handleHash();
   renderQueryHistory();
   lucide?.createIcons();

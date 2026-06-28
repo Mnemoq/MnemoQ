@@ -724,6 +724,8 @@ Examples:
     parser.add_argument("--auto-learn", action="store_true",
                         help="Run auto-learning: detect patterns from git history, retrieval gaps, and corpus analysis")
     parser.add_argument("--verify", action="store_true", help="Validate every entry in learnings.jsonl against schema")
+    parser.add_argument("--install-hooks", action="store_true",
+                        help="Install a git post-commit hook that runs --auto-learn (backgrounded) after each commit")
 
     args = parser.parse_args()
 
@@ -737,6 +739,12 @@ Examples:
     if args.version:
         print(f"agent-memory-engine v{ENGINE_VERSION}", file=sys.stderr)
         return 0
+
+    # --install-hooks is a setup op: zero-dependency, operates on .git/, runs
+    # before any memory-dir/config resolution.
+    if args.install_hooks:
+        from agent_memory.engine.hooks import install_hooks
+        return install_hooks()
 
     # Resolve memory directory paths (must happen before load_config)
     global PATHS

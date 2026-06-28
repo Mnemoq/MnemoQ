@@ -26,23 +26,39 @@ MINOR_RETENTION = 5
 MAJOR_RETENTION = 20
 ESCALATION_THRESHOLD = 30
 
-SLEEP_CYCLE_DAYS = 7
+SLEEP_CYCLE_DAYS = 1
 SLEEP_CYCLE_QUARANTINE_THRESHOLD = 20
 
+# Auto-learn detector thresholds.
+#
+# Lowered (2026-06) so detectors can fire on small corpora — at <100 entries
+# the original values (fix_commit 3, reinforcement 5, access 10) are effectively
+# unreachable, leaving auto-learn dormant. These are also mirrored in
+# templates/config.json's tuning block; keep the two in sync (see the
+# DEFAULTS-vs-template drift guard in tests).
+#
+# TODO: Consider scale-aware thresholds when the corpus exceeds ~500 entries.
+# Scale-aware: effective_threshold = base * min(1.0, log10(n) / log10(500))
+# This auto-lowers thresholds for small corpora and restores full thresholds
+# as the corpus grows. Premature at current scale — revisit later.
 AUTO_LEARN_ENABLED = True
 AUTO_LEARN_GIT_SCAN_DEPTH = 20
-AUTO_LEARN_FIX_COMMIT_THRESHOLD = 3
+AUTO_LEARN_FIX_COMMIT_THRESHOLD = 2
 AUTO_LEARN_UNDER_RETRIEVED_ACCESS = 2
-AUTO_LEARN_UNDER_RETRIEVED_REINFORCEMENT = 5
-AUTO_LEARN_OVER_INJECTED_ACCESS = 10
-AUTO_LEARN_OVER_INJECTED_REINFORCEMENT = 2
+AUTO_LEARN_UNDER_RETRIEVED_REINFORCEMENT = 2
+AUTO_LEARN_OVER_INJECTED_ACCESS = 5
+AUTO_LEARN_OVER_INJECTED_REINFORCEMENT = 1
 AUTO_LEARN_STALENESS_THRESHOLD = 500
 AUTO_LEARN_MAX_FILES_PER_COMMIT = 5
 AUTO_LEARN_MAX_PER_RUN = 20
 AUTO_LEARN_RETRIEVAL_FAILURE_CAP = 100
 
 EVALUATE_ENABLED = True
-EVALUATE_AUTO_LOG_THRESHOLD = 0.9
+# Lowered 0.9 -> 0.5 (2026-06) so all detector signals auto-log: human
+# correction (0.95), explicit remember (0.85), bug fixed (0.70), decision
+# (0.60), workaround (0.55). At 0.9 only human corrections became entries.
+# Configurable via config.json tuning.evaluate_auto_log_threshold.
+EVALUATE_AUTO_LOG_THRESHOLD = 0.5
 EVALUATE_MAX_PER_TURN = 3
 
 AGENTS_CONFLICT_JACCARD_THRESHOLD = 0.1

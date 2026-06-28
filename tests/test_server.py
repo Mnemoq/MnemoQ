@@ -786,3 +786,13 @@ class TestAutoLearn:
             assert "deduped" in data
             assert "skipped" in data
 
+
+class TestMCPEvaluatePromptSchema:
+    def test_evaluate_prompt_in_tools(self):
+        """MCP TOOLS list must include evaluate_prompt with expected required fields."""
+        from agent_memory.engine.mcp_server import TOOLS
+        tool = next((t for t in TOOLS if t["name"] == "evaluate_prompt"), None)
+        assert tool is not None, "evaluate_prompt not found in TOOLS"
+        required = set(tool["inputSchema"].get("required", []))
+        expected = {"step", "prompt_type", "outcome", "components", "files_touched"}
+        assert expected.issubset(required), f"Missing required fields: {expected - required}"

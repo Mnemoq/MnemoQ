@@ -812,6 +812,46 @@ class TestScaffoldIntegration:
         assert (fresh_project / "AGENTS.md").exists()
         assert "Wired:" in result.stdout
 
+    def test_memory_protocol_single_source_propagation(self, tmp_path, monkeypatch):
+        """The shared memory protocol is single-sourced from agents-memory-section.md.
+
+        Hermetic: points scaffold.ENGINE_DIR at the repo tree (not the deployed
+        ~/.agent-memory/engine) so the assertion is about the repo's generation
+        logic, independent of deploy state. The canonical body must reach every
+        generated IDE target — AGENTS.md, CLAUDE.md, copilot-instructions.md, and
+        cursor's generated memory-protocol.mdc (which must keep its frontmatter)."""
+        import agent_memory.scaffold as scaffold
+
+        repo_root = Path(__file__).parent.parent
+        monkeypatch.setattr(scaffold, "ENGINE_DIR", repo_root)
+
+        target = tmp_path / "proj"
+        target.mkdir()
+
+        scaffold.wire_claude_code(target)
+        scaffold.wire_copilot(target)
+        scaffold.wire_cursor(target)
+
+        # A line that lives only in the single canonical section.
+        canonical = (repo_root / "templates" / "agents-memory-section.md").read_text(encoding="utf-8")
+        assert "--install-hooks" in canonical, "test sentinel missing from canonical source"
+
+        targets = [
+            target / "CLAUDE.md",
+            target / ".github" / "copilot-instructions.md",
+            target / "AGENTS.md",
+            target / ".cursor" / "rules" / "memory-protocol.mdc",
+        ]
+        for t in targets:
+            assert t.exists(), f"{t} was not generated"
+            assert "--install-hooks" in t.read_text(encoding="utf-8"), \
+                f"{t.name} missing single-sourced protocol content"
+
+        # Cursor's generated rule must keep its frontmatter wrapper.
+        mdc = (target / ".cursor" / "rules" / "memory-protocol.mdc").read_text(encoding="utf-8")
+        assert mdc.startswith("---"), "cursor memory-protocol.mdc missing frontmatter"
+        assert "alwaysApply: true" in mdc
+
     def test_templates_are_platform_agnostic(self):
         """Test that shared templates contain no opencode-specific bias."""
         templates_dir = Path(__file__).parent.parent / "templates"

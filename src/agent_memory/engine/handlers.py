@@ -12,7 +12,7 @@ import time
 
 from agent_memory.engine.agents_review import check_agents_conflict
 from agent_memory.engine.git_utils import stamp_entry
-from agent_memory.engine.io import append_learning, quarantine, read_learnings, write_learnings
+from agent_memory.engine.io import append_learning, quarantine, read_learnings, read_learnings_for_dashboard, write_learnings
 from agent_memory.engine.metrics import log_event
 from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
 from agent_memory.engine.retrieval import embed_entry, encode_embedding, find_semantic_duplicate
@@ -351,7 +351,7 @@ def handle_resolve(ts, paths):
 def stats_core(paths, emit_event: bool = True, ctx=None):
     """Shared logic for --stats mode. Returns dict, no printing."""
     _start = time.perf_counter() if emit_event else None
-    entries = read_learnings(paths)
+    entries = read_learnings_for_dashboard(paths, ctx)
 
     if not entries:
         if emit_event:

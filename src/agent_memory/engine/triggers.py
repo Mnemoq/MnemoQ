@@ -38,7 +38,7 @@ def check_sleep_cycle(paths, ctx, unresolved_count):
     reasons = []
 
     # Threshold: unresolved entries
-    if unresolved_count > 50:
+    if unresolved_count > 25:
         reasons.append("threshold")
 
     # Time-based: days since last consolidation

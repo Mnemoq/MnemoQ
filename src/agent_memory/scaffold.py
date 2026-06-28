@@ -573,13 +573,29 @@ def wire_windsurf(target_path):
     return True
 
 
+# Cursor requires .mdc rule files to carry frontmatter. The memory protocol body
+# itself is single-sourced from agents-memory-section.md; only this wrapper is
+# Cursor-specific (mirrors the `# Project Instructions` header used for
+# claude-code/copilot). Keep persona rules as copied files — only the shared
+# protocol is generated.
+CURSOR_MEMORY_PROTOCOL_FRONTMATTER = (
+    '---\n'
+    'description: "Memory protocol for AI agents — retrieval, logging, and consolidation"\n'
+    'alwaysApply: true\n'
+    '---\n\n'
+)
+
+
 def wire_cursor(target_path):
-    """Wire memory into Cursor: copy .mdc rules, append AGENTS.md."""
+    """Wire memory into Cursor: copy persona .mdc rules, generate the shared
+    memory-protocol.mdc from the canonical section, append AGENTS.md."""
     print("\nWiring cursor...")
-    
+
     rules_src = ENGINE_DIR / "templates" / "cursor-rules"
     rules_dst = target_path / ".cursor" / "rules"
-    rule_files = ["memory-protocol.mdc", "gm.mdc", "code-reviewer.mdc", "test-writer.mdc",
+    # memory-protocol.mdc is NOT copied — it is generated from the canonical
+    # agents-memory-section.md below so all IDEs share one source of truth.
+    rule_files = ["gm.mdc", "code-reviewer.mdc", "test-writer.mdc",
                    "meta-agent.mdc", "fuzzer.mdc", "docs-writer.mdc",
                    "security.mdc", "explorer.mdc", "refactorer.mdc"]
     copied, skipped, failed = copy_prompts(target_path, src_dir=rules_src, dst_dir=rules_dst,
@@ -590,7 +606,18 @@ def wire_cursor(target_path):
         print(f"  Skipped existing: {', '.join(skipped)}")
     if failed:
         print(f"  WARNING: Failed to copy {len(failed)} rules: {', '.join(failed)}", file=sys.stderr)
-    
+
+    rules_dst.mkdir(parents=True, exist_ok=True)
+    proto_status = append_or_create_file(
+        target_path, ".cursor/rules/memory-protocol.mdc", read_memory_section(),
+        create_header=CURSOR_MEMORY_PROTOCOL_FRONTMATTER)
+    if proto_status == "created":
+        print("  Created .cursor/rules/memory-protocol.mdc")
+    elif proto_status == "appended":
+        print("  Appended Memory section to .cursor/rules/memory-protocol.mdc")
+    else:
+        print("  .cursor/rules/memory-protocol.mdc already has Memory section (skipped)")
+
     mem_status = append_agents_md_memory_section(target_path)
     if mem_status == "appended":
         print("  Appended Memory section to AGENTS.md")

@@ -91,9 +91,25 @@ python memory/filter.py --log-file "$env:TEMP\learning.json"
 
 **Consolidation (Sleep Cycle):**
 
-Run when unresolved entries exceed 50, N days pass since last consolidation, or quarantine exceeds threshold. The engine prints `## SLEEP CYCLE DUE` banner when a trigger fires.
+Run when unresolved entries exceed 25, 1 days pass since last consolidation, or quarantine exceeds threshold. The engine prints `## SLEEP CYCLE DUE` banner when a trigger fires.
 
-1. **Trigger (automated):** The engine prints banner when unresolved entry count > 50, N days since last consolidation, or quarantine entries exceed threshold.
+1. **Trigger (automated):** The engine prints banner when unresolved entry count > 25, 1 days since last consolidation, or quarantine entries exceed threshold.
 2. **GM:** Archive → distill → draft a proposed diff to `SYSTEM_INVARIANTS.md` (output in chat, **NOT applied**).
 3. **Human:** Review the proposed diff, apply to `SYSTEM_INVARIANTS.md`.
 4. **GM:** Reset `learnings.jsonl` only after human confirms.
+
+**Session End — Evaluate & Auto-Learn (close the loop):**
+
+The memory is only as good as what gets written back. At the end of a session, run the evaluator so learnable moments become entries without hand-building each one. This path is IDE- and agent-agnostic — any tool that can run a shell command can drive it.
+
+- **CLI (works everywhere):** emit a structured summary and run
+  `mnemoq --evaluate-file <summary>.json` (or `python memory/filter.py --evaluate-file <path>`).
+  - Summary fields: `step`, `prompt_type` (`human`|`agent`), `outcome` (`correction`|`preference`|`bug_fixed`|`decision`|`workaround`|`none`), `text`, `corrected_action`, `rejected_action`, `components`, `files_touched`.
+  - Heuristic detectors score the summary: human correction `0.95`, explicit remember `0.85`, bug fixed `0.70`, decision `0.60`, workaround `0.55`.
+  - Signals at or above `evaluate_auto_log_threshold` (default `0.5`) are **auto-logged**; the rest are returned as suggestions. Raise the threshold in `memory/config.json` if that is too noisy.
+- **MCP-wired agents:** may instead call the `evaluate_prompt` tool each turn with the same ~100-byte summary; auto-logging happens server-side with zero engine tokens.
+
+**Post-commit auto-learn (install once per clone):**
+- Run `mnemoq --install-hooks` to install a git `post-commit` hook that runs `mnemoq --auto-learn` in the background after each commit (it never blocks or slows the commit). Auto-learn mines git history and corpus/retrieval metrics for repeated fixes, reverts, under-retrieved/over-injected entries, conflicts, and retrieval failures.
+
+See the [Integration Guide](../docs/integration-guide.md) for the full retrieve → log → evaluate → auto-learn loop and per-IDE wiring tips.

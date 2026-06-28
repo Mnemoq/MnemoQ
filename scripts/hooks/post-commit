@@ -1,0 +1,20 @@
+#!/bin/sh
+# agent-memory-engine (mnemoq) post-commit hook.
+#
+# Runs auto-learning in the background after each commit. It never blocks or
+# fails the commit; errors are appended to <git-dir>/mnemoq-auto-learn.log.
+#
+# Install with:  python -m agent_memory.cli --install-hooks
+#
+# NOTE: src/agent_memory/engine/hooks.py embeds the canonical copy of this
+# script (POST_COMMIT_HOOK) and writes that on install. This file is the
+# human-readable reference; keep them in sync if you edit either.
+
+LOG="$(git rev-parse --git-dir)/mnemoq-auto-learn.log"
+
+(
+  python -m agent_memory.cli --auto-learn >/dev/null 2>>"$LOG" \
+    || echo "mnemoq auto-learn failed (see $LOG)" >>"$LOG"
+) &
+
+exit 0

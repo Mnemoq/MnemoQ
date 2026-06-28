@@ -30,7 +30,7 @@ from agent_memory.engine.consolidation import (
     review_quarantine,
 )
 from agent_memory.engine.handlers import stats_core
-from agent_memory.engine.io import _read_raw_jsonl, read_learnings
+from agent_memory.engine.io import _read_raw_jsonl, read_learnings_for_dashboard
 from agent_memory.engine.metrics import (
     _agent_stats,
     _consolidation_stats,
@@ -53,6 +53,11 @@ def _validate_config_update(body):
             status_code=400,
             detail=ErrorResponse(code="BAD_REQUEST", message="Config must be a JSON object.").model_dump(),
         )
+
+    if "data_source" in body and body["data_source"] not in ("real", "fakes"):
+        raise HTTPException(status_code=400,
+            detail=ErrorResponse(code="BAD_REQUEST",
+                message="data_source must be 'real' or 'fakes'.").model_dump())
 
     if "project_name" in body:
         if not isinstance(body["project_name"], str) or not body["project_name"].strip():
@@ -178,7 +183,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
 
     @router.get("/api/consolidation")
     async def consolidation_state():
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         unresolved = [e for e in entries if not e.get("resolved", False)]
         stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
@@ -246,7 +251,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
     @router.get("/api/diff")
     async def diff_entry(ts: str = Query(...)):
         entry = None
-        for e in read_learnings(paths):
+        for e in read_learnings_for_dashboard(paths, ctx):
             if e.get("ts") == ts:
                 entry = e
                 break
@@ -295,7 +300,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
         step_max: int | None = Query(None),
         q: str | None = Query(None),
     ):
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         if domain:
             entries = [e for e in entries if e.get("domain") == domain]
         if type:
@@ -323,7 +328,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
 
     @router.get("/api/learnings/{ts}")
     async def get_learning(ts: str):
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         for e in entries:
             if e.get("ts") == ts:
                 return e
@@ -370,12 +375,12 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
 
     @router.get("/api/metrics/lifecycle")
     async def metrics_lifecycle():
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         return _lifecycle_stats(entries)
 
     @router.get("/api/metrics/agents")
     async def metrics_agents():
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         log_events = read_metrics(paths, event_type="log")
         return {"agents": _agent_stats(entries, log_events)}
 
@@ -391,7 +396,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
 
     @router.get("/api/metrics/snapshot")
     async def metrics_snapshot():
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
@@ -465,7 +470,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
         stats = stats_core(paths, emit_event=False, ctx=ctx)
         stats.pop("exit_code", None)
         stats.pop("status", None)
-        entries = read_learnings(paths)
+        entries = read_learnings_for_dashboard(paths, ctx)
         events, r, log_stats, c = get_metrics_data(paths)
         md = {"retrieval": r, "logging": log_stats, "consolidation": c}
         trends = _trend_stats(events, days=30)
@@ -544,6 +549,18 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, paths.config_path)
+            from agent_memory.engine.constants import DEFAULTS
+            with open(paths.config_path, encoding="utf-8") as f:
+                fresh = json.load(f)
+            new_ctx = {k.lower(): v for k, v in DEFAULTS.items()}
+            for k, v in fresh.items():
+                if k == "tuning" and isinstance(v, dict):
+                    for tk, tv in v.items():
+                        new_ctx[tk.lower()] = tv
+                else:
+                    new_ctx[k.lower()] = v
+            nonlocal ctx
+            ctx = new_ctx
         except OSError as e:
             try:
                 os.unlink(tmp_path)
@@ -660,13 +677,13 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
             pp = make_project_paths(project_root)
             if pp is None:
                 continue
-            entries = read_learnings(pp)
+            entries = read_learnings_for_dashboard(pp, ctx)
             events = read_metrics(pp)
             all_events.extend(events)
             r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
             log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
             c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
-            stats = stats_core(pp, emit_event=False)
+            stats = stats_core(pp, emit_event=False, ctx=ctx)
             stats.pop("exit_code", None)
             stats.pop("status", None)
             last_consolidation = None

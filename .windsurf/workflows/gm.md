@@ -81,3 +81,11 @@ You are highly autonomous and strictly action-oriented. You exist to build excep
   * Things already captured in `SYSTEM_INVARIANTS.md` or tiered rules
   * Trivial style preferences
   * Anything that doesn't follow the condition-action format (`trigger` must start with "When", `action` must contain "ALWAYS" or "NEVER")
+
+* **Session End (close the loop):**
+  * Before handing off, emit a structured summary of the session and run the evaluator so learnable moments are auto-logged without hand-building each entry:
+    * `python -m agent_memory.cli --evaluate-file <summary>.json`
+    * Summary fields: `step`, `prompt_type` (`human`|`agent`), `outcome` (`correction`|`preference`|`bug_fixed`|`decision`|`workaround`|`none`), `text`, `corrected_action`, `rejected_action`, `components`, `files_touched`.
+  * Signals at or above `evaluate_auto_log_threshold` (default `0.5`) auto-log; the rest are returned as suggestions.
+  * Auto-learn runs automatically after each commit if the post-commit hook is installed (`python -m agent_memory.cli --install-hooks`, once per clone).
+  * See [docs/integration-guide.md](../../docs/integration-guide.md) for the full retrieve → log → evaluate → auto-learn loop.

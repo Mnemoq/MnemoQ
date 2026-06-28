@@ -38,6 +38,15 @@ def read_learnings(paths):
     return [migrate_entry(e) for e in _read_raw_jsonl(paths.learnings_path)]
 
 
+def read_learnings_for_dashboard(paths, ctx):
+    """Read learnings or fakes depending on config data_source."""
+    source = (ctx or {}).get("data_source", "real")
+    path = paths.learnings_path
+    if source == "fakes":
+        path = os.path.join(paths.memory_dir, "fakes.jsonl")
+    return [migrate_entry(e) for e in _read_raw_jsonl(path)]
+
+
 def append_learning(paths, entry):
     """Append a single entry to learnings.jsonl with Windows retry."""
     line = json.dumps(entry, ensure_ascii=False) + "\n"
