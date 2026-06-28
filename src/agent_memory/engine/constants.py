@@ -53,6 +53,13 @@ AUTO_LEARN_MAX_FILES_PER_COMMIT = 5
 AUTO_LEARN_MAX_PER_RUN = 20
 AUTO_LEARN_RETRIEVAL_FAILURE_CAP = 100
 
+# CI writeback mode for the mnemoq-learn.yml workflow.
+#   "pr"       — open/update a PR with new entries (default; human-gated).
+#   "artifact" — emit candidates to the job summary only (zero-trust).
+#   "commit"   — bot-push directly to the branch (opt-in).
+CI_WRITEBACK = "pr"
+VALID_CI_WRITEBACKS = {"pr", "artifact", "commit"}
+
 EVALUATE_ENABLED = True
 # Lowered 0.9 -> 0.5 (2026-06) so all detector signals auto-log: human
 # correction (0.95), explicit remember (0.85), bug fixed (0.70), decision
@@ -170,6 +177,8 @@ DEFAULTS = {
     "SLEEP_CYCLE_DAYS": SLEEP_CYCLE_DAYS,
     "SLEEP_CYCLE_QUARANTINE_THRESHOLD": SLEEP_CYCLE_QUARANTINE_THRESHOLD,
     "AUTO_LEARN_ENABLED": AUTO_LEARN_ENABLED,
+    "CI_WRITEBACK": CI_WRITEBACK,
+    "VALID_CI_WRITEBACKS": VALID_CI_WRITEBACKS,
     "AUTO_LEARN_GIT_SCAN_DEPTH": AUTO_LEARN_GIT_SCAN_DEPTH,
     "AUTO_LEARN_FIX_COMMIT_THRESHOLD": AUTO_LEARN_FIX_COMMIT_THRESHOLD,
     "AUTO_LEARN_UNDER_RETRIEVED_ACCESS": AUTO_LEARN_UNDER_RETRIEVED_ACCESS,

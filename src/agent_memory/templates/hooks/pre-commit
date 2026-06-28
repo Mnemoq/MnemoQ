@@ -1,0 +1,10 @@
+#!/bin/sh
+# agent-memory-engine (mnemoq) pre-commit hook.
+# Scans staged diff for new TODO/FIXME/HACK/XXX markers. Best-effort: NEVER fails the commit.
+LOG="$(git rev-parse --git-dir)/mnemoq-scan-staged.log"
+if command -v mnemoq >/dev/null 2>&1; then
+  mnemoq --scan-staged 2>>"$LOG" || true
+else
+  python -m agent_memory.cli --scan-staged 2>>"$LOG" || true
+fi
+exit 0

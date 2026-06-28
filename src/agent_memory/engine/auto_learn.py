@@ -341,6 +341,82 @@ def detect_repeated_fixes(commits, ctx):
     return results
 
 
+# Require a comment opener immediately before the marker so we don't fire on
+# string literals, log messages, or docstrings. Covers Python/Shell (#),
+# C/C++/Java/JS/TS/Go/Rust (//, /*), SQL (--), and HTML/XML (<!--).
+_DEBT_MARKER_RE = re.compile(r"(?:#|//|/\*|--|<!--)\s*(TODO|FIXME|HACK|XXX)\b[: ]?\s*(.*)")
+
+
+def detect_debt_markers(diff_text, ctx):
+    """Scan a unified `git diff --cached` for added TODO/FIXME/HACK/XXX lines.
+
+    Pure: takes diff text and ctx; returns a list of candidate entries (each
+    with `debt_level` set) ready for log_core. Never raises on malformed diffs.
+
+    Output dedupes by (file, marker, normalized_text) so a single staged
+    pre-commit pass never floods learnings.jsonl with N copies of the same
+    marker on rewritten regions.
+    """
+    if not diff_text:
+        return []
+
+    max_markers = ctx.get("auto_learn_max_per_run", 20)
+    results = []
+    seen = set()
+    current_file = None
+
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            # "+++ b/path/to/file" or "+++ /dev/null"
+            path = line[4:].strip()
+            if path.startswith("b/"):
+                path = path[2:]
+            current_file = path if path != "/dev/null" else None
+            continue
+        if line.startswith("---") or line.startswith("@@") or line.startswith("diff "):
+            continue
+        if not line.startswith("+"):
+            continue
+        # Added line (skip the leading "+" but ignore "+++" already handled)
+        added = line[1:]
+        match = _DEBT_MARKER_RE.search(added)
+        if not match:
+            continue
+        marker = match.group(1).upper()
+        comment = match.group(2).strip() or marker.lower()
+        file_path = current_file or "unknown"
+        key = (file_path, marker, comment.lower()[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+
+        parts = file_path.replace("\\", "/").split("/")
+        component = parts[-1].rsplit(".", 1)[0] if parts and parts[-1] else file_path
+        # debt_level mapping: TODO/FIXME ≈ workaround, HACK/XXX ≈ temporary.
+        debt_level = "temporary" if marker in ("HACK", "XXX") else "workaround"
+        snippet = comment[:120]
+
+        results.append({
+            "step": 1,  # set by auto_learn_core / caller
+            "source_agent": "system",
+            "type": "bug_fix",
+            "domain": _derive_domain(file_path),
+            "components": [component] if component else [file_path],
+            "files_touched": [file_path],
+            "trigger": f"When working in {file_path}",
+            "action": f"ALWAYS address the {marker} marker introduced here: \"{snippet}\"",
+            "reason": f"Detected new {marker} marker in staged diff; flagged as technical debt.",
+            "importance": 6 if marker in ("TODO", "FIXME") else 7,
+            "severity": "minor" if marker == "TODO" else "major",
+            "debt_level": debt_level,
+            "resolved": False,
+        })
+        if len(results) >= max_markers:
+            break
+
+    return results
+
+
 def detect_reverts(commits, ctx):
     """Detect revert commits and generate learnings from parseable subjects."""
     results = []
@@ -572,4 +648,72 @@ def auto_learn_core(paths, ctx):
         "skipped": skipped,
         "capped": capped,
         "git_available": git_available,
+    }
+
+
+def scan_staged_core(paths, ctx):
+    """Run the pre-commit debt-marker scan over `git diff --cached`.
+
+    Best-effort: any error (git missing, no repo, malformed diff) is swallowed
+    so the caller can always exit 0 from a pre-commit hook.
+    """
+    if not ctx.get("auto_learn_enabled", True):
+        return {"exit_code": 0, "status": "disabled", "generated": [],
+                "deduped": 0, "skipped": 0, "git_available": True}
+
+    diff_text = ""
+    git_available = True
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--no-color", "-U0"],
+            capture_output=True, cwd=paths.repo_root,
+        )
+        if result.returncode == 0:
+            diff_text = result.stdout.decode("utf-8", errors="replace")
+        else:
+            git_available = False
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        git_available = False
+
+    candidates = detect_debt_markers(diff_text, ctx)
+
+    # Derive step from existing learnings so candidates align with the corpus.
+    # Skip the file read entirely when there are no markers — pre-commit hot path.
+    if candidates:
+        entries = read_learnings(paths)
+        max_step = max((e.get("step", 0) for e in entries), default=1)
+        for c in candidates:
+            c["step"] = max_step
+
+    generated = []
+    deduped = 0
+    skipped = 0
+    for candidate in candidates:
+        try:
+            result = log_core(json.dumps(candidate), paths, ctx)
+        except Exception:
+            skipped += 1
+            continue
+        status = result.get("status", "")
+        if status in ("added", "conflict"):
+            generated.append({
+                "type": candidate["type"],
+                "trigger": candidate["trigger"],
+                "action": candidate["action"],
+                "files_touched": candidate.get("files_touched", []),
+                "debt_level": candidate.get("debt_level"),
+            })
+        elif status in ("duplicate", "semantic_duplicate"):
+            deduped += 1
+        else:
+            skipped += 1
+
+    return {
+        "exit_code": 0,
+        "status": "ok",
+        "generated": generated,
+        "deduped": deduped,
+        "skipped": skipped,
+        "git_available": git_available,
+        "scanned_lines": diff_text.count("\n"),
     }
