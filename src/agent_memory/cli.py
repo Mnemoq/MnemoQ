@@ -733,7 +733,7 @@ Examples:
     if args.version and any([args.step, args.log, args.log_file, args.stats, args.consolidate,
                              args.review_agents, args.auto_learn, args.evaluate, args.evaluate_file,
                              args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard,
-                             args.mcp, args.verify]):
+                             args.mcp, args.verify, args.install_hooks]):
         parser.error("--version cannot be combined with other operational flags")
 
     if args.version:

@@ -20,14 +20,6 @@ from agent_memory.engine.auto_learn import (
     detect_reverts,
     detect_under_retrieved,
 )
-from agent_memory.engine.evaluate import (
-    _build_candidate,
-    detect_bug_fixed,
-    detect_decision,
-    detect_explicit_remember,
-    detect_human_correction,
-    detect_workaround,
-)
 from agent_memory.engine.consolidation import (
     detect_contradictions,
     get_agents_md_suggestions,
@@ -42,6 +34,14 @@ from agent_memory.engine.constants import (
     VALID_SEVERITIES,
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
+)
+from agent_memory.engine.evaluate import (
+    _build_candidate,
+    detect_bug_fixed,
+    detect_decision,
+    detect_explicit_remember,
+    detect_human_correction,
+    detect_workaround,
 )
 from agent_memory.engine.retrieval import is_in_retention, score_entry
 from agent_memory.engine.validation import (
