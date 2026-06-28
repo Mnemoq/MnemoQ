@@ -315,7 +315,7 @@ The `mnemoq` command is the primary interface. Flags map directly to `*_core` fu
 
 Runs over stdio using JSON-RPC 2.0 — no HTTP dependency. Launched via `mnemoq-mcp` or `python -m agent_memory.mcp_main`. Auto-discovers `memory/` in the current working directory.
 
-**Five tools exposed:**
+**Seven tools exposed:**
 
 | Tool | Maps to | Description |
 |------|---------|-------------|
@@ -324,6 +324,8 @@ Runs over stdio using JSON-RPC 2.0 — no HTTP dependency. Launched via `mnemoq-
 | `resolve_learning` | `resolve_core()` | Mark an entry resolved by timestamp |
 | `get_stats` | `stats_core()` | Get memory statistics |
 | `consolidate` | `consolidate_core()` | Trigger Sleep Cycle consolidation |
+| `evaluate_prompt` | `evaluate_core()` | Evaluate prompt summary for learnable moments |
+| `review_agents` | `review_agents_core()` | AGENTS.md section health report |
 
 **Two resource templates:** `learnings://project/{project_id}` and `metrics://project/{project_id}`.
 
@@ -342,6 +344,7 @@ FastAPI server launched via `mnemoq --serve [--port 8765]`. Optional API key aut
 | `/api/stats` | GET | `stats_core()` |
 | `/api/metrics` | GET | `read_metrics()` + stats helpers |
 | `/api/consolidate` | POST | `consolidate_core()` |
+| `/api/review-agents` | GET | `review_agents_core()` |
 | `/api/health` | GET | version + status check |
 | `/ws/events` | WebSocket | live event stream (EventHub) |
 

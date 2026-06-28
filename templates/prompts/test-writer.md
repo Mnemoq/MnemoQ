@@ -91,8 +91,8 @@ Use module-under-test names:
   "severity": "<minor|major|critical>"
 }
 ```
-- `ts` is auto-stamped by filter.py if omitted
-- filter.py auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
+- `ts` is auto-stamped by the engine if omitted
+- The engine auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
 - **PowerShell note:** Use `--log-file <path>` instead of `--log '<json>'` to avoid shell escaping issues.
 
 ### Retrieval (MANDATORY)

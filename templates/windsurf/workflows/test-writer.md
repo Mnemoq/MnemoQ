@@ -31,7 +31,7 @@ If AGENTS.md does not define test candidates/exclusions, use these general guide
 - `handle_consolidate` — sleep cycle, retention windows, escalation
 - BM25 / RRF fusion math — pure functions with clear inputs/outputs
 - Decay/retention logic — step windows, access_count extension
-- `filter.py` profile matching — domain mappings, component matching
+- Profile matching — domain mappings, component matching
 
 ### Skip these
 - `cli.py` dispatcher — thin wrapper, tested via CLI integration

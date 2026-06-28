@@ -4,7 +4,7 @@
   "schema_version": 1,
   "max_step": null,
   "valid_domains": ["tooling", "testing", "performance", "backend", "api", "documentation", "security"],
-  "valid_source_agents": ["gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "meta-agent", "fuzzer", "docs-writer", "security", "explorer", "refactorer"],
+  "valid_source_agents": ["gm", "code-reviewer", "test-writer", "scout", "plan-reviewer", "basic-reviewer", "meta-agent", "fuzzer", "docs-writer", "security", "explorer", "refactorer", "system"],
   "retrieval_only_agents": ["basic-reviewer"],
   "domain_mappings": null,
   "embedding_model": "all-MiniLM-L6-v2",

@@ -64,8 +64,8 @@ Before logging, check `memory/config.json` for `valid_domains` and `valid_source
   "severity": "<minor|major|critical>"
 }
 ```
-- `ts`, `commit`, `access_count`, `resolved` are auto-stamped by filter.py — omit these
-- filter.py auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
+- `ts`, `commit`, `access_count`, `resolved` are auto-stamped by the engine — omit these
+- The engine auto-deduplicates entries using two-layer dedup: semantic cosine similarity (≥ 0.85, configurable via `semantic_dedup_threshold`) as primary, then Jaccard similarity (≥ 0.7) as fallback
 - **PowerShell note:** Use `--log-file <path>` instead of `--log '<json>'` to avoid shell escaping issues.
 
 ### Retrieval (MANDATORY)
@@ -73,7 +73,7 @@ Before reviewing, run:
 ```bash
 python memory/filter.py --step <N> --components <CompA,CompB> --domain <domain>
 ```
-If `filter.py` returns no warnings and no patterns, proceed with the standard review.
+If retrieval returns no warnings and no patterns, proceed with the standard review.
 
 ### Rule Verification
 After retrieval, compare the code under review against `## ⚠ WARNINGS` from the output:
@@ -94,7 +94,7 @@ For each resolved entry, use `python memory/filter.py --resolve <ts>`.
 
 ### Notes
 - code-reviewer uses `--step` (retrieval), `--log` (write), and `--resolve` (garbage collection) modes.
-- If `filter.py` exits with an error, proceed with the review but note the failure in the report summary.
+- If the engine exits with an error, proceed with the review but note the failure in the report summary.
 
 ## Output Format
 

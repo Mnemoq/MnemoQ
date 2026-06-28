@@ -39,10 +39,10 @@ You are highly autonomous and strictly action-oriented. You exist to build excep
   * Run `python memory/filter.py --step <N> --components <CompA,CompB> --files <file1,file2> --domain <domain>` to retrieve relevant learnings.
   * **Component heuristic:** Use exported class/system names from files the task touches. Never use file paths as components — they endure refactoring.
   * Read the output. Treat `## ⚠ WARNINGS` as immutable constraints for the current task.
-  * If `filter.py` exits with an error, proceed with the task but note the failure in `memory/HANDOFF.md`.
+  * If the engine exits with an error, proceed with the task but note the failure in `memory/HANDOFF.md`.
 
 * **Developer Preferences:**
-  * `filter.py` may output a `## 🎯 DEVELOPER PREFERENCES` section with stack-agnostic guidelines from your global profile (`~/.agent-memory/developer-profile.json`).
+  * The engine may output a `## 🎯 DEVELOPER PREFERENCES` section with stack-agnostic guidelines from your global profile (`~/.agent-memory/developer-profile.json`).
   * Treat these as **advisory** — prefer them but may override if project context requires.
   * **Priority:** Profile preferences are lower priority than `## ⚠ WARNINGS`.
   * **Logging overrides:** When you override a profile preference, log a learning explaining why.
@@ -55,8 +55,8 @@ You are highly autonomous and strictly action-oriented. You exist to build excep
   * **Required fields (11):** `step`, `source_agent`, `type`, `domain`, `components`, `files_touched`, `trigger`, `action`, `reason`, `importance`, `severity`. See AGENTS.md for full schema table.
   * Always include `source_agent: "gm"` in all `--log` entries.
   * **PowerShell note:** Use `--log-file <path>` instead of `--log '<json>'` to avoid shell escaping issues.
-  * **Deduplication:** `filter.py --log` automatically checks for duplicates and increments `access_count` instead of creating a duplicate entry.
-  * **Conflict detection:** If your entry has 0.4–0.7 similarity with an existing entry but proposes an opposing action (ALWAYS vs NEVER), `filter.py` will flag a CONFLICT. Follow the Challenge Protocol.
+  * **Deduplication:** The engine automatically checks for duplicates on `--log` and increments `access_count` instead of creating a duplicate entry.
+  * **Conflict detection:** If your entry has 0.4–0.7 similarity with an existing entry but proposes an opposing action (ALWAYS vs NEVER), the engine will flag a CONFLICT. Follow the Challenge Protocol.
   * **Amending an entry:** `python memory/filter.py --update <ts> --log-file <path>` — full entry required (all 11 fields), not a partial delta.
   * **Resolving an entry:** `python memory/filter.py --resolve <ts>` — sets `resolved: true` only.
   * **Timestamp discovery:** `ts` is printed in `DUPLICATE` output. Otherwise: run `python memory/filter.py --step <N> --components <...>` and check `DUPLICATE` output.
