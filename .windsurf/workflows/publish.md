@@ -4,6 +4,18 @@ description: Bumps VERSION, commits, tags, and pushes from main to trigger the P
 
 ## Steps
 
+### 0. Git session lock
+
+Acquire the git session lock before proceeding. See `_git-lock.md` for the full lock-check snippet.
+
+Run the lock-check command. If `LOCKED:`, stop and inform the user. If `STALE:`, override. If `FREE`, acquire:
+
+```powershell
+"$([DateTime]::UtcNow.ToString('o')) /publish" | Set-Content ".git/.windsurf-git-lock"
+```
+
+---
+
 ### 1. Run tests
 
 Ensure your project venv is active, then install dev dependencies:
@@ -214,3 +226,13 @@ If the PyPI upload fails and the tag is already pushed:
   git push origin main
   ```
 - Fix the issue, then repeat from Step 1 with a new version number.
+
+---
+
+## Cleanup
+
+**On any exit** — whether the workflow completes successfully, the user aborts, or an error occurs — always release the git session lock before ending:
+
+```powershell
+Remove-Item ".git/.windsurf-git-lock" -ErrorAction SilentlyContinue
+```

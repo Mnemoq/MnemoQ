@@ -118,7 +118,7 @@ def extract_section_keywords(heading, content):
     return tokenize_keywords(text)
 
 
-def check_agents_conflict(entry, paths):
+def check_agents_conflict(entry, paths, ctx=None):
     """Check if a learning overlaps with AGENTS.md sections.
 
     Returns (overlap_detected, best_section, jaccard_score, containment_hits) or
@@ -167,40 +167,43 @@ def check_agents_conflict(entry, paths):
             best_containment = containment
             best_section = heading
 
-    # Threshold: 0.1 Jaccard OR >=3 containment hits
+    # Threshold: configurable via ctx (defaults: 0.1 Jaccard OR >=3 containment hits)
     # (Lenient for informational warning; large sections dilute Jaccard)
-    if best_jaccard >= 0.1 or best_containment >= 3:
+    _ctx = ctx or {}
+    jaccard_threshold = _ctx.get("agents_conflict_jaccard_threshold", 0.1)
+    containment_threshold = _ctx.get("agents_conflict_containment_threshold", 3)
+    if best_jaccard >= jaccard_threshold or best_containment >= containment_threshold:
         return True, best_section, best_jaccard, best_containment
 
     return False, None, best_jaccard, best_containment
 
 
-def handle_review_agents(current_step, threshold, paths):
-    """Handle --review-agents mode: diagnostic report on AGENTS.md section health."""
+def review_agents_core(current_step, threshold, paths):
+    """Core logic for --review-agents: returns dict with section health data.
+
+    Used by MCP server, HTTP API, and handle_review_agents wrapper.
+    """
     _start = time.perf_counter()
     sections = parse_agents_sections(paths.agents_md_path)
 
     if not sections:
+        latency = round((time.perf_counter() - _start) * 1000, 2)
         log_event(paths, "review_agents", current_step=current_step, threshold=threshold,
                   section_count=0, recent_learnings=0, active_sections=0,
                   cold_sections=0, unmatched_learnings=0,
-                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        print("## AGENTS.md Section Health Report")
-        print(f"(step {current_step}, threshold {threshold})")
-        print()
-        if not os.path.exists(paths.agents_md_path):
-            print("WARNING: AGENTS.md not found at:", paths.agents_md_path)
-        else:
-            print("WARNING: AGENTS.md has no ## headings — nothing to report.")
-        return 0
+                  latency_ms=latency)
+        warning = (f"AGENTS.md not found at: {paths.agents_md_path}"
+                   if not os.path.exists(paths.agents_md_path)
+                   else "AGENTS.md has no ## headings — nothing to report.")
+        return {"exit_code": 0, "section_count": 0, "recent_learnings": 0,
+                "active_sections": [], "cold_sections": [], "unmatched_learnings": [],
+                "warning": warning, "latency_ms": latency}
 
-    # Extract keywords for each section
     section_keywords = []
     for heading, content in sections:
         keywords = extract_section_keywords(heading, content)
         section_keywords.append((heading, keywords))
 
-    # Read learnings within the threshold window
     entries = read_learnings(paths)
     recent_entries = [
         e for e in entries
@@ -208,9 +211,9 @@ def handle_review_agents(current_step, threshold, paths):
         and (current_step - e.get("step", 0)) <= threshold
     ]
 
-    # Cross-reference: count matches per section
     section_ref_counts = {heading: 0 for heading, _ in sections}
     unmatched_learnings = []
+    multi_match_warnings = []
 
     for entry in recent_entries:
         trigger_action = entry.get("trigger", "") + " " + entry.get("action", "")
@@ -223,41 +226,23 @@ def handle_review_agents(current_step, threshold, paths):
                 matched_sections.append(heading)
 
         if not matched_sections:
-            unmatched_learnings.append(entry)
+            unmatched_learnings.append({
+                "step": entry.get("step", "?"),
+                "domain": entry.get("domain", "?"),
+                "trigger": entry.get("trigger", ""),
+            })
         elif len(matched_sections) > 1:
-            print(f"WARNING: Learning matches multiple sections: {matched_sections}", file=sys.stderr)
-            print(f"  Learning: {entry.get('trigger', '')}", file=sys.stderr)
+            multi_match_warnings.append({
+                "sections": matched_sections,
+                "trigger": entry.get("trigger", ""),
+            })
 
-    # Output report
-    print("## AGENTS.md Section Health Report")
-    print(f"(step {current_step}, threshold {threshold})")
-    print()
+    active = [{"heading": h, "refs": c} for h, c in section_ref_counts.items() if c > 0]
+    cold = [{"heading": h, "refs": 0} for h, c in section_ref_counts.items() if c == 0]
 
-    # ACTIVE sections
-    active = [(h, c) for h, c in section_ref_counts.items() if c > 0]
-    if active:
-        print("### ACTIVE — Referenced by learnings")
-        for heading, count in active:
-            print(f"- {heading.lower().replace(' ', '-')} ({count} refs)")
-        print()
-
-    # COLD sections
-    cold = [(h, c) for h, c in section_ref_counts.items() if c == 0]
-    if cold:
-        print(f"### COLD — No references in last {threshold} steps")
-        for heading, count in cold:
-            print(f"- {heading.lower().replace(' ', '-')} (0 refs) — may be foundational or stale")
-        print()
-
-    # UNMATCHED learnings
-    if unmatched_learnings:
-        print("### UNMATCHED — Learnings with no section match")
-        for entry in unmatched_learnings:
-            print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}] {entry.get('trigger', '')}")
-        print()
-
-    active_count = sum(1 for c in section_ref_counts.values() if c > 0)
-    cold_count = sum(1 for c in section_ref_counts.values() if c == 0)
+    active_count = len(active)
+    cold_count = len(cold)
+    latency = round((time.perf_counter() - _start) * 1000, 2)
 
     log_event(paths, "review_agents",
         current_step=current_step,
@@ -267,7 +252,55 @@ def handle_review_agents(current_step, threshold, paths):
         active_sections=active_count,
         cold_sections=cold_count,
         unmatched_learnings=len(unmatched_learnings),
-        latency_ms=round((time.perf_counter() - _start) * 1000, 2),
+        latency_ms=latency,
     )
+
+    return {
+        "exit_code": 0,
+        "current_step": current_step,
+        "threshold": threshold,
+        "section_count": len(sections),
+        "recent_learnings": len(recent_entries),
+        "active_sections": active,
+        "cold_sections": cold,
+        "unmatched_learnings": unmatched_learnings,
+        "multi_match_warnings": multi_match_warnings,
+        "latency_ms": latency,
+    }
+
+
+def handle_review_agents(current_step, threshold, paths):
+    """Handle --review-agents mode: diagnostic report on AGENTS.md section health."""
+    result = review_agents_core(current_step, threshold, paths)
+
+    print("## AGENTS.md Section Health Report")
+    print(f"(step {current_step}, threshold {threshold})")
+    print()
+
+    if result.get("warning"):
+        print(f"WARNING: {result['warning']}")
+        return 0
+
+    if result["active_sections"]:
+        print("### ACTIVE — Referenced by learnings")
+        for s in result["active_sections"]:
+            print(f"- {s['heading'].lower().replace(' ', '-')} ({s['refs']} refs)")
+        print()
+
+    if result["cold_sections"]:
+        print(f"### COLD — No references in last {threshold} steps")
+        for s in result["cold_sections"]:
+            print(f"- {s['heading'].lower().replace(' ', '-')} (0 refs) — may be foundational or stale")
+        print()
+
+    if result["unmatched_learnings"]:
+        print("### UNMATCHED — Learnings with no section match")
+        for u in result["unmatched_learnings"]:
+            print(f"- [step-{u['step']}, {u['domain']}] {u['trigger']}")
+        print()
+
+    for w in result.get("multi_match_warnings", []):
+        print(f"WARNING: Learning matches multiple sections: {w['sections']}", file=sys.stderr)
+        print(f"  Learning: {w['trigger']}", file=sys.stderr)
 
     return 0

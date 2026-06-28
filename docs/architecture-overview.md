@@ -315,7 +315,7 @@ The `mnemoq` command is the primary interface. Flags map directly to `*_core` fu
 
 Runs over stdio using JSON-RPC 2.0 — no HTTP dependency. Launched via `mnemoq-mcp` or `python -m agent_memory.mcp_main`. Auto-discovers `memory/` in the current working directory.
 
-**Five tools exposed:**
+**Seven tools exposed:**
 
 | Tool | Maps to | Description |
 |------|---------|-------------|
@@ -324,6 +324,8 @@ Runs over stdio using JSON-RPC 2.0 — no HTTP dependency. Launched via `mnemoq-
 | `resolve_learning` | `resolve_core()` | Mark an entry resolved by timestamp |
 | `get_stats` | `stats_core()` | Get memory statistics |
 | `consolidate` | `consolidate_core()` | Trigger Sleep Cycle consolidation |
+| `evaluate_prompt` | `evaluate_core()` | Evaluate prompt summary for learnable moments |
+| `review_agents` | `review_agents_core()` | AGENTS.md section health report |
 
 **Two resource templates:** `learnings://project/{project_id}` and `metrics://project/{project_id}`.
 
@@ -342,6 +344,7 @@ FastAPI server launched via `mnemoq --serve [--port 8765]`. Optional API key aut
 | `/api/stats` | GET | `stats_core()` |
 | `/api/metrics` | GET | `read_metrics()` + stats helpers |
 | `/api/consolidate` | POST | `consolidate_core()` |
+| `/api/review-agents` | GET | `review_agents_core()` |
 | `/api/health` | GET | version + status check |
 | `/ws/events` | WebSocket | live event stream (EventHub) |
 
@@ -449,3 +452,26 @@ MnemoQ's auto-learning system self-improves the memory corpus without agent inte
 - All generated entries pass through `log_core()`, so dedup, semantic matching, and validation apply normally.
 - `source_agent: "system"` identifies auto-generated entries.
 - Configurable via `auto_learn_*` tuning parameters in `config.json`.
+
+## Per-Prompt Evaluation
+
+MnemoQ's per-prompt evaluation system captures learnable moments from structured prompt summaries — human corrections, explicit "remember" instructions, bug fixes, architectural decisions, and workarounds — without requiring the agent to explicitly log each one.
+
+### How It Works
+
+1. **Agent-built summary**: After each prompt/response cycle, the agent (or its MCP-wired host) calls `evaluate_prompt` with a ~100-byte structured summary: `prompt_type`, `outcome`, `text`, `components`, `files_touched`, and optional `corrected_action`/`rejected_action`/`error_text`.
+2. **Heuristic detectors**: Five pure detectors run on the summary, each looking for a specific signal (human correction at 0.95 confidence, explicit "remember" at 0.85, bug fixed at 0.70, decision at 0.60, workaround at 0.55).
+3. **Threshold-gated auto-log**: Signals at or above `evaluate_auto_log_threshold` (default 0.9) are auto-logged via `log_core`, getting full dedup/validation/conflict treatment. Lower-confidence signals are returned as suggestions for the agent to review.
+4. **Stateless v1**: Each evaluation is independent — no session state, no cross-prompt correlation. This keeps the feature zero-cost when no signal is detected.
+
+### Trigger Points
+
+- **`--evaluate '<json>'`** / **`--evaluate-file PATH`** CLI flags: standalone evaluation with verbose output.
+- **`evaluate_prompt` MCP tool**: programmatic access for MCP-wired agents (Claude Desktop, Cursor, Windsurf, etc.).
+
+### Key Design Decisions
+
+- All auto-logged entries pass through `log_core()`, so dedup, semantic matching, and validation apply normally.
+- `source_agent: "system"` identifies auto-generated entries (same as auto-learn).
+- Candidates that fail `validate_entry()` are routed to `skipped_invalid`, never written to `learnings.jsonl`.
+- Configurable via `evaluate_*` tuning parameters in `config.json`.

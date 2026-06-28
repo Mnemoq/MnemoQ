@@ -71,7 +71,11 @@ mnemoq --stats                          # Memory statistics
 mnemoq --resolve 2025-06-25T10:30:00    # Mark a learning resolved
 mnemoq --review-agents --step 3         # AGENTS.md section health report
 mnemoq --consolidate                    # Archive + promote (sleep cycle)
+mnemoq --install-hooks                  # Install git post-commit auto-learn hook
 ```
+
+For the full **retrieve → work → log → evaluate → auto-learn** loop and how to
+wire it into any IDE or agent, see the [Integration Guide](docs/integration-guide.md).
 
 ### 5. MCP server
 

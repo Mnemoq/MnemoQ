@@ -17,7 +17,7 @@ Run `python -m pytest tests/` before committing. Tests live in tests/test_memory
 Engine modules are tested via cli.py CLI integration, not direct imports.
 Exception: `tests/test_server.py` may import `agent_memory.engine.server.create_app` directly to exercise the HTTP API surface.
 Exception: `tests/test_triggers.py` may import `agent_memory.engine.triggers` directly to exercise sleep cycle trigger logic.
-Exception: `tests/test_pure_functions.py` may import pure functions directly from engine modules (validation, retrieval, consolidation, auto_learn) for unit testing without side effects.
+Exception: `tests/test_pure_functions.py` may import pure functions directly from engine modules (validation, retrieval, consolidation, auto_learn, evaluate) for unit testing without side effects.
 
 ## Deployment
 Bump VERSION file, then run scripts/deploy.ps1. Deploy copies to ~/.agent-memory/engine/.
@@ -28,6 +28,7 @@ These are deliberate tradeoffs — do not flag as issues in review:
 - **`*_core` functions return dicts**: Not Pydantic models. Keeps engine decoupled from API layer.
 - **No premature abstractions**: If a pattern isn't in the codebase, it was considered and rejected. Suggest only what fits existing conventions.
 - **ctx dict is read-only in core functions**: No defensive copy needed. If a core function mutates ctx, that's a bug to flag — not a reason to add copying overhead.
+- **Git session lock**: A file-based advisory lock (`.git/.windsurf-git-lock`) prevents concurrent Windsurf sessions from running git-mutating workflows simultaneously. Leaf workflows (`/commit`, `/push`, `/fast-ship`, `/rebase`, `/pr`, `/publish`) acquire and release the lock; `/ship` does not (its delegates handle it). 10-minute stale threshold auto-recovers from crashed sessions. See `.windsurf/workflows/_git-lock.md` for the lock snippet.
 
 ## Plan Deviations
 When implementing from a plan file, surface any deviation from the plan as an explicit decision point before coding it.

@@ -31,6 +31,13 @@ Desktop.ini
 .idea/
 .vscode/
 
+# Claude Code (personal agent profile)
+.claude/
+
+# Agent plan/scratch docs (any Plans/ folder, at any depth)
+Plans/
+**/Plans/
+
 # Node
 node_modules/
 
@@ -40,6 +47,9 @@ node_modules/
 # Runtime memory data
 memory/learnings.jsonl
 memory/metrics.jsonl
+memory/quarantine.jsonl
+memory/HANDOFF.md
+memory/archive/*.jsonl
 
 # Test junk
 test.json

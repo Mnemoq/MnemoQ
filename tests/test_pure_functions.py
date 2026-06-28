@@ -35,6 +35,14 @@ from agent_memory.engine.constants import (
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
 )
+from agent_memory.engine.evaluate import (
+    _build_candidate,
+    detect_bug_fixed,
+    detect_decision,
+    detect_explicit_remember,
+    detect_human_correction,
+    detect_workaround,
+)
 from agent_memory.engine.retrieval import is_in_retention, score_entry
 from agent_memory.engine.validation import (
     actions_oppose,
@@ -175,6 +183,13 @@ class TestValidateEntrySourceAgent:
     def test_valid_source_agents_none_skips_check(self):
         errors = validate_entry(_valid_entry(source_agent="bogus"), _ctx(valid_source_agents=None))
         assert not any("source_agent must be one of" in e for e in errors)
+
+    def test_cascade_agent_passes_when_whitelist_disabled(self):
+        """With the whitelist opt-out (valid_source_agents=None), an IDE agent
+        name like 'cascade' validates — the real-world unblock for the
+        quarantined cascade entry."""
+        errors = validate_entry(_valid_entry(source_agent="cascade"), _ctx(valid_source_agents=None))
+        assert errors == []
 
 
 # ---------------------------------------------------------------------------
@@ -1053,3 +1068,376 @@ class TestDetectRetrievalFailure:
                                            {"auto_learn_retrieval_failure_cap": 100})
         assert len(results) == 0
 
+
+# ---------------------------------------------------------------------------
+# evaluate: _build_candidate
+# ---------------------------------------------------------------------------
+
+class TestBuildCandidate:
+    def _summary(self, **overrides):
+        base = {
+            "step": 1,
+            "components": ["Logger"],
+            "files_touched": ["src/log.py"],
+            "text": "some text",
+        }
+        base.update(overrides)
+        return base
+
+    def test_returns_none_when_files_touched_empty(self):
+        c = _build_candidate(self._summary(files_touched=[]), _ctx(),
+                             trigger="When X", action="ALWAYS Y", reason="r")
+        assert c is None
+
+    def test_returns_none_when_components_empty(self):
+        c = _build_candidate(self._summary(components=[]), _ctx(),
+                             trigger="When X", action="ALWAYS Y", reason="r")
+        assert c is None
+
+    def test_stamps_source_agent_system(self):
+        c = _build_candidate(self._summary(), _ctx(),
+                             trigger="When X", action="ALWAYS Y", reason="r")
+        assert c["source_agent"] == "system"
+
+    def test_stamps_resolved_false(self):
+        c = _build_candidate(self._summary(), _ctx(),
+                             trigger="When X", action="ALWAYS Y", reason="r")
+        assert c["resolved"] is False
+
+    def test_derives_domain_from_first_file(self):
+        c = _build_candidate(self._summary(files_touched=["src/db/conn.py"]), _ctx(),
+                             trigger="When X", action="ALWAYS Y", reason="r")
+        assert c["domain"] == _derive_domain("src/db/conn.py")
+
+    def test_debt_level_only_when_overridden(self):
+        c = _build_candidate(self._summary(), _ctx(),
+                             trigger="When X", action="ALWAYS Y", reason="r",
+                             debt_level="workaround")
+        assert c["debt_level"] == "workaround"
+
+        c2 = _build_candidate(self._summary(), _ctx(),
+                              trigger="When X", action="ALWAYS Y", reason="r")
+        assert "debt_level" not in c2
+
+
+# ---------------------------------------------------------------------------
+# evaluate: detect_human_correction
+# ---------------------------------------------------------------------------
+
+class TestDetectHumanCorrection:
+    def _summary(self, **overrides):
+        base = {
+            "step": 1,
+            "prompt_type": "human",
+            "outcome": "correction",
+            "corrected_action": "use async writes",
+            "rejected_action": "",
+            "text": "corrected the logger",
+            "components": ["Logger"],
+            "files_touched": ["src/log.py"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_corrected_action(self):
+        result = detect_human_correction(self._summary(), _ctx())
+        assert result is not None
+        confidence, candidate = result
+        assert confidence == 0.95
+        assert candidate["action"].startswith("ALWAYS ")
+
+    def test_detects_rejected_action_only(self):
+        result = detect_human_correction(
+            self._summary(corrected_action="", rejected_action="use sync writes"), _ctx())
+        assert result is not None
+        confidence, candidate = result
+        assert confidence == 0.95
+        assert candidate["action"].startswith("NEVER ")
+
+    def test_returns_none_when_not_human(self):
+        assert detect_human_correction(self._summary(prompt_type="agent"), _ctx()) is None
+
+    def test_returns_none_when_not_correction(self):
+        assert detect_human_correction(self._summary(outcome="decision"), _ctx()) is None
+
+    def test_returns_none_when_both_actions_empty(self):
+        assert detect_human_correction(
+            self._summary(corrected_action="", rejected_action=""), _ctx()) is None
+
+    def test_returns_none_when_no_components(self):
+        assert detect_human_correction(self._summary(components=[]), _ctx()) is None
+
+    def test_returns_none_when_no_files(self):
+        assert detect_human_correction(self._summary(files_touched=[]), _ctx()) is None
+
+
+# ---------------------------------------------------------------------------
+# evaluate: detect_explicit_remember
+# ---------------------------------------------------------------------------
+
+class TestDetectExplicitRemember:
+    def _summary(self, **overrides):
+        base = {
+            "step": 1,
+            "outcome": "preference",
+            "text": "always use snake_case for variables",
+            "components": ["StyleGuide"],
+            "files_touched": ["src/style.py"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_remember_keyword(self):
+        result = detect_explicit_remember(self._summary(), _ctx())
+        assert result is not None
+        confidence, candidate = result
+        assert confidence == 0.85
+
+    def test_detects_don_t_forget(self):
+        result = detect_explicit_remember(
+            self._summary(text="don't forget to validate input"), _ctx())
+        assert result is not None
+        assert result[0] == 0.85
+
+    def test_returns_none_when_no_keyword(self):
+        assert detect_explicit_remember(
+            self._summary(text="use snake_case"), _ctx()) is None
+
+    def test_returns_none_when_empty_text(self):
+        assert detect_explicit_remember(self._summary(text=""), _ctx()) is None
+
+    def test_returns_none_when_wrong_outcome(self):
+        assert detect_explicit_remember(
+            self._summary(outcome="bug_fixed"), _ctx()) is None
+
+    def test_returns_none_when_no_components(self):
+        assert detect_explicit_remember(self._summary(components=[]), _ctx()) is None
+
+
+# ---------------------------------------------------------------------------
+# evaluate: detect_bug_fixed
+# ---------------------------------------------------------------------------
+
+class TestDetectBugFixed:
+    def _summary(self, **overrides):
+        base = {
+            "step": 1,
+            "outcome": "bug_fixed",
+            "error_text": "NullPointer in parser",
+            "text": "",
+            "components": ["Parser"],
+            "files_touched": ["src/parser.py"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_with_error_text(self):
+        result = detect_bug_fixed(self._summary(), _ctx())
+        assert result is not None
+        confidence, candidate = result
+        assert confidence == 0.70
+        assert candidate["type"] == "bug_fix"
+
+    def test_detects_with_text_only(self):
+        result = detect_bug_fixed(
+            self._summary(error_text="", text="fixed parsing bug"), _ctx())
+        assert result is not None
+        assert result[0] == 0.70
+
+    def test_returns_none_when_wrong_outcome(self):
+        assert detect_bug_fixed(self._summary(outcome="decision"), _ctx()) is None
+
+    def test_returns_none_when_no_error_or_text(self):
+        assert detect_bug_fixed(
+            self._summary(error_text="", text=""), _ctx()) is None
+
+    def test_returns_none_when_no_components(self):
+        assert detect_bug_fixed(self._summary(components=[]), _ctx()) is None
+
+
+# ---------------------------------------------------------------------------
+# evaluate: detect_decision
+# ---------------------------------------------------------------------------
+
+class TestDetectDecision:
+    def _summary(self, **overrides):
+        base = {
+            "step": 1,
+            "outcome": "decision",
+            "text": "use event sourcing for audit log",
+            "components": ["AuditLog"],
+            "files_touched": ["src/audit.py"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_decision(self):
+        result = detect_decision(self._summary(), _ctx())
+        assert result is not None
+        confidence, candidate = result
+        assert confidence == 0.60
+
+    def test_returns_none_when_wrong_outcome(self):
+        assert detect_decision(self._summary(outcome="bug_fixed"), _ctx()) is None
+
+    def test_returns_none_when_empty_text(self):
+        assert detect_decision(self._summary(text=""), _ctx()) is None
+
+    def test_returns_none_when_no_components(self):
+        assert detect_decision(self._summary(components=[]), _ctx()) is None
+
+
+# ---------------------------------------------------------------------------
+# evaluate: detect_workaround
+# ---------------------------------------------------------------------------
+
+class TestDetectWorkaround:
+    def _summary(self, **overrides):
+        base = {
+            "step": 1,
+            "outcome": "workaround",
+            "text": "skip flaky test on CI",
+            "components": ["TestSuite"],
+            "files_touched": ["tests/test_ci.py"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_detects_workaround(self):
+        result = detect_workaround(self._summary(), _ctx())
+        assert result is not None
+        confidence, candidate = result
+        assert confidence == 0.55
+        assert candidate["type"] == "bug_fix"
+        assert candidate["debt_level"] == "workaround"
+
+    def test_returns_none_when_wrong_outcome(self):
+        assert detect_workaround(self._summary(outcome="decision"), _ctx()) is None
+
+    def test_returns_none_when_empty_text(self):
+        assert detect_workaround(self._summary(text=""), _ctx()) is None
+
+    def test_returns_none_when_no_components(self):
+        assert detect_workaround(self._summary(components=[]), _ctx()) is None
+
+
+# ---------------------------------------------------------------------------
+# evaluate: validate_entry rejects malformed candidates
+# ---------------------------------------------------------------------------
+
+class TestEvaluateCandidateValidation:
+    def test_malformed_action_rejected_by_validate_entry(self):
+        """A candidate with a non-ALWAYS/NEVER action must fail validate_entry."""
+        candidate = _build_candidate(
+            {"step": 1, "components": ["X"], "files_touched": ["x.py"]},
+            _ctx(),
+            trigger="When X",
+            action="maybe do something",
+            reason="r",
+        )
+        assert candidate is not None
+        errors = validate_entry(candidate, _ctx())
+        assert any("action must contain" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# read_learnings_for_dashboard
+# ---------------------------------------------------------------------------
+
+class TestReadLearningsForDashboard:
+    def _paths(self, tmp_path, learnings=None, fakes=None):
+        class _P:
+            def __init__(self, tmp_path):
+                self.memory_dir = str(tmp_path)
+                self.learnings_path = str(tmp_path / "learnings.jsonl")
+                self.config_path = str(tmp_path / "config.json")
+                self.quarantine_path = str(tmp_path / "quarantine.jsonl")
+                self.archive_dir = str(tmp_path / "archive")
+                self.session_file = str(tmp_path / "session.json")
+                self.repo_root = str(tmp_path)
+
+        p = _P(tmp_path)
+        import json as _json
+        if learnings is not None:
+            with open(p.learnings_path, "w", encoding="utf-8") as f:
+                for e in learnings:
+                    f.write(_json.dumps(e) + "\n")
+        if fakes is not None:
+            with open(str(tmp_path / "fakes.jsonl"), "w", encoding="utf-8") as f:
+                for e in fakes:
+                    f.write(_json.dumps(e) + "\n")
+        return p
+
+    def test_real_reads_learnings(self, tmp_path):
+        from agent_memory.engine.io import read_learnings_for_dashboard
+
+        paths = self._paths(tmp_path, learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}])
+        entries = read_learnings_for_dashboard(paths, {"data_source": "real"})
+        assert len(entries) == 1
+        assert entries[0]["ts"] == "2024-01-01T00:00:00Z"
+
+    def test_fakes_reads_fakes(self, tmp_path):
+        from agent_memory.engine.io import read_learnings_for_dashboard
+
+        paths = self._paths(
+            tmp_path,
+            learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}],
+            fakes=[{"ts": "2024-01-02T00:00:00Z", "step": 2}, {"ts": "2024-01-03T00:00:00Z", "step": 3}],
+        )
+        entries = read_learnings_for_dashboard(paths, {"data_source": "fakes"})
+        assert len(entries) == 2
+        assert entries[0]["ts"] == "2024-01-02T00:00:00Z"
+
+    def test_no_data_source_key_defaults_to_real(self, tmp_path):
+        from agent_memory.engine.io import read_learnings_for_dashboard
+
+        paths = self._paths(tmp_path, learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}])
+        entries = read_learnings_for_dashboard(paths, {})
+        assert len(entries) == 1
+        assert entries[0]["ts"] == "2024-01-01T00:00:00Z"
+
+    def test_fakes_missing_file_returns_empty(self, tmp_path):
+        from agent_memory.engine.io import read_learnings_for_dashboard
+
+        paths = self._paths(tmp_path, learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}])
+        entries = read_learnings_for_dashboard(paths, {"data_source": "fakes"})
+        assert entries == []
+
+
+# ---------------------------------------------------------------------------
+# templates/config.json vs constants.DEFAULTS drift guard
+# ---------------------------------------------------------------------------
+
+class TestTemplateConfigDrift:
+    """Guard against silent divergence between the scaffolded template config and
+    the engine's hardcoded DEFAULTS. This is the class of bug where lowering a
+    threshold in constants.py alone has no effect for projects that copy the
+    template (and vice versa)."""
+
+    # Keys whose template value intentionally differs from the constant default.
+    # sleep_cycle_days: constant default is 1 (eager), template recommends 7.
+    KNOWN_DIVERGENCES = {"sleep_cycle_days"}
+
+    def test_template_tuning_matches_defaults(self):
+        import json
+
+        from agent_memory.engine.constants import DEFAULTS
+
+        template_path = Path(__file__).parent.parent / "templates" / "config.json"
+        with open(template_path, encoding="utf-8") as f:
+            tuning = json.load(f)["tuning"]
+
+        mismatches = []
+        for key, value in tuning.items():
+            if key in self.KNOWN_DIVERGENCES:
+                continue
+            default_key = key.upper()
+            if default_key not in DEFAULTS:
+                continue  # tuning-only key with no constant counterpart
+            if DEFAULTS[default_key] != value:
+                mismatches.append((key, value, DEFAULTS[default_key]))
+
+        assert not mismatches, (
+            "templates/config.json drifted from constants.DEFAULTS "
+            "(key, template, default): " + repr(mismatches)
+        )

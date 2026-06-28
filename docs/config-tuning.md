@@ -197,3 +197,11 @@ Copy a preset to your project's `memory/config.json` and customize as needed.
 | `auto_learn_max_files_per_commit` | int | `5` | >= 1 | Skip commits touching more than this many files |
 | `auto_learn_max_per_run` | int | `20` | >= 1 | Cap on generated entries per run |
 | `auto_learn_retrieval_failure_cap` | int | `100` | >= 1 | Max retrieval events scanned when `since_ts` is `None` |
+
+## Per-Prompt Evaluation Parameters (3 params, under `tuning`)
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `evaluate_enabled` | bool | `true` | bool | Master toggle for per-prompt evaluation (opt-out) |
+| `evaluate_auto_log_threshold` | float | `0.9` | [0.0, 1.0] | Confidence threshold above which detected signals are auto-logged via `log_core` |
+| `evaluate_max_per_turn` | int | `3` | >= 1 | Cap on signals processed per prompt evaluation (highest-confidence first) |

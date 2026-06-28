@@ -4,6 +4,18 @@ description: Rebase feature branch onto main, squash/reorder commits, and resolv
 
 ## Steps
 
+### 0. Git session lock
+
+Acquire the git session lock before proceeding. See `_git-lock.md` for the full lock-check snippet.
+
+Run the lock-check command. If `LOCKED:`, stop and inform the user. If `STALE:`, override. If `FREE`, acquire:
+
+```powershell
+"$([DateTime]::UtcNow.ToString('o')) /rebase" | Set-Content ".git/.windsurf-git-lock"
+```
+
+---
+
 ### 1. Pre-flight checks
 
 ```bash
@@ -229,3 +241,13 @@ git push --force-with-lease origin <current-branch>
 | Abort rebase | `git rebase --abort` |
 | Undo a completed rebase | `git reset --hard <ref-from-reflog>` |
 | Force-push after rebase | `git push --force-with-lease origin <branch>` |
+
+---
+
+## Cleanup
+
+**On any exit** — whether the workflow completes successfully, the user aborts, or an error occurs — always release the git session lock before ending:
+
+```powershell
+Remove-Item ".git/.windsurf-git-lock" -ErrorAction SilentlyContinue
+```

@@ -55,6 +55,27 @@ body {
   color: var(--text-dim);
 }
 
+.project-switcher-wrap {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-switcher {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.project-switcher:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .nav-tabs {
   list-style: none;
   flex: 1;

@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from agent_memory.engine.agents_review import review_agents_core
 from agent_memory.engine.auto_learn import auto_learn_core
 from agent_memory.engine.consolidation import consolidate_core
 from agent_memory.engine.handlers import log_core, resolve_core, stats_core, update_core
@@ -96,20 +97,23 @@ class EventHub:
         for ws in dead:
             self.disconnect(ws)
 
-    async def watch_metrics_file(self, paths):
+    async def watch_metrics_file(self, get_paths):
         """Watch metrics.jsonl for CLI-triggered events and broadcast them.
 
+        Accepts a callable so project switches are picked up without restarting.
         ponytail: uses broadcast() which deduplicates against events already
         pushed instantly by the API post-call hooks.
         """
         from agent_memory.engine.metrics import _metrics_path
 
         state = {"size": 0, "mtime": 0.0}
-        mp = _metrics_path(paths)
         while True:
             await asyncio.sleep(2)
             try:
+                mp = _metrics_path(get_paths())
                 if not os.path.exists(mp):
+                    state["size"] = 0
+                    state["mtime"] = 0.0
                     continue
                 mtime = os.path.getmtime(mp)
                 if mtime == state["mtime"]:
@@ -186,7 +190,7 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if dashboard:
-            watcher = asyncio.create_task(event_hub.watch_metrics_file(paths))
+            watcher = asyncio.create_task(event_hub.watch_metrics_file(lambda: paths))
         yield
         if dashboard:
             watcher.cancel()
@@ -425,6 +429,14 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
             await _check_and_broadcast_alerts(paths, ctx, event_hub)
         return result
 
+    # -- Review Agents --
+
+    @app.get("/api/review-agents")
+    async def review_agents(step: int = Query(..., ge=1), threshold: int = Query(10, ge=1)):
+        result = review_agents_core(step, threshold, paths)
+        result.pop("exit_code", None)
+        return result
+
     # -- WebSocket --
 
     @app.websocket("/ws/events")
@@ -440,7 +452,13 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
 
     if dashboard:
         from agent_memory.engine.dashboard_api import create_dashboard_router
-        router = create_dashboard_router(paths, ctx, event_hub, invalidate_metrics_cache)
+
+        def _on_project_switch(new_paths, new_ctx):
+            nonlocal paths, ctx
+            paths = new_paths
+            ctx = new_ctx
+
+        router = create_dashboard_router(paths, ctx, event_hub, invalidate_metrics_cache, on_switch=_on_project_switch)
         app.include_router(router)
 
         # ponytail: check deployed location first, then source tree

@@ -39,15 +39,15 @@ def _write_metrics(paths, events):
 
 
 class TestThresholdTrigger:
-    def test_fires_above_50(self, temp_memory):
+    def test_fires_above_25(self, temp_memory):
         ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0}
-        due, reasons = check_sleep_cycle(temp_memory, ctx, 51)
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 26)
         assert due
         assert "threshold" in reasons
 
-    def test_does_not_fire_at_50(self, temp_memory):
+    def test_does_not_fire_at_25(self, temp_memory):
         ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0}
-        due, reasons = check_sleep_cycle(temp_memory, ctx, 50)
+        due, reasons = check_sleep_cycle(temp_memory, ctx, 25)
         assert not due
         assert reasons == []
 

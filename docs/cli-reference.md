@@ -139,6 +139,18 @@ mnemoq --version
 mnemoq --memory-dir /path/to/memory --stats
 ```
 
+### Hook Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--install-hooks` | flag | — | Install a git post-commit hook that runs `--auto-learn` (backgrounded) after each commit |
+
+```bash
+mnemoq --install-hooks
+```
+
+`--install-hooks` is a zero-dependency setup op that operates on `.git/` and runs before any memory-dir or config resolution. It short-circuits early — if combined with other flags, `--install-hooks` takes precedence and exits before they are evaluated.
+
 ### Config-Dependent Defaults
 
 Some flags have defaults that change based on `memory/config.json`:
@@ -168,6 +180,7 @@ Most operational flags cannot be combined with each other. The full rules:
 | `--serve` / `--dashboard` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval` |
 | `--mcp` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard` |
 | `--verify` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard`, `--mcp` |
+| `--evaluate` / `--evaluate-file` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard`, `--mcp`, `--verify`, `--auto-learn` |
 
 ### Environment Variables
 
@@ -301,3 +314,17 @@ mnemoq --auto-learn --memory-dir /path/to/memory
 Auto-learning also runs automatically during `--consolidate` (unless `--confirm-reset` is used). The compact summary appears in the consolidation report.
 
 **Mutual exclusion**: `--auto-learn` cannot be combined with any other operational flag.
+
+### Evaluate Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--evaluate` | str (JSON) | — | Evaluate a structured prompt summary for learnable moments (heuristic detectors) |
+| `--evaluate-file` | str (path) | — | Path to JSON file with prompt summary (PowerShell-safe alternative to `--evaluate`) |
+
+```bash
+mnemoq --evaluate '{"step":1,"prompt_type":"human","outcome":"correction","corrected_action":"use async writes","text":"corrected the logger","components":["Logger"],"files_touched":["src/log.py"]}'
+mnemoq --evaluate-file summary.json --memory-dir /path/to/memory
+```
+
+**Mutual exclusion**: `--evaluate` / `--evaluate-file` cannot be combined with `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard`, `--mcp`, `--verify`, `--auto-learn`, or `--step`.
