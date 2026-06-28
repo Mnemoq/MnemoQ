@@ -15,5 +15,5 @@
 
 ## STATS: 6 total entries, 5 unresolved
 
-## SLEEP CYCLE DUE — 7 days since last consolidation
+## SLEEP CYCLE DUE — 1 days since last consolidation
 Run the Sleep Cycle per AGENTS.md ## Memory before starting new work.

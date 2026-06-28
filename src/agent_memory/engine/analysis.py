@@ -102,9 +102,10 @@ def health_score(stats, metrics_data):
         return 50
 
     unresolved = stats.get("unresolved", 0)
-    if unresolved > 50:
+    threshold = stats.get("sleep_cycle_unresolved_threshold", 20)
+    if unresolved > threshold:
         score -= 20
-    elif unresolved > 30:
+    elif unresolved > threshold * 0.6:
         score -= 10
 
     over_injected = stats.get("over_injected", 0)
@@ -139,9 +140,10 @@ def recommendations(stats, metrics_data, config=None):
         reasons = stats.get("sleep_cycle_reasons", [])
         messages = []
         if "threshold" in reasons:
-            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of 50")
+            threshold = stats.get('sleep_cycle_unresolved_threshold', 20)
+            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of {threshold}")
         if "time" in reasons:
-            days = (config or {}).get("tuning", {}).get("sleep_cycle_days", 7)
+            days = (config or {}).get("tuning", {}).get("sleep_cycle_days", 1)
             messages.append(f"more than {days} days since last consolidation")
         if "quarantine" in reasons:
             messages.append("quarantine entries exceed threshold")
@@ -217,9 +219,10 @@ def alerts_list(stats, metrics_data):
         reasons = stats.get("sleep_cycle_reasons", [])
         messages = []
         if "threshold" in reasons:
-            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of 50")
+            threshold = stats.get('sleep_cycle_unresolved_threshold', 20)
+            messages.append(f"{stats['unresolved']} unresolved entries exceed threshold of {threshold}")
         if "time" in reasons:
-            messages.append("more than 7 days since last consolidation")
+            messages.append("more than 1 days since last consolidation")
         if "quarantine" in reasons:
             messages.append("quarantine entries exceed threshold")
         msg = "Sleep cycle due — " + "; ".join(messages) + "."

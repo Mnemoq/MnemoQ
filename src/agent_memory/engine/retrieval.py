@@ -541,9 +541,9 @@ def handle_retrieval(current_step, task_components, task_files, task_domain, ctx
         reasons = result.get("sleep_cycle_reasons", [])
         if "threshold" in reasons:
             print(f"\n## SLEEP CYCLE DUE — {result['unresolved_count']} "
-                  f"unresolved entries exceed threshold of 50")
+                  f"unresolved entries exceed threshold of {ctx.get('sleep_cycle_unresolved_threshold', 20)}")
         if "time" in reasons:
-            print(f"\n## SLEEP CYCLE DUE — {ctx.get('sleep_cycle_days', 7)} days since last consolidation")
+            print(f"\n## SLEEP CYCLE DUE — {ctx.get('sleep_cycle_days', 1)} days since last consolidation")
         if "quarantine" in reasons:
             print(f"\n## SLEEP CYCLE DUE — Quarantine entries exceed "
                   f"threshold of {ctx.get('sleep_cycle_quarantine_threshold', 20)}")

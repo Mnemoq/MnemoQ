@@ -415,10 +415,11 @@ def stats_core(paths, emit_event: bool = True, ctx=None):
     over_injected = [e for e in entries if e.get("access_count", 0) >= 10 and e.get("reinforcement_count", 0) <= 2]
     under_retrieved = [e for e in entries if e.get("access_count", 0) <= 2 and e.get("reinforcement_count", 0) >= 5]
     
+    unresolved_threshold = (ctx or {}).get("sleep_cycle_unresolved_threshold", 20)
     if ctx is not None:
         sleep_cycle_due, sleep_cycle_reasons = check_sleep_cycle(paths, ctx, unresolved)
     else:
-        sleep_cycle_due = unresolved > 50
+        sleep_cycle_due = unresolved > unresolved_threshold
         sleep_cycle_reasons = ["threshold"] if sleep_cycle_due else []
 
     if emit_event:
@@ -444,6 +445,7 @@ def stats_core(paths, emit_event: bool = True, ctx=None):
         "proven": len(proven), "over_injected": len(over_injected), "under_retrieved": len(under_retrieved),
         "sleep_cycle_due": sleep_cycle_due,
         "sleep_cycle_reasons": sleep_cycle_reasons,
+        "sleep_cycle_unresolved_threshold": unresolved_threshold,
     }
 
 
@@ -488,10 +490,11 @@ def handle_stats(paths, ctx=None):
     if result["sleep_cycle_due"]:
         reasons = result.get("sleep_cycle_reasons", [])
         if "threshold" in reasons:
+            ut = result.get('sleep_cycle_unresolved_threshold', 20)
             print(f"\n## SLEEP CYCLE DUE — {result['unresolved']} "
-                  f"unresolved entries exceed threshold of 50")
+                  f"unresolved entries exceed threshold of {ut}")
         if "time" in reasons:
-            days = ctx.get('sleep_cycle_days', 7) if ctx else 7
+            days = ctx.get('sleep_cycle_days', 1) if ctx else 1
             print(f"\n## SLEEP CYCLE DUE — {days} days since last consolidation")
         if "quarantine" in reasons:
             qt = ctx.get('sleep_cycle_quarantine_threshold', 20) if ctx else 20

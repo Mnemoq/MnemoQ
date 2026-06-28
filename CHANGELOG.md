@@ -21,6 +21,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `evaluate_prompt` MCP tool for programmatic per-turn evaluation
 - `--evaluate` / `--evaluate-file` CLI flags for standalone prompt evaluation
 - 3 `evaluate_*` tuning parameters in `config.json` (`evaluate_enabled`, `evaluate_auto_log_threshold`, `evaluate_max_per_turn`)
+- Pre-commit debt scanning: `detect_debt_markers()` and `scan_staged_core()` for TODO/FIXME/HACK/XXX marker detection in staged files
+- `--scan-staged` CLI flag for pre-commit debt scanning
+- CI evaluation module (`engine/ci.py`) with `evaluate_ci_core()` for pytest JUnit XML parsing and `CI_WRITEBACK` modes (pr/artifact/commit)
+- `--evaluate-ci` CLI flag for CI evaluation pipeline
+- Hook templates: pre-commit (debt scan) and post-commit (auto-learn)
+- CI workflow template: `mnemoq-learn.yml`
+- `POST /api/agents-review` endpoint for reviewing and managing agent memory entries
+- Dashboard project switcher for multi-project navigation
+- `--dry-run` and `--confirm` safety guards for `generate_fakes.py`
+- `/ship` meta-workflow with branch protection awareness
+- `/fast-ship` workflow for quick safe edits
+- `/commit` (professional-commit) workflow with Conventional Commit formatting
+
+### Fixed
+- Hooks now return an error when a foreign hook refuses overwrite (#15)
+- `--hooks-path` relative paths now anchor to repo root via `git rev-parse`
+- Ruff lint errors (I001 import sorting, E741 ambiguous variable name)
+- `generate_fakes.py` updated for `agent_memory` package; removed legacy `original_filter.py` and `test.json`
+
+### Changed
+- Bumped dependencies: httpx >=0.28.1, ruff >=0.15.20, setuptools >=82.0.1, fastapi >=0.138.1, pytest-xdist >=3.8.0
 
 ## [1.20.6] - 2026-06-25
 

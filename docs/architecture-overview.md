@@ -129,7 +129,7 @@ Archives all unresolved entries to `archive/sprint-N.jsonl`, then generates a re
  save_session()             ← 10-min window for --confirm-reset
 ```
 
-Sleep cycle triggers automatically flag when consolidation is due: >50 unresolved entries, >7 days since last consolidation, or quarantine count ≥ 20.
+Sleep cycle triggers automatically flag when consolidation is due: >20 unresolved entries, ≥1 day since last consolidation, or quarantine count ≥ 20.
 
 ### Secondary Operations
 

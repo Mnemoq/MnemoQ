@@ -265,6 +265,7 @@ def load_config():
         "rrf_k": ("RRF_K", 1, None),
         "sleep_cycle_days": ("SLEEP_CYCLE_DAYS", 0, None),
         "sleep_cycle_quarantine_threshold": ("SLEEP_CYCLE_QUARANTINE_THRESHOLD", 0, None),
+        "sleep_cycle_unresolved_threshold": ("SLEEP_CYCLE_UNRESOLVED_THRESHOLD", 0, None),
         "auto_learn_git_scan_depth": ("AUTO_LEARN_GIT_SCAN_DEPTH", 1, None),
         "auto_learn_fix_commit_threshold": ("AUTO_LEARN_FIX_COMMIT_THRESHOLD", 1, None),
         "auto_learn_under_retrieved_access": ("AUTO_LEARN_UNDER_RETRIEVED_ACCESS", 0, None),

@@ -80,12 +80,13 @@
 | `reranker_llm_endpoint` | string \| null | `null` | URL | LLM endpoint URL (for `llm-local` mode); `null` = auto-probe Ollama/LM Studio |
 | `reranker_llm_model` | string \| null | `null` | model name | LLM model name (for `llm-local` mode) |
 
-### Sleep Cycle / Consolidation (2 params, under `tuning`)
+### Sleep Cycle / Consolidation (3 params, under `tuning`)
 
 | Parameter | Type | Default | Range | Description |
 |-----------|------|---------|-------|-------------|
-| `sleep_cycle_days` | int | `7` | ≥ 0 | Days between automatic consolidation triggers |
-| `sleep_cycle_quarantine_threshold` | int | `20` | ≥ 0 | Quarantine entry count that triggers consolidation |
+| `sleep_cycle_days` | int | `1` | ≥ 0 | Days between automatic consolidation triggers (`0` disables) |
+| `sleep_cycle_quarantine_threshold` | int | `20` | ≥ 0 | Quarantine entry count that triggers consolidation (`0` disables) |
+| `sleep_cycle_unresolved_threshold` | int | `20` | ≥ 0 | Unresolved entry count that triggers consolidation (`0` disables) |
 
 ### Step Bound (1 param, top-level)
 
