@@ -148,7 +148,7 @@ def _list_archives(paths):
     return archives
 
 
-def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
+def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=None):
     """Create and return an APIRouter with all dashboard endpoints.
 
     Args:
@@ -156,6 +156,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         ctx: context dict from filter.py
         event_hub: EventHub instance for WebSocket broadcasts
         invalidate_cache: callable to invalidate the metrics cache
+        on_switch: optional callback(new_paths, new_ctx) to propagate project switches
     """
     router = APIRouter()
 
@@ -563,6 +564,63 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache):
         return {"status": "ok", "config": merged_config}
 
     # -- Cross-Project / Fleet --
+
+    @router.get("/api/projects/active")
+    async def active_project():
+        return {"project_id": _get_project_id(paths), "path": paths.repo_root}
+
+    @router.post("/api/projects/switch")
+    async def switch_project(req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(code="BAD_REQUEST", message="Invalid JSON body.").model_dump(),
+            )
+        project_id = body.get("project_id")
+        if not project_id or not isinstance(project_id, str):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(code="BAD_REQUEST", message="project_id must be a non-empty string.").model_dump(),
+            )
+
+        new_paths = None
+        for project_root in _load_project_paths():
+            pp = make_project_paths(project_root)
+            if pp is None:
+                continue
+            if _get_project_id(pp) == project_id:
+                new_paths = pp
+                break
+
+        if new_paths is None:
+            raise HTTPException(
+                status_code=404,
+                detail=ErrorResponse(code="NOT_FOUND", message=f"Project '{project_id}' not found.").model_dump(),
+            )
+
+        import agent_memory.cli as cli
+        from agent_memory.engine.constants import DEFAULTS
+
+        cli.PATHS = new_paths
+        config = cli.load_config()
+        new_ctx = {k.lower(): v for k, v in DEFAULTS.items()}
+        new_ctx.update({k.lower(): v for k, v in config.items()})
+
+        nonlocal paths, ctx
+        paths = new_paths
+        ctx = new_ctx
+
+        if on_switch:
+            on_switch(new_paths, new_ctx)
+        invalidate_cache()
+        await event_hub.broadcast({
+            "event": "project_switch",
+            "project_id": project_id,
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+        return {"status": "ok", "project_id": project_id, "path": str(new_paths.repo_root)}
 
     @router.get("/api/projects")
     async def list_projects():
