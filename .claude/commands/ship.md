@@ -1,5 +1,5 @@
 ---
-description: Full ship cycle — commit, push, rebase if needed, create PR, verify CI, and merge. Delegates to individual workflows at each step.
+description: Full ship cycle — commit, push, rebase if needed, create PR, verify CI, and merge. Delegates to individual commands at each step.
 ---
 
 ## Steps
@@ -60,7 +60,7 @@ If the user stops here, end the workflow.
 
 ### 3. Create a PR
 
-Delegate to `/pr` → "Create a PR" — it handles branch checks, generates a title and body from commit messages, and asks for PR options (base branch, draft, title, body).
+Delegate to `/pr` — "Create a PR" — it handles branch checks, generates a title and body from commit messages, and asks for PR options (base branch, draft, title, body).
 
 After the PR is created, ask the user:
 
@@ -95,7 +95,7 @@ Ask the user:
 
 ### 5. Merge
 
-Delegate to `/pr` → "Merge a PR" — it handles pre-merge checks, asks for merge method (squash/merge/rebase), and branch deletion.
+Delegate to `/pr` — "Merge a PR" — it handles pre-merge checks, asks for merge method (squash/merge/rebase), and branch deletion.
 
 Ask the user:
 
@@ -136,4 +136,4 @@ Show the user a summary:
 
 Remind the user:
 
-> If you're ready to release, run `/publish` — it handles version bump, tagging, and PyPI publication. `/publish` is always separate from `/ship`.
+> If you are ready to release, run `/publish` — it handles version bump, tagging, and PyPI publication. `/publish` is always separate from `/ship`.

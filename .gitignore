@@ -31,8 +31,11 @@ Desktop.ini
 .idea/
 .vscode/
 
-# Claude Code (personal agent profile)
-.claude/
+# Claude Code — ignore personal settings, track project commands/agents
+.claude/settings.json
+.claude/settings.local.json
+.claude/todos.json
+.claude/*.json
 
 # Agent plan/scratch docs (any Plans/ folder, at any depth)
 Plans/
