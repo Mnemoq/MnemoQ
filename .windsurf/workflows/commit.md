@@ -4,6 +4,18 @@ description: Stages changes cleanly and produces a well-structured Conventional 
 
 ## Steps
 
+### 0. Git session lock
+
+Acquire the git session lock before proceeding. See `_git-lock.md` for the full lock-check snippet.
+
+Run the lock-check command. If `LOCKED:`, stop and inform the user. If `STALE:`, override. If `FREE`, acquire:
+
+```powershell
+"$([DateTime]::UtcNow.ToString('o')) /commit" | Set-Content ".git/.windsurf-git-lock"
+```
+
+---
+
 ### 1. Check branch hygiene
 
 Run the following and surface any issues before touching the index:
@@ -143,6 +155,16 @@ If multiple logical groups were identified in Step 2, loop back to **Step 3** an
 ### 8. Push (optional)
 
 Ask the user if they want to push. If yes, suggest running `/push` — it handles pre-flight checks, remote sync, CI verification, and PR creation.
+
+---
+
+## Cleanup
+
+**On any exit** — whether the workflow completes successfully, the user aborts, or an error occurs — always release the git session lock before ending:
+
+```powershell
+Remove-Item ".git/.windsurf-git-lock" -ErrorAction SilentlyContinue
+```
 
 ---
 

@@ -4,6 +4,18 @@ description: Pre-flight checks, remote sync, clean push, and post-push verificat
 
 ## Steps
 
+### 0. Git session lock
+
+Acquire the git session lock before proceeding. See `_git-lock.md` for the full lock-check snippet.
+
+Run the lock-check command. If `LOCKED:`, stop and inform the user. If `STALE:`, override. If `FREE`, acquire:
+
+```powershell
+"$([DateTime]::UtcNow.ToString('o')) /push" | Set-Content ".git/.windsurf-git-lock"
+```
+
+---
+
 ### 1. Pre-flight checks
 
 Run the following and surface any issues before pushing:
@@ -148,3 +160,13 @@ If yes, suggest running `/pr` — it handles PR creation with options for base b
 ## Reference: Branch Naming Convention
 
 See `commit.md` § Branch Naming Convention for the full list of branch prefixes and examples.
+
+---
+
+## Cleanup
+
+**On any exit** — whether the workflow completes successfully, the user aborts, or an error occurs — always release the git session lock before ending:
+
+```powershell
+Remove-Item ".git/.windsurf-git-lock" -ErrorAction SilentlyContinue
+```

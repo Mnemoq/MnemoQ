@@ -28,6 +28,18 @@ Small, low-risk edits you're confident about: typo fixes, doc updates, one-line 
 
 ## Steps
 
+### 0. Git session lock
+
+Acquire the git session lock before proceeding. See `_git-lock.md` for the full lock-check snippet.
+
+Run the lock-check command. If `LOCKED:`, stop and inform the user. If `STALE:`, override. If `FREE`, acquire:
+
+```powershell
+"$([DateTime]::UtcNow.ToString('o')) /fast-ship" | Set-Content ".git/.windsurf-git-lock"
+```
+
+---
+
 ### 1. Clean-tree check + branch check + auto-create
 
 ```bash
@@ -204,3 +216,13 @@ Show a compact summary:
 - **Current branch**: `main` (up to date)
 
 > If you're ready to release, run `/publish`.
+
+---
+
+## Cleanup
+
+**On any exit** — whether the workflow completes successfully, the user aborts, or an error occurs — always release the git session lock before ending:
+
+```powershell
+Remove-Item ".git/.windsurf-git-lock" -ErrorAction SilentlyContinue
+```

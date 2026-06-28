@@ -14,6 +14,18 @@ If `gh` is not installed or not authenticated, stop and tell the user to install
 
 ---
 
+### 0a. Git session lock
+
+Acquire the git session lock before proceeding. See `_git-lock.md` for the full lock-check snippet.
+
+Run the lock-check command. If `LOCKED:`, stop and inform the user. If `STALE:`, override. If `FREE`, acquire:
+
+```powershell
+"$([DateTime]::UtcNow.ToString('o')) /pr" | Set-Content ".git/.windsurf-git-lock"
+```
+
+---
+
 ### 1. Ask the user what they want to do
 
 Ask the user:
@@ -244,3 +256,13 @@ git branch -d <branch-name>
 | Close PR (no merge) | `gh pr close <N>` |
 | Reopen PR | `gh pr reopen <N>` |
 | Check out PR locally | `gh pr checkout <N>` |
+
+---
+
+## Cleanup
+
+**On any exit** — whether the workflow completes successfully, the user aborts, or an error occurs — always release the git session lock before ending:
+
+```powershell
+Remove-Item ".git/.windsurf-git-lock" -ErrorAction SilentlyContinue
+```
