@@ -333,6 +333,23 @@ TEMPLATES = {
             "{pattern} is the standard way to achieve {benefit} in {domain}",
         ],
     },
+    "meta_learning": {
+        "trigger": [
+            "When {component} fails repeatedly during {operation}",
+            "When {operation} in {component} produces recurring {error_type}",
+            "When {symptoms} persist across multiple runs of {component}",
+        ],
+        "action": [
+            "ALWAYS document the root cause of {error_type} in {component} for future reference",
+            "NEVER retry {operation} without understanding why {root_cause}",
+            "ALWAYS update the learning entry when {component} behavior changes",
+        ],
+        "reason": [
+            "Recurring {error_type} in {component} indicates {root_cause}, which persists without meta-learning",
+            "Without recording the pattern, {operation} will keep failing under {condition}",
+            "Meta-learning from {root_cause} prevents repeated {error_type} and protects {artifact}",
+        ],
+    },
 }
 
 
