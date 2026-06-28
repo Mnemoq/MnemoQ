@@ -121,13 +121,26 @@ def install_hooks(hooks_path: str | None = None) -> int:
         Exit code (0 = success, 1 = aborted).
     """
     if hooks_path:
-        target_dir = Path(hooks_path)
-        if not target_dir.is_absolute():
-            target_dir = Path.cwd() / target_dir
+        raw = Path(hooks_path)
+        if raw.is_absolute():
+            target_dir = raw
+        else:
+            # Anchor to the working-tree root, NOT cwd: a user invoking from a
+            # subdirectory still gets `.githooks` created at the repo root, and
+            # the absolute path we store in `core.hooksPath` matches that.
+            try:
+                top = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print("ERROR: --hooks-path requires a git repository.", file=sys.stderr)
+                return 1
+            target_dir = Path(top) / raw
         target_dir.mkdir(parents=True, exist_ok=True)
-        if not _set_core_hooks_path(hooks_path):
+        if not _set_core_hooks_path(str(target_dir)):
             return 1
-        print(f"Configured core.hooksPath -> {hooks_path}", file=sys.stderr)
+        print(f"Configured core.hooksPath -> {target_dir}", file=sys.stderr)
     else:
         resolved = _resolve_default_hooks_dir()
         if resolved is None:

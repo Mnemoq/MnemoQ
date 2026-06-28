@@ -342,6 +342,16 @@ def load_config():
         else:
             raise TypeError(f"max_step must be an integer or null, got {type(value).__name__}")
 
+    # CI writeback mode (tuning)
+    if "ci_writeback" in tuning:
+        value = tuning["ci_writeback"]
+        if not isinstance(value, str):
+            raise TypeError(f"tuning.ci_writeback must be a string, got {type(value).__name__}")
+        valid_modes = _CONST_DEFAULTS.get("VALID_CI_WRITEBACKS", {"pr", "artifact", "commit"})
+        if value not in valid_modes:
+            raise ValueError(f"tuning.ci_writeback must be one of {sorted(valid_modes)}, got '{value}'")
+        result["CI_WRITEBACK"] = value
+
     # Top-level string params (embedding config)
     string_params = {"embedding_model": "EMBEDDING_MODEL", "embedding_cache_dir": "EMBEDDING_CACHE_DIR"}
     for config_key, python_key in string_params.items():
@@ -725,7 +735,15 @@ Examples:
                         help="Run auto-learning: detect patterns from git history, retrieval gaps, and corpus analysis")
     parser.add_argument("--verify", action="store_true", help="Validate every entry in learnings.jsonl against schema")
     parser.add_argument("--install-hooks", action="store_true",
-                        help="Install a git post-commit hook that runs --auto-learn (backgrounded) after each commit")
+                        help="Install git hooks (post-commit + pre-commit) that drive mnemoq auto-learning")
+    parser.add_argument("--hooks-path", type=str, metavar="DIR",
+                        help="Tracked hooks directory (e.g. .githooks). When set with --install-hooks, "
+                             "writes hooks into DIR and configures core.hooksPath so they're shared via git.")
+    parser.add_argument("--scan-staged", action="store_true",
+                        help="Scan `git diff --cached` for new TODO/FIXME/HACK/XXX markers; "
+                             "logs them as debt-level candidates. Always exits 0 (pre-commit safe).")
+    parser.add_argument("--evaluate-ci", type=str, metavar="REPORT",
+                        help="Evaluate a pytest JUnit XML report: extract failing-test signals into candidates.")
 
     args = parser.parse_args()
 
@@ -733,7 +751,8 @@ Examples:
     if args.version and any([args.step, args.log, args.log_file, args.stats, args.consolidate,
                              args.review_agents, args.auto_learn, args.evaluate, args.evaluate_file,
                              args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard,
-                             args.mcp, args.verify, args.install_hooks]):
+                             args.mcp, args.verify, args.install_hooks, args.scan_staged,
+                             args.evaluate_ci]):
         parser.error("--version cannot be combined with other operational flags")
 
     if args.version:
@@ -744,7 +763,7 @@ Examples:
     # before any memory-dir/config resolution.
     if args.install_hooks:
         from agent_memory.engine.hooks import install_hooks
-        return install_hooks()
+        return install_hooks(hooks_path=args.hooks_path)
 
     # Resolve memory directory paths (must happen before load_config)
     global PATHS
@@ -864,9 +883,25 @@ Examples:
         [args.step is not None, log_json, args.resolve, args.update,
          args.review_agents, args.consolidate, args.stats, args.metrics,
          args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
-         args.verify, evaluate_json]
+         args.verify, evaluate_json, args.scan_staged, args.evaluate_ci]
     ):
         parser.error("--auto-learn cannot be combined with other operational flags")
+
+    if args.scan_staged and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
+         args.verify, args.auto_learn, evaluate_json, args.evaluate_ci]
+    ):
+        parser.error("--scan-staged cannot be combined with other operational flags")
+
+    if args.evaluate_ci and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
+         args.verify, args.auto_learn, evaluate_json, args.scan_staged]
+    ):
+        parser.error("--evaluate-ci cannot be combined with other operational flags")
 
     if evaluate_json and any(
         [args.step is not None, log_json, args.resolve, args.update,
@@ -944,6 +979,42 @@ Examples:
         result = auto_learn_core(_get_paths(), _build_ctx())
         _print_auto_learn_verbose(result)
         return result["exit_code"]
+
+    if args.scan_staged:
+        # Pre-commit hook entry point. Best-effort: always returns 0 so a
+        # malfunctioning detector can never block a commit.
+        try:
+            from agent_memory.engine.auto_learn import scan_staged_core
+            result = scan_staged_core(_get_paths(), _build_ctx())
+            generated = result.get("generated", [])
+            if generated:
+                print(f"mnemoq: logged {len(generated)} new debt marker(s) from staged diff",
+                      file=sys.stderr)
+                for entry in generated:
+                    files = ", ".join(entry.get("files_touched", []))
+                    print(f"  [{entry.get('debt_level', '?')}] {files} — {entry['trigger']}",
+                          file=sys.stderr)
+            elif result.get("deduped"):
+                print(f"mnemoq: {result['deduped']} marker(s) already tracked.", file=sys.stderr)
+        except Exception as e:
+            print(f"mnemoq: scan-staged skipped ({e})", file=sys.stderr)
+        return 0
+
+    if args.evaluate_ci:
+        from agent_memory.engine.ci import evaluate_ci_core
+        result = evaluate_ci_core(args.evaluate_ci, _get_paths(), _build_ctx())
+        if result.get("error"):
+            print(f"ERROR: {result['error']}", file=sys.stderr)
+            return 1
+        generated = result.get("generated", [])
+        print(f"## EVALUATE-CI\nReport: {args.evaluate_ci}")
+        print(f"Failures scanned: {result.get('failures', 0)}")
+        print(f"Generated: {len(generated)}  |  Deduped: {result.get('deduped', 0)}  |  "
+              f"Skipped: {result.get('skipped', 0)}")
+        for entry in generated:
+            print(f"  [{entry['type']}] {entry['trigger']}")
+            print(f"    -> {entry['action']}")
+        return result.get("exit_code", 0)
 
     if evaluate_json:
         from agent_memory.engine.evaluate import evaluate_core
