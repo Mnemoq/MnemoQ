@@ -225,6 +225,7 @@ Every module under `src/agent_memory/`, grouped by tier. The `*_core` convention
 | `profile.py` | Developer profile loader (global preferences) | `load_profile()`, `get_profile_context()` | retrieval.py |
 | `triggers.py` | Sleep cycle trigger checks (threshold, time, quarantine) | `check_sleep_cycle()` | retrieval.py, handlers.py |
 | `agents_review.py` | AGENTS.md conflict detection and section health review | `check_agents_conflict()`, `handle_review_agents()` | handlers.py, cli.py |
+| `capture.py` | Conversation capture: three-tier extraction (online LLM, offline LLM, heuristic) feeding `evaluate_core` | `capture_core()`, `heuristic_extract()`, `online_llm_extract()`, `offline_llm_extract()` | cli.py, mcp_server.py |
 | `__init__.py` | Package marker | — | — |
 
 ### Entry Points & Tooling (`src/agent_memory/`)
@@ -272,6 +273,7 @@ Every module under `src/agent_memory/`, grouped by tier. The `*_core` convention
   ├── --metrics         → metrics reporting
   ├── --eval            → run_grading()
   ├── --migrate-schema  → run_migration()
+  ├── --capture-file    → capture_core()
   ├── --serve           → create_app() + uvicorn
   └── --dashboard       → create_app(dashboard=True) + uvicorn
 ```

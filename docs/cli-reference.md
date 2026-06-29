@@ -97,9 +97,11 @@ mnemoq --metrics --metrics-trend --metrics-since 2026-01-01 --metrics-export eve
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--eval` | flag | — | Run grading harness: test retrieval quality against `memory/eval/grading.jsonl` |
+| `--capture-file` | str | — | Read a raw conversation file and capture learnable moments as memories |
 
 ```bash
 mnemoq --eval
+mnemoq --capture-file conversation.txt
 ```
 
 ### Server Flags
@@ -181,6 +183,7 @@ Most operational flags cannot be combined with each other. The full rules:
 | `--mcp` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard` |
 | `--verify` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard`, `--mcp` |
 | `--evaluate` / `--evaluate-file` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard`, `--mcp`, `--verify`, `--auto-learn` |
+| `--capture-file` | `--step`, `--log`, `--log-file`, `--resolve`, `--update`, `--review-agents`, `--consolidate`, `--stats`, `--metrics`, `--migrate-schema`, `--eval`, `--serve`, `--dashboard`, `--mcp`, `--verify`, `--auto-learn`, `--evaluate`, `--scan-staged`, `--evaluate-ci` |
 
 ### Environment Variables
 

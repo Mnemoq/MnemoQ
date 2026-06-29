@@ -206,3 +206,17 @@ Copy a preset to your project's `memory/config.json` and customize as needed.
 | `evaluate_enabled` | bool | `true` | bool | Master toggle for per-prompt evaluation (opt-out) |
 | `evaluate_auto_log_threshold` | float | `0.9` | [0.0, 1.0] | Confidence threshold above which detected signals are auto-logged via `log_core` |
 | `evaluate_max_per_turn` | int | `3` | >= 1 | Cap on signals processed per prompt evaluation (highest-confidence first) |
+
+## Conversation Capture Parameters (7 params, top-level + tuning)
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `capture_mode` | string | `"heuristic"` | `"online"`, `"offline"`, `"heuristic"` | Which extraction tier to try first |
+| `capture_llm_endpoint` | string \| null | `null` | URL | Override for offline LLM probe (skip auto-probe); `null` = auto-probe Ollama/LM Studio |
+| `capture_llm_model` | string \| null | `null` | model name | LLM model name for offline extraction (for `offline` mode) |
+| `capture_online_endpoint` | string \| null | `null` | URL | OpenAI-compatible API base URL (for `online` mode) |
+| `capture_online_model` | string \| null | `null` | model name | Online model name (e.g. `"gpt-4o-mini"`) |
+| `capture_online_api_key` | string \| null | `null` | any string | API key for online endpoint; falls back to env `CAPTURE_API_KEY` |
+| `capture_enabled` | bool | `true` | bool | Master toggle for conversation capture (under `tuning`) |
+| `capture_always_log` | bool | `true` | bool | Log even "none" outcomes — the LOTS mandate (under `tuning`) |
+| `capture_max_summaries` | int | `10` | >= 1 | Max summaries per interaction, prevents runaway logging (under `tuning`) |
