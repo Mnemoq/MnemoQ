@@ -67,7 +67,43 @@ ruff check .
 ```
 
 - If **lint fails**: stop, surface the failure, do not commit. The user must fix lint errors before proceeding.
-- If **lint passes**: proceed to compose the commit message.
+- If **lint passes**: proceed to Step 3.5.
+
+---
+
+### 3.5 Doc sync check
+
+Analyse the staged diff for doc-relevant code changes using the table below. If any match, offer to run `/docs-writer` to keep documentation in sync.
+
+**Doc-relevance detection:**
+
+| Code file changed | Doc that may need updating |
+|-------------------|---------------------------|
+| `src/agent_memory/cli.py` | `docs/cli-reference.md`, `README.md` |
+| `src/agent_memory/engine/constants.py` | `docs/config-tuning.md`, `docs/data-schema.md` |
+| `src/agent_memory/engine/validation.py` | `docs/data-schema.md` |
+| `src/agent_memory/engine/retrieval.py` | `docs/architecture-overview.md` |
+| `src/agent_memory/engine/server.py` | `docs/architecture-overview.md` (access surfaces) |
+| `src/agent_memory/engine/mcp_server.py` | `docs/mcp-integration.md`, `docs/architecture-overview.md` |
+| `src/agent_memory/sdk/client.py` | `docs/sdk-guide.md` |
+| `src/agent_memory/engine/dashboard_api.py` | `docs/architecture-overview.md` |
+| `src/agent_memory/engine/consolidation.py` | `docs/architecture-overview.md` |
+| `memory/config.json` (template) | `docs/config-tuning.md` |
+| `pyproject.toml` | `README.md` (deps/entry points) |
+| New module in `engine/` | `docs/architecture-overview.md` module map + `AGENTS.md` |
+| New entry point | `docs/cli-reference.md`, `README.md` |
+
+If any doc-relevant changes are detected, ask the user:
+
+> **Code changes may affect documentation. Run /docs-writer to sync docs?**
+> 1. **Yes** — delegate to /docs-writer, stage doc changes alongside code
+> 2. **No, skip** — continue without doc sync
+
+If yes: delegate to `/docs-writer`, then `git add` the updated `.md` files and re-show `git diff --staged`.
+
+**CHANGELOG check:** If the commit type will be `feat` or `fix`, propose a one-line addition to `CHANGELOG.md` under the `## [Unreleased]` section in the appropriate subsection (`### Added` for `feat`, `### Fixed` for `fix`, `### Changed` for `refactor`/`chore`). Ask the user to confirm or skip. If confirmed, stage `CHANGELOG.md` alongside the code changes.
+
+If no doc-relevant changes are detected, skip this step silently and proceed to Step 4.
 
 ---
 
@@ -148,7 +184,7 @@ If the commit needs fixing (wrong message, forgot a file), use `git commit --ame
 
 ### 7. Repeat for remaining changes (if split was needed)
 
-If multiple logical groups were identified in Step 2, loop back to **Step 3** and handle the next group. Continue until `git status` shows a clean working tree or only intentionally unstaged changes remain.
+If multiple logical groups were identified in Step 2, loop back to **Step 3** (including Step 3.5 doc sync check) and handle the next group. Continue until `git status` shows a clean working tree or only intentionally unstaged changes remain.
 
 ---
 

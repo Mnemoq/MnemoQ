@@ -69,9 +69,12 @@ _FakeGenState = {
     "batch_name": None,
     "batch_slug": None,
 }
+_FakeGenProc = None
 
 
 def _reset_fake_gen_state():
+    global _FakeGenProc
+    _FakeGenProc = None
     _FakeGenState.update({
         "status": "idle",
         "pid": None,
@@ -912,6 +915,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
 
     def _run_fake_gen(cmd, script_name, auto_switch, batch_name, batch_slug, batch_file, needs_copy):
         """Background thread: run subprocess, update _FakeGenState."""
+        global _FakeGenProc
         with _FakeGenLock:
             _FakeGenState["status"] = "running"
             _FakeGenState["script"] = script_name
@@ -933,8 +937,16 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
             )
             with _FakeGenLock:
                 _FakeGenState["pid"] = proc.pid
+                _FakeGenProc = proc
 
-            stdout_lines, stderr_lines = proc.communicate()
+            try:
+                stdout_lines, stderr_lines = proc.communicate(timeout=600)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout_lines, stderr_lines = proc.communicate()
+            finally:
+                with _FakeGenLock:
+                    _FakeGenProc = None
             for line in (stdout_lines or "").splitlines():
                 with _FakeGenLock:
                     _FakeGenState["stdout_lines"].append(line)
@@ -1022,6 +1034,36 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
                     message="batch_name is required (non-empty string).",
                 ).model_dump(),
             )
+        turns = body.get("turns", 20)
+        if not isinstance(turns, int) or turns < 1 or turns > 10000:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="turns must be an integer between 1 and 10000.",
+                ).model_dump(),
+            )
+        transcript_path = body.get("transcript_path")
+        if transcript_path:
+            if not isinstance(transcript_path, str) or not transcript_path.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponse(
+                        code="BAD_REQUEST",
+                        message="transcript_path must be a non-empty string.",
+                    ).model_dump(),
+                )
+            repo = os.path.abspath(str(paths.repo_root))
+            candidate = os.path.abspath(os.path.join(repo, transcript_path))
+            if not candidate.startswith(repo + os.sep):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponse(
+                        code="BAD_REQUEST",
+                        message="transcript_path must stay within"
+                        " the project directory.",
+                    ).model_dump(),
+                )
         dry_run = body.get("dry_run", False)
 
         with _FakeGenLock:
@@ -1096,6 +1138,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
 
     @router.post("/api/fake-gen/stop")
     async def fake_gen_stop():
+        global _FakeGenProc
         with _FakeGenLock:
             if _FakeGenState["status"] != "running":
                 raise HTTPException(
@@ -1103,6 +1146,11 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
                     detail=ErrorResponse(code="CONFLICT", message="No running generation to stop.").model_dump(),
                 )
             _FakeGenState["status"] = "cancelled"
+            if _FakeGenProc is not None:
+                try:
+                    _FakeGenProc.terminate()
+                except ProcessLookupError:
+                    pass
         return {"status": "cancelled"}
 
     @router.get("/api/fake-gen/batches")
