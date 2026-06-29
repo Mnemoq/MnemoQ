@@ -22,11 +22,13 @@ from agent_memory.engine.auto_learn import (
 )
 from agent_memory.engine.capture import (
     _build_extraction_prompt,
-    _detect_outcome,
+    _detect_outcomes,
     _extract_components,
     _extract_corrected_action,
+    _extract_error_text,
     _extract_files,
     _extract_gist,
+    _is_filler,
     _is_negated,
     _parse_llm_response,
     _split_turns,
@@ -1471,7 +1473,7 @@ class TestSplitTurns:
         text = "just some text without speakers"
         turns = _split_turns(text)
         assert len(turns) == 1
-        assert turns[0][0] == "human"
+        assert turns[0][0] == "agent"
 
     def test_multiple_speakers(self):
         text = "User: hey\nAgent: hi\nCascade: working"
@@ -1485,29 +1487,61 @@ class TestSplitTurns:
         turns = _split_turns("")
         assert turns == []
 
+    def test_markdown_bold_speaker(self):
+        text = "**Human**: do the thing\n**Agent**: done"
+        turns = _split_turns(text)
+        assert len(turns) == 2
+        assert turns[0][0] == "human"
+        assert turns[1][0] == "agent"
+
+    def test_markdown_header_speaker(self):
+        text = "### Agent: working on it"
+        turns = _split_turns(text)
+        assert len(turns) == 1
+        assert turns[0][0] == "agent"
+        assert turns[0][1] == "working on it"
+
+    def test_bracket_speaker(self):
+        text = "[User]: hello there"
+        turns = _split_turns(text)
+        assert len(turns) == 1
+        assert turns[0][0] == "user"
+
 
 # ---------------------------------------------------------------------------
-# capture: _detect_outcome
+# capture: _detect_outcomes
 # ---------------------------------------------------------------------------
 
-class TestDetectOutcome:
+class TestDetectOutcomes:
     def test_correction(self):
-        assert _detect_outcome("no, don't do that") == "correction"
+        assert _detect_outcomes("no, don't do that") == ["correction"]
 
     def test_bug_fixed(self):
-        assert _detect_outcome("fixed the crash error") == "bug_fixed"
+        assert _detect_outcomes("fixed the crash error") == ["bug_fixed"]
 
     def test_decision(self):
-        assert _detect_outcome("let's use Redis") == "decision"
+        assert _detect_outcomes("let's use Redis") == ["decision"]
 
     def test_preference(self):
-        assert _detect_outcome("always remember to validate") == "preference"
+        assert _detect_outcomes("always remember to validate") == ["preference"]
 
     def test_workaround(self):
-        assert _detect_outcome("for now, skip the test") == "workaround"
+        assert _detect_outcomes("for now, skip the test") == ["workaround"]
 
     def test_none(self):
-        assert _detect_outcome("hello world") == "none"
+        assert _detect_outcomes("hello world") == []
+
+    def test_multi_outcome(self):
+        outcomes = _detect_outcomes("no, don't use sync, also we decided to fix the bug")
+        assert "correction" in outcomes
+        assert "decision" in outcomes
+        assert "bug_fixed" in outcomes
+
+    def test_thats_wrong_is_correction(self):
+        assert _detect_outcomes("that's wrong") == ["correction"]
+
+    def test_dont_think_thats_wrong_is_none(self):
+        assert _detect_outcomes("I don't think that's wrong") == []
 
 
 # ---------------------------------------------------------------------------
@@ -1527,6 +1561,26 @@ class TestExtractComponents:
         result = _extract_components("no components here")
         assert result == ["unknown"]
 
+    def test_standalone_capitalized(self):
+        result = _extract_components("updated Parser module")
+        assert "Parser" in result
+
+    def test_capitalized_stopword_filtered(self):
+        result = _extract_components("The quick brown fox")
+        assert "The" not in result
+
+    def test_upper_case_constant(self):
+        result = _extract_components("set MAX_RETRIES to 3")
+        assert "MAX_RETRIES" in result
+
+    def test_snake_case_identifier(self):
+        result = _extract_components("use process_data function")
+        assert "process_data" in result
+
+    def test_snake_case_stopword_filtered(self):
+        result = _extract_components("a lot of work")
+        assert "lot_of" not in result
+
 
 # ---------------------------------------------------------------------------
 # capture: _extract_files
@@ -1541,6 +1595,26 @@ class TestExtractFiles:
     def test_fallback_unknown(self):
         result = _extract_files("no files mentioned")
         assert result == ["unknown"]
+
+    def test_e_g_not_matched(self):
+        result = _extract_files("use e.g. async writes")
+        assert "e.g" not in result
+
+    def test_version_number_not_matched(self):
+        result = _extract_files("upgraded to v1.2")
+        assert "v1.2" not in result
+
+    def test_domain_not_matched(self):
+        result = _extract_files("check example.com for details")
+        assert "example.com" not in result
+
+    def test_strip_leading_tilde(self):
+        result = _extract_files("edit ~/config.json")
+        assert "config.json" in result
+
+    def test_strip_leading_dot_slash(self):
+        result = _extract_files("modified ./src/main.py")
+        assert "src/main.py" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1566,6 +1640,40 @@ class TestExtractCorrectedAction:
         corrected, rejected = _extract_corrected_action("just some text")
         assert corrected == ""
         assert rejected == ""
+
+    def test_do_instead(self):
+        corrected, _ = _extract_corrected_action("do async writes instead")
+        assert corrected == "async writes"
+
+    def test_try_instead(self):
+        corrected, _ = _extract_corrected_action("try async writes instead")
+        assert corrected == "async writes"
+
+    def test_switch_to(self):
+        corrected, _ = _extract_corrected_action("switch to async writes")
+        assert corrected == "async writes"
+
+    def test_replace_with(self):
+        corrected, rejected = _extract_corrected_action("replace sync writes with async writes")
+        assert "sync writes" in rejected
+        assert "async writes" in corrected
+
+    def test_rather_than(self):
+        corrected, rejected = _extract_corrected_action("use async rather than sync")
+        assert corrected == "async"
+        assert rejected == "sync"
+
+    def test_stop_using(self):
+        _, rejected = _extract_corrected_action("stop using sync writes")
+        assert "sync writes" in rejected
+
+    def test_avoid(self):
+        _, rejected = _extract_corrected_action("avoid sync writes")
+        assert "sync writes" in rejected
+
+    def test_never_use(self):
+        _, rejected = _extract_corrected_action("never use sync writes")
+        assert "sync writes" in rejected
 
 
 # ---------------------------------------------------------------------------
@@ -1715,6 +1823,63 @@ class TestExtractGist:
         gist = _extract_gist(text, max_chars=50)
         assert len(gist) <= 50
 
+    def test_content_aware_gist(self):
+        gist = _extract_gist("OK, let me look at that. The real issue is in parser.py")
+        assert "parser.py" in gist
+
+    def test_word_boundary_truncation(self):
+        text = "word " * 30
+        gist = _extract_gist(text, max_chars=20)
+        assert len(gist) <= 20
+        assert not gist.endswith(" ")
+
+
+# ---------------------------------------------------------------------------
+# capture: _extract_error_text
+# ---------------------------------------------------------------------------
+
+class TestExtractErrorText:
+    def test_colon_syntax(self):
+        result = _extract_error_text("error: something went wrong")
+        assert "something went wrong" in result
+
+    def test_exception_class_name(self):
+        result = _extract_error_text("got a TypeError in the handler")
+        assert "TypeError" in result
+
+    def test_natural_language(self):
+        result = _extract_error_text("encountered a crash in the parser")
+        assert "crash" in result
+
+    def test_no_error(self):
+        assert _extract_error_text("just some text") == ""
+
+    def test_multi_line_traceback(self):
+        text = "error: traceback below\nTraceback (most recent call last):\n  File \"x.py\", line 1"
+        result = _extract_error_text(text)
+        assert "traceback" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# capture: _is_filler
+# ---------------------------------------------------------------------------
+
+class TestIsFiller:
+    def test_ok_is_filler(self):
+        assert _is_filler("ok") is True
+
+    def test_thanks_is_filler(self):
+        assert _is_filler("thanks") is True
+
+    def test_done_is_filler(self):
+        assert _is_filler("done") is True
+
+    def test_not_filler_with_signal(self):
+        assert _is_filler("ok, fixed the bug") is False
+
+    def test_long_text_not_filler(self):
+        assert _is_filler("this is a longer message that has content") is False
+
 
 # ---------------------------------------------------------------------------
 # capture: _is_negated
@@ -1731,46 +1896,58 @@ class TestIsNegated:
         assert _is_negated("don't stop this", 6) is True
 
     def test_negation_outside_window(self):
-        assert _is_negated("not really sure if this is wrong", 30) is False
+        assert _is_negated("not really sure if this is somehow wrong", 34) is False
 
 
 # ---------------------------------------------------------------------------
-# capture: _detect_outcome negation awareness
+# capture: _detect_outcomes negation awareness
 # ---------------------------------------------------------------------------
 
-class TestDetectOutcomeNegation:
+class TestDetectOutcomesNegation:
     def test_not_wrong_is_none(self):
-        assert _detect_outcome("that's not wrong") == "none"
+        assert _detect_outcomes("that's not wrong") == []
 
     def test_not_always_is_none(self):
-        assert _detect_outcome("not always needed") == "none"
+        assert _detect_outcomes("not always needed") == []
 
     def test_no_error_is_none(self):
-        assert _detect_outcome("no error here") == "none"
+        assert _detect_outcomes("no error here") == []
 
     def test_dont_stop_is_correction(self):
-        assert _detect_outcome("don't stop") == "correction"
+        assert _detect_outcomes("don't stop") == ["correction"]
 
     def test_no_is_correction(self):
-        assert _detect_outcome("no, that's wrong") == "correction"
+        assert _detect_outcomes("no, that's wrong") == ["correction"]
 
     def test_positive_bug_fixed_still_works(self):
-        assert _detect_outcome("fixed the crash error") == "bug_fixed"
+        assert "bug_fixed" in _detect_outcomes("fixed the crash error")
 
     def test_positive_decision_still_works(self):
-        assert _detect_outcome("let's use Redis") == "decision"
+        assert "decision" in _detect_outcomes("let's use Redis")
 
     def test_positive_preference_still_works(self):
-        assert _detect_outcome("always remember to validate") == "preference"
+        assert "preference" in _detect_outcomes("always remember to validate")
 
     def test_positive_workaround_still_works(self):
-        assert _detect_outcome("for now, skip the test") == "workaround"
+        assert "workaround" in _detect_outcomes("for now, skip the test")
 
     def test_not_a_bug_is_none(self):
-        assert _detect_outcome("this is not a bug") == "none"
+        assert _detect_outcomes("this is not a bug") == []
 
     def test_negated_crash_is_none(self):
-        assert _detect_outcome("this isn't a crash") == "none"
+        assert _detect_outcomes("this isn't a crash") == []
+
+    def test_skip_to_not_workaround(self):
+        assert _detect_outcomes("skip to the next section") == []
+
+    def test_pin_point_not_workaround(self):
+        assert _detect_outcomes("pin point the issue") == []
+
+    def test_pin_to_version_is_workaround(self):
+        assert "workaround" in _detect_outcomes("pin to v1.2")
+
+    def test_skip_the_test_is_workaround(self):
+        assert "workaround" in _detect_outcomes("skip the test")
 
 
 # ---------------------------------------------------------------------------
@@ -1790,9 +1967,46 @@ class TestHeuristicExtractDedup:
 
     def test_different_corrections_not_deduped(self):
         text = (
-            "Human: don't use sync writes in src/db.py\n"
-            "Human: don't use raw SQL in src/db.py"
+            "Human: no, stop using sync writes in src/db.py\n"
+            "Human: no, stop using raw SQL in src/db.py"
         )
         result = heuristic_extract(text)
         corrections = [s for s in result if s["outcome"] == "correction"]
         assert len(corrections) == 2
+
+    def test_same_prefix_different_suffix_not_deduped(self):
+        text = (
+            "Human: no, stop using sync writes in the database layer\n"
+            "Human: no, stop using sync writes in the cache layer"
+        )
+        result = heuristic_extract(text)
+        corrections = [s for s in result if s["outcome"] == "correction"]
+        assert len(corrections) == 2
+
+
+class TestHeuristicExtractFiller:
+    def test_filler_skipped(self):
+        result = heuristic_extract("AI: ok")
+        assert all(s["outcome"] != "none" or s["text"] != "ok" for s in result)
+
+    def test_filler_with_outcome_kept(self):
+        result = heuristic_extract("AI: ok, fixed the bug")
+        outcomes = [s["outcome"] for s in result]
+        assert "bug_fixed" in outcomes
+
+
+class TestHeuristicExtractCrossTurn:
+    def test_correction_has_context_turn(self):
+        text = "AI: working on the parser\nHuman: no, stop using sync writes"
+        result = heuristic_extract(text)
+        corrections = [s for s in result if s["outcome"] == "correction"]
+        assert len(corrections) >= 1
+        assert "context_turn" in corrections[0]
+
+
+class TestHeuristicExtractPreferenceRejected:
+    def test_preference_has_rejected_action(self):
+        result = heuristic_extract("Human: never use sync writes")
+        prefs = [s for s in result if s["outcome"] == "preference"]
+        assert len(prefs) >= 1
+        assert "rejected_action" in prefs[0]

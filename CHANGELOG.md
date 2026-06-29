@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Bumped dependencies: httpx >=0.28.1, ruff >=0.15.20, setuptools >=82.0.1, fastapi >=0.138.1, pytest-xdist >=3.8.0
+- Heuristic capture hardening: multi-outcome detection, improved component/file/gist extraction, filler filtering, cross-turn context, tightened workaround/correction regexes
 
 ## [1.20.6] - 2026-06-25
 
