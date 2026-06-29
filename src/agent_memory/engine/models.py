@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Pydantic models for the memory engine API layer.
 
 Shared across HTTP server (server.py), MCP server (mcp_server.py), and SDK.

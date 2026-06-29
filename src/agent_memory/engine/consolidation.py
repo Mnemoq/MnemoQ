@@ -1,4 +1,7 @@
-﻿"""Sleep Cycle (Consolidation) logic for the memory engine.
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+"""Sleep Cycle (Consolidation) logic for the memory engine.
 
 Extracted from filter.py (Phase 4).
 """
@@ -433,8 +436,8 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         print()
 
     print("Interpretation guidance:")
-    print("- Chronic quarantine from one agent → meta_learning signal (agent doesn't understand schema)")
-    print("- Repeated validation errors → need for better documentation or examples")
+    print("- Chronic quarantine from one agent \u2192 meta_learning signal (agent doesn't understand schema)")
+    print("- Repeated validation errors \u2192 need for better documentation or examples")
     print('- Clear quarantine after review: echo "" > memory/quarantine.jsonl')
     print()
 
@@ -474,7 +477,7 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
         for entry in result["agents_md_suggestions"]:
             print(f"- [step-{entry.get('step', '?')}, {entry.get('domain', '?')}, "
                   f"{entry.get('source_agent', '?')}] {entry.get('trigger', '')}")
-            print("  → Suggests reviewing AGENTS.md for potential updates")
+            print("  \u2192 Suggests reviewing AGENTS.md for potential updates")
         print()
 
     if result["metrics_summary"]:

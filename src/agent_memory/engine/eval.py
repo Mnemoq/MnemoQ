@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Grading harness for retrieval quality evaluation.
 
 Loads a fixture of (task_context, expected_trigger) pairs from

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Default constants for the memory engine.
 
 All configurable defaults live here. filter.py builds a ctx dict

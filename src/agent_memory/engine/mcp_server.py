@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """MCP server for the Agent Memory Engine.
 
 Implements the Model Context Protocol over stdio using stdlib JSON-RPC.

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Python SDK for the Agent Memory Engine.
 
 Supports both direct file access (local) and HTTP API (remote) transports.

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Thin analysis functions for the dashboard.
 
 Takes paths (and ctx where needed), returns plain dicts. Per AGENTS.md,
