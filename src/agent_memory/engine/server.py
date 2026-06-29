@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """FastAPI HTTP server for the Agent Memory Engine.
 
 Core CRUD endpoints live here. Dashboard endpoints are in dashboard_api.py,

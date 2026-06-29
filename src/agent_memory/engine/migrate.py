@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Schema migration runner for learning entries.
 
 Migrate-on-read: io.read_learnings() calls migrate_entry() on every entry,

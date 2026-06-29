@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """
 Engine Version — Single source of truth for version constant.
 

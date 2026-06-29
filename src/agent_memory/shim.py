@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Shim template and utilities for delegating to central engine."""
 
 # Sentinel comment for exact shim detection

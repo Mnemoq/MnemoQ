@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Optional second-pass reranker for the memory engine.
 
 Three backends: none (passthrough), cross-encoder (sentence-transformers),

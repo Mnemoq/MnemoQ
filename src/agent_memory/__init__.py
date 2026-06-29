@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Agent Memory Engine — episodic memory for AI agents."""
 from agent_memory.engine_version import get_engine_version
 

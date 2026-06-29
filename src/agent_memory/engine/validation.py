@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Schema validation and dedup matching for the memory engine.
 
 Extracted from filter.py (Phase 2). validate_entry takes a ctx dict

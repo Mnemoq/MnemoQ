@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Metrics logging and analysis for the memory engine.
 
 Captures structured events for every engine invocation, enabling
