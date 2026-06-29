@@ -127,6 +127,16 @@ def _load_config(paths: _Paths) -> dict:
             result[pk] = config[ck]
     if "api_key" in config:
         result["API_KEY"] = config["api_key"]
+    # Capture config (top-level)
+    if "capture_mode" in config:
+        result["CAPTURE_MODE"] = config["capture_mode"]
+    for ck, pk in [("capture_llm_endpoint", "CAPTURE_LLM_ENDPOINT"),
+                   ("capture_llm_model", "CAPTURE_LLM_MODEL"),
+                   ("capture_online_endpoint", "CAPTURE_ONLINE_ENDPOINT"),
+                   ("capture_online_model", "CAPTURE_ONLINE_MODEL"),
+                   ("capture_online_api_key", "CAPTURE_ONLINE_API_KEY")]:
+        if ck in config:
+            result[pk] = config[ck]
     return result
 
 
@@ -271,6 +281,22 @@ TOOLS = [
             "required": ["step"],
         },
     },
+    {
+        "name": "capture_interaction",
+        "description": ("Capture a conversation interaction as memory. Extracts learnable moments "
+                       "from raw text and auto-logs them. Three-tier extraction: online LLM, "
+                       "offline LLM, heuristic fallback."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "conversation": {"type": "string",
+                                  "description": "Raw conversation text (human and AI turns)"},
+                "step": {"type": "integer", "minimum": 1,
+                         "description": "Current plan step (default: 1)"},
+            },
+            "required": ["conversation"],
+        },
+    },
 ]
 
 
@@ -336,6 +362,12 @@ def _call_tool(name: str, arguments: dict, paths: _Paths, ctx: dict) -> dict:
         threshold = arguments.get("threshold", 10)
         result = review_agents_core(step, threshold, paths)
         result.pop("exit_code", None)
+        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
+
+    elif name == "capture_interaction":
+        from agent_memory.engine.capture import capture_core
+        conversation = arguments.get("conversation", "")
+        result = capture_core(conversation, paths, ctx)
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     else:

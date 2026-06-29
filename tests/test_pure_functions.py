@@ -20,6 +20,16 @@ from agent_memory.engine.auto_learn import (
     detect_reverts,
     detect_under_retrieved,
 )
+from agent_memory.engine.capture import (
+    _build_extraction_prompt,
+    _detect_outcome,
+    _extract_components,
+    _extract_corrected_action,
+    _extract_files,
+    _parse_llm_response,
+    _split_turns,
+    heuristic_extract,
+)
 from agent_memory.engine.consolidation import (
     detect_contradictions,
     get_agents_md_suggestions,
@@ -1441,3 +1451,228 @@ class TestTemplateConfigDrift:
             "templates/config.json drifted from constants.DEFAULTS "
             "(key, template, default): " + repr(mismatches)
         )
+
+
+# ---------------------------------------------------------------------------
+# capture: _split_turns
+# ---------------------------------------------------------------------------
+
+class TestSplitTurns:
+    def test_basic_split(self):
+        text = "Human: do the thing\nAI: done"
+        turns = _split_turns(text)
+        assert len(turns) == 2
+        assert turns[0][0] == "human"
+        assert turns[1][0] == "ai"
+
+    def test_no_speaker_prefix(self):
+        text = "just some text without speakers"
+        turns = _split_turns(text)
+        assert len(turns) == 1
+        assert turns[0][0] == "human"
+
+    def test_multiple_speakers(self):
+        text = "User: hey\nAgent: hi\nCascade: working"
+        turns = _split_turns(text)
+        assert len(turns) == 3
+        assert turns[0][0] == "user"
+        assert turns[1][0] == "agent"
+        assert turns[2][0] == "cascade"
+
+    def test_empty_text(self):
+        turns = _split_turns("")
+        assert turns == []
+
+
+# ---------------------------------------------------------------------------
+# capture: _detect_outcome
+# ---------------------------------------------------------------------------
+
+class TestDetectOutcome:
+    def test_correction(self):
+        assert _detect_outcome("no, don't do that") == "correction"
+
+    def test_bug_fixed(self):
+        assert _detect_outcome("fixed the crash error") == "bug_fixed"
+
+    def test_decision(self):
+        assert _detect_outcome("let's use Redis") == "decision"
+
+    def test_preference(self):
+        assert _detect_outcome("always remember to validate") == "preference"
+
+    def test_workaround(self):
+        assert _detect_outcome("for now, skip the test") == "workaround"
+
+    def test_none(self):
+        assert _detect_outcome("hello world") == "none"
+
+
+# ---------------------------------------------------------------------------
+# capture: _extract_components
+# ---------------------------------------------------------------------------
+
+class TestExtractComponents:
+    def test_backtick_quoted(self):
+        result = _extract_components("use `MyComponent` for this")
+        assert "MyComponent" in result
+
+    def test_pascal_case(self):
+        result = _extract_components("updated HttpClient class")
+        assert "HttpClient" in result
+
+    def test_fallback_unknown(self):
+        result = _extract_components("no components here")
+        assert result == ["unknown"]
+
+
+# ---------------------------------------------------------------------------
+# capture: _extract_files
+# ---------------------------------------------------------------------------
+
+class TestExtractFiles:
+    def test_file_paths(self):
+        result = _extract_files("modified src/main.py and tests/test_foo.py")
+        assert "src/main.py" in result
+        assert "tests/test_foo.py" in result
+
+    def test_fallback_unknown(self):
+        result = _extract_files("no files mentioned")
+        assert result == ["unknown"]
+
+
+# ---------------------------------------------------------------------------
+# capture: _extract_corrected_action
+# ---------------------------------------------------------------------------
+
+class TestExtractCorrectedAction:
+    def test_use_instead(self):
+        corrected, rejected = _extract_corrected_action("use async writes instead")
+        assert corrected == "async writes"
+        assert rejected == ""
+
+    def test_dont_use(self):
+        corrected, rejected = _extract_corrected_action("don't use sync writes")
+        assert rejected == "sync writes"
+
+    def test_both(self):
+        corrected, rejected = _extract_corrected_action("don't use sync writes, use async instead")
+        assert corrected == "async"
+        assert "sync writes" in rejected
+
+    def test_neither(self):
+        corrected, rejected = _extract_corrected_action("just some text")
+        assert corrected == ""
+        assert rejected == ""
+
+
+# ---------------------------------------------------------------------------
+# capture: _build_extraction_prompt
+# ---------------------------------------------------------------------------
+
+class TestBuildExtractionPrompt:
+    def test_includes_system_prompt(self):
+        prompt = _build_extraction_prompt("some conversation")
+        assert "JSON array" in prompt
+        assert "some conversation" in prompt
+
+    def test_truncates_long_text(self):
+        long_text = "x" * 10000
+        prompt = _build_extraction_prompt(long_text)
+        assert "[...truncated...]" in prompt
+        assert len(prompt) < 10000
+
+
+# ---------------------------------------------------------------------------
+# capture: _parse_llm_response
+# ---------------------------------------------------------------------------
+
+class TestParseLlmResponse:
+    def test_plain_json_array(self):
+        resp = '[{"step": 1, "outcome": "none"}]'
+        result = _parse_llm_response(resp)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0]["step"] == 1
+
+    def test_markdown_fenced(self):
+        resp = '```json\n[{"step": 1}]\n```'
+        result = _parse_llm_response(resp)
+        assert result is not None
+        assert len(result) == 1
+
+    def test_json_with_entries_key(self):
+        resp = '{"entries": [{"step": 1}]}'
+        result = _parse_llm_response(resp)
+        assert result is not None
+        assert len(result) == 1
+
+    def test_json_embedded_in_text(self):
+        resp = 'Here are the results:\n[{"step": 1, "outcome": "none"}]\nDone.'
+        result = _parse_llm_response(resp)
+        assert result is not None
+        assert len(result) == 1
+
+    def test_empty_response(self):
+        assert _parse_llm_response("") is None
+
+    def test_invalid_json(self):
+        assert _parse_llm_response("not json at all") is None
+
+    def test_non_list_json(self):
+        assert _parse_llm_response('{"key": "value"}') is None
+
+
+# ---------------------------------------------------------------------------
+# capture: heuristic_extract
+# ---------------------------------------------------------------------------
+
+class TestHeuristicExtract:
+    def test_empty_text(self):
+        result = heuristic_extract("")
+        assert len(result) == 1
+        assert result[0]["outcome"] == "none"
+
+    def test_single_turn(self):
+        result = heuristic_extract("Human: always use snake_case for variables")
+        assert len(result) >= 1
+        assert result[0]["prompt_type"] == "human"
+
+    def test_multiple_turns(self):
+        text = "Human: fix the bug\nAI: done, fixed the crash"
+        result = heuristic_extract(text)
+        assert len(result) >= 2
+
+    def test_correction_detected(self):
+        result = heuristic_extract("Human: no, don't use sync writes, use async instead")
+        outcomes = [s["outcome"] for s in result]
+        assert "correction" in outcomes
+
+    def test_bug_fixed_detected(self):
+        result = heuristic_extract("AI: fixed the crash in parser.py")
+        outcomes = [s["outcome"] for s in result]
+        assert "bug_fixed" in outcomes
+
+    def test_decision_detected(self):
+        result = heuristic_extract("Human: let's use event sourcing")
+        outcomes = [s["outcome"] for s in result]
+        assert "decision" in outcomes
+
+    def test_files_extracted(self):
+        result = heuristic_extract("AI: modified src/parser.py to fix the bug")
+        assert any("src/parser.py" in s["files_touched"] for s in result)
+
+    def test_components_extracted(self):
+        result = heuristic_extract("Human: update `Parser` component")
+        assert any("Parser" in s["components"] for s in result)
+
+    def test_always_returns_at_least_one(self):
+        result = heuristic_extract("blah blah blah")
+        assert len(result) >= 1
+
+    def test_step_increments(self):
+        text = "Human: first\nAI: second\nHuman: third"
+        result = heuristic_extract(text)
+        steps = [s["step"] for s in result]
+        assert steps == sorted(steps)
+        assert len(set(steps)) == len(steps)

@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sim_dialogue.py` script for dialogue simulation with evaluate_core integration
 - Fake batch manifest system in `io.py` with active/inactive batch merging and legacy `fakes.jsonl` fallback
 - PATCH and DELETE helpers in dashboard `api.js`
+- Conversation capture module (`engine/capture.py`): three-tier extraction (online LLM, offline LLM, heuristic) that converts raw conversation text into structured memories via `evaluate_core`
+- `capture_interaction` MCP tool for programmatic conversation capture
+- `--capture-file` CLI flag for batch conversation capture
+- 4 `capture_*` tuning parameters in `config.json` (`capture_enabled`, `capture_always_log`, `capture_max_summaries`, `capture_mode`)
 
 ### Fixed
 - Hooks now return an error when a foreign hook refuses overwrite (#15)

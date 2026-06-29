@@ -250,7 +250,8 @@ def load_config():
             result[python_key] = float(value)
     
     # Boolean parameters
-    bool_params = {"auto_learn_enabled": "AUTO_LEARN_ENABLED", "evaluate_enabled": "EVALUATE_ENABLED"}
+    bool_params = {"auto_learn_enabled": "AUTO_LEARN_ENABLED", "evaluate_enabled": "EVALUATE_ENABLED",
+                   "capture_enabled": "CAPTURE_ENABLED", "capture_always_log": "CAPTURE_ALWAYS_LOG"}
     for config_key, python_key in bool_params.items():
         if config_key in tuning:
             value = tuning[config_key]
@@ -280,6 +281,7 @@ def load_config():
         "auto_learn_max_per_run": ("AUTO_LEARN_MAX_PER_RUN", 1, None),
         "auto_learn_retrieval_failure_cap": ("AUTO_LEARN_RETRIEVAL_FAILURE_CAP", 1, None),
         "evaluate_max_per_turn": ("EVALUATE_MAX_PER_TURN", 1, None),
+        "capture_max_summaries": ("CAPTURE_MAX_SUMMARIES", 1, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
@@ -392,6 +394,30 @@ def load_config():
     # Nullable string params (null = auto-probe / server default)
     for config_key, python_key in [("reranker_llm_endpoint", "RERANKER_LLM_ENDPOINT"),
                                    ("reranker_llm_model", "RERANKER_LLM_MODEL")]:
+        if config_key in config:
+            value = config[config_key]
+            if value is None:
+                result[python_key] = None
+            elif isinstance(value, str):
+                result[python_key] = value
+            else:
+                raise TypeError(f"{config_key} must be a string or null, got {type(value).__name__}")
+
+    # Capture config (top-level)
+    if "capture_mode" in config:
+        value = config["capture_mode"]
+        if not isinstance(value, str):
+            raise TypeError(f"capture_mode must be a string, got {type(value).__name__}")
+        valid_modes = _CONST_DEFAULTS.get("VALID_CAPTURE_MODES", {"online", "offline", "heuristic"})
+        if value not in valid_modes:
+            raise ValueError(f"capture_mode must be one of {sorted(valid_modes)}, got '{value}'")
+        result["CAPTURE_MODE"] = value
+
+    for config_key, python_key in [("capture_llm_endpoint", "CAPTURE_LLM_ENDPOINT"),
+                                   ("capture_llm_model", "CAPTURE_LLM_MODEL"),
+                                   ("capture_online_endpoint", "CAPTURE_ONLINE_ENDPOINT"),
+                                   ("capture_online_model", "CAPTURE_ONLINE_MODEL"),
+                                   ("capture_online_api_key", "CAPTURE_ONLINE_API_KEY")]:
         if config_key in config:
             value = config[config_key]
             if value is None:
@@ -748,6 +774,8 @@ Examples:
                              "logs them as debt-level candidates. Always exits 0 (pre-commit safe).")
     parser.add_argument("--evaluate-ci", type=str, metavar="REPORT",
                         help="Evaluate a pytest JUnit XML report: extract failing-test signals into candidates.")
+    parser.add_argument("--capture-file", type=str, metavar="PATH",
+                        help="Read a raw conversation file and capture learnable moments as memories")
 
     args = parser.parse_args()
 
@@ -756,7 +784,7 @@ Examples:
                              args.review_agents, args.auto_learn, args.evaluate, args.evaluate_file,
                              args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard,
                              args.mcp, args.verify, args.install_hooks, args.scan_staged,
-                             args.evaluate_ci]):
+                             args.evaluate_ci, args.capture_file]):
         parser.error("--version cannot be combined with other operational flags")
 
     if args.version:
@@ -915,6 +943,14 @@ Examples:
     ):
         parser.error("--evaluate cannot be combined with other operational flags")
 
+    if args.capture_file and any(
+        [args.step is not None, log_json, args.resolve, args.update,
+         args.review_agents, args.consolidate, args.stats, args.metrics,
+         args.migrate_schema, args.eval, args.serve, args.dashboard, args.mcp,
+         args.verify, args.auto_learn, evaluate_json, args.scan_staged, args.evaluate_ci]
+    ):
+        parser.error("--capture-file cannot be combined with other operational flags")
+
     if args.migrate_schema:
         from agent_memory.engine.migrate import run_migration
         return run_migration(_get_paths())
@@ -1030,6 +1066,32 @@ Examples:
         result = evaluate_core(summary, _get_paths(), _build_ctx())
         _print_evaluate_verbose(result)
         return result["exit_code"]
+
+    if args.capture_file:
+        from agent_memory.engine.capture import capture_core
+        try:
+            with open(args.capture_file, encoding="utf-8-sig") as f:
+                conversation_text = f.read()
+        except OSError as e:
+            print(f"ERROR: Cannot read --capture-file: {e}", file=sys.stderr)
+            return 1
+        result = capture_core(conversation_text, _get_paths(), _build_ctx())
+        if result.get("disabled"):
+            print("## CAPTURE\nCapture is disabled (capture_enabled: false).")
+            return 0
+        print("## CAPTURE")
+        print(f"Extraction tier: {result.get('extraction_tier', 'heuristic')}")
+        print(f"Summaries: {result.get('summaries_count', 0)}")
+        print(f"Auto-logged: {len(result.get('auto_logged', []))}")
+        for entry in result.get("auto_logged", []):
+            print(f"  [{entry.get('status', '?')}] {entry.get('type', '?')}: {entry.get('trigger', '')}")
+            print(f"    -> {entry.get('action', '')}")
+        if result.get("suggestions"):
+            print(f"\nSuggested: {len(result['suggestions'])}")
+            for s in result["suggestions"]:
+                c = s["candidate"]
+                print(f"  [{s['confidence']:.2f}] {c['type']}: {c['trigger']}")
+        return result.get("exit_code", 0)
 
     if args.consolidate:
         exit_code = handle_consolidate(args.sprint, args.confirm_reset, args.force)
