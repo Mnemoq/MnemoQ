@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Mnemoq
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use strict";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +30,31 @@ const API = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail?.message || err.message || `${r.status}`);
+    }
+    return r.json();
+  },
+  async patch(path, body) {
+    const r = await fetch(this.base + path, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail?.message || err.message || `${r.status}`);
+    }
+    return r.json();
+  },
+  async del(path, body) {
+    const opts = { method: "DELETE" };
+    if (body) {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(body);
+    }
+    const r = await fetch(this.base + path, opts);
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.detail?.message || err.message || `${r.status}`);

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Dashboard API router for the Agent Memory Engine.
 
 All dashboard-specific endpoints live on an APIRouter created by
@@ -9,11 +12,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
+import sys
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from agent_memory.engine.analysis import (
     alerts_list,
@@ -44,6 +52,132 @@ from agent_memory.engine.metrics import (
     read_metrics,
 )
 from agent_memory.engine.models import ErrorResponse
+
+# -- Fake Generator state (module-level singleton) --
+
+_FakeGenLock = threading.Lock()
+_ManifestLock = threading.Lock()
+_FakeGenState = {
+    "status": "idle",
+    "pid": None,
+    "script": None,
+    "stdout_lines": [],
+    "stderr_lines": [],
+    "started_at": None,
+    "finished_at": None,
+    "exit_code": None,
+    "batch_name": None,
+    "batch_slug": None,
+}
+
+
+def _reset_fake_gen_state():
+    _FakeGenState.update({
+        "status": "idle",
+        "pid": None,
+        "script": None,
+        "stdout_lines": [],
+        "stderr_lines": [],
+        "started_at": None,
+        "finished_at": None,
+        "exit_code": None,
+        "batch_name": None,
+        "batch_slug": None,
+    })
+
+
+def _slugify(name):
+    slug = re.sub(r'[^a-zA-Z0-9]+', '-', name.strip().lower()).strip('-')
+    return slug or 'batch'
+
+
+def _manifest_path(paths):
+    return os.path.join(str(paths.memory_dir), "fake_batches.json")
+
+
+def _batch_dir(paths):
+    return os.path.join(str(paths.memory_dir), "fake_batches")
+
+
+def _load_manifest(paths):
+    path = _manifest_path(paths)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _save_manifest(paths, manifest):
+    path = _manifest_path(paths)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def _unique_slug(paths, slug):
+    manifest = _load_manifest(paths)
+    existing = {b["slug"] for b in manifest}
+    if slug not in existing:
+        return slug
+    counter = 2
+    while f"{slug}-{counter}" in existing:
+        counter += 1
+    return f"{slug}-{counter}"
+
+
+def _count_jsonl(path):
+    if not os.path.exists(path):
+        return 0
+    with open(path, encoding="utf-8") as f:
+        return sum(1 for line in f if line.strip())
+
+
+def _migrate_legacy_fakes(paths):
+    fakes_path = os.path.join(str(paths.memory_dir), "fakes.jsonl")
+    if not os.path.exists(fakes_path):
+        return
+    count = _count_jsonl(fakes_path)
+    if count == 0:
+        os.remove(fakes_path)
+        return
+    os.makedirs(_batch_dir(paths), exist_ok=True)
+    slug = "legacy"
+    batch_file = os.path.join(_batch_dir(paths), f"{slug}.jsonl")
+    shutil.move(fakes_path, batch_file)
+    manifest = _load_manifest(paths)
+    manifest.append({
+        "name": "Legacy Fakes",
+        "slug": slug,
+        "category": "generate_fakes",
+        "file": batch_file,
+        "entry_count": count,
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "active": True,
+        "params": {},
+    })
+    _save_manifest(paths, manifest)
+
+
+def _auto_switch_to_fakes(paths, ctx, event_hub, invalidate_cache):
+    """Switch data_source to 'fakes' in config after a successful generation run."""
+    try:
+        with open(paths.config_path, encoding="utf-8") as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    config["data_source"] = "fakes"
+    config_dir = os.path.dirname(paths.config_path)
+    tmp_path = os.path.join(config_dir, "config.json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp_path, paths.config_path)
+    invalidate_cache()
 
 
 def _validate_config_update(body):
@@ -721,5 +855,371 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
             "domain_heatmap": heatmap,
             "fleet_trends": _trend_stats(all_events, days=30),
         }
+
+    # -- Fake Generator --
+
+    def _build_fake_gen_cmd(body, batch_file=None):
+        """Map UI params to CLI args for sim_dialogue or generate_fakes."""
+        script = body["script"]
+        memory_dir = str(paths.memory_dir)
+        # Scripts live in <repo_root>/scripts/ during dev. Fall back to
+        # source tree relative to this module for deployed engines.
+        scripts_dir = os.path.join(str(paths.repo_root), "scripts")
+        if not os.path.isdir(scripts_dir):
+            # __file__ = .../src/agent_memory/engine/dashboard_api.py
+            # 4x dirname → project root
+            scripts_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__))))), "scripts")
+        if script == "sim_dialogue":
+            cmd = [sys.executable, os.path.join(scripts_dir, "sim_dialogue.py")]
+            cmd += ["--turns", str(body.get("turns", 20))]
+            cmd += ["--direct"] if body.get("mode", "direct") == "direct" else ["--pipeline"]
+            if body.get("domain") and body["domain"] != "auto":
+                cmd += ["--domain", body["domain"]]
+            if body.get("seed") is not None:
+                cmd += ["--seed", str(body["seed"])]
+            if body.get("clean"):
+                cmd += ["--clean", "--confirm"]
+            elif body.get("confirm"):
+                cmd += ["--confirm"]
+            if body.get("to_fakes"):
+                cmd += ["--to-fakes"]
+            if body.get("dry_run"):
+                cmd += ["--dry-run"]
+            if body.get("transcript_path"):
+                cmd += ["--transcript", body["transcript_path"]]
+            cmd += ["--memory-dir", memory_dir]
+        else:  # generate_fakes
+            cmd = [sys.executable, os.path.join(scripts_dir, "generate_fakes.py")]
+            cmd += ["--count", str(body.get("turns", 50))]
+            if body.get("mode", "direct") == "pipeline":
+                cmd += ["--pipeline"]
+            if body.get("domain") and body["domain"] != "auto":
+                cmd += ["--domain", body["domain"]]
+            if body.get("seed") is not None:
+                cmd += ["--seed", str(body["seed"])]
+            if body.get("clean"):
+                cmd += ["--clean"]
+            if body.get("confirm"):
+                cmd += ["--confirm"]
+            if batch_file and body.get("mode", "direct") == "direct":
+                cmd += ["--target", batch_file]
+            if body.get("dry_run"):
+                cmd += ["--dry-run"]
+            cmd += ["--memory-dir", memory_dir]
+        return cmd
+
+    def _run_fake_gen(cmd, script_name, auto_switch, batch_name, batch_slug, batch_file, needs_copy):
+        """Background thread: run subprocess, update _FakeGenState."""
+        with _FakeGenLock:
+            _FakeGenState["status"] = "running"
+            _FakeGenState["script"] = script_name
+            _FakeGenState["started_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _FakeGenState["stdout_lines"] = []
+            _FakeGenState["stderr_lines"] = []
+            _FakeGenState["exit_code"] = None
+            _FakeGenState["finished_at"] = None
+            _FakeGenState["batch_name"] = batch_name
+            _FakeGenState["batch_slug"] = batch_slug
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(paths.repo_root),
+            )
+            with _FakeGenLock:
+                _FakeGenState["pid"] = proc.pid
+
+            stdout_lines, stderr_lines = proc.communicate()
+            for line in (stdout_lines or "").splitlines():
+                with _FakeGenLock:
+                    _FakeGenState["stdout_lines"].append(line)
+            for line in (stderr_lines or "").splitlines():
+                with _FakeGenLock:
+                    _FakeGenState["stderr_lines"].append(line)
+
+            proc.wait()
+            with _FakeGenLock:
+                _FakeGenState["exit_code"] = proc.returncode
+                _FakeGenState["finished_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                if _FakeGenState["status"] == "cancelled":
+                    pass
+                elif proc.returncode == 0:
+                    _FakeGenState["status"] = "done"
+                else:
+                    _FakeGenState["status"] = "error"
+
+            if proc.returncode == 0 and batch_slug:
+                if needs_copy:
+                    learnings = paths.learnings_path
+                    if os.path.exists(learnings):
+                        os.makedirs(os.path.dirname(batch_file), exist_ok=True)
+                        shutil.move(learnings, batch_file)
+                entry_count = _count_jsonl(batch_file)
+                if entry_count > 0:
+                    with _ManifestLock:
+                        manifest = _load_manifest(paths)
+                        manifest.append({
+                            "name": batch_name,
+                            "slug": batch_slug,
+                            "category": script_name,
+                            "file": batch_file,
+                            "entry_count": entry_count,
+                            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "active": True,
+                            "params": {},
+                        })
+                        _save_manifest(paths, manifest)
+
+            if auto_switch and proc.returncode == 0:
+                try:
+                    _auto_switch_to_fakes(paths, ctx, event_hub, invalidate_cache)
+                except Exception:
+                    pass
+        except Exception as e:
+            with _FakeGenLock:
+                _FakeGenState["status"] = "error"
+                _FakeGenState["stderr_lines"].append(str(e))
+                _FakeGenState["finished_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @router.post("/api/fake-gen/start")
+    async def fake_gen_start(req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(code="BAD_REQUEST", message="Invalid JSON body.").model_dump(),
+            )
+        script = body.get("script")
+        if script not in ("sim_dialogue", "generate_fakes"):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="script must be 'sim_dialogue' or 'generate_fakes'.",
+                ).model_dump(),
+            )
+        mode = body.get("mode", "direct")
+        if mode not in ("direct", "pipeline"):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="mode must be 'direct' or 'pipeline'.",
+                ).model_dump(),
+            )
+        batch_name = body.get("batch_name")
+        if not batch_name or not isinstance(batch_name, str) or not batch_name.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="batch_name is required (non-empty string).",
+                ).model_dump(),
+            )
+        dry_run = body.get("dry_run", False)
+
+        with _FakeGenLock:
+            if _FakeGenState["status"] == "running":
+                raise HTTPException(
+                    status_code=409,
+                    detail=ErrorResponse(
+                        code="CONFLICT",
+                        message="A generation run is already in progress.",
+                    ).model_dump(),
+                )
+            _reset_fake_gen_state()
+
+        batch_slug = None
+        batch_file = None
+        needs_copy = False
+        if not dry_run:
+            with _ManifestLock:
+                slug = _slugify(batch_name)
+                batch_slug = _unique_slug(paths, slug)
+            os.makedirs(_batch_dir(paths), exist_ok=True)
+            batch_file = os.path.join(_batch_dir(paths), f"{batch_slug}.jsonl")
+            body["clean"] = True
+            body["confirm"] = True
+            needs_copy = (script == "sim_dialogue") or (script == "generate_fakes" and mode == "pipeline")
+
+        cmd = _build_fake_gen_cmd(body, batch_file)
+        auto_switch = body.get("auto_switch", False)
+        thread = threading.Thread(
+            target=_run_fake_gen,
+            args=(cmd, script, auto_switch, batch_name, batch_slug, batch_file, needs_copy),
+            daemon=True,
+        )
+        thread.start()
+
+        import uuid
+        run_id = uuid.uuid4().hex[:8]
+        return {"run_id": run_id, "status": "running", "batch_slug": batch_slug}
+
+    @router.get("/api/fake-gen/stream")
+    async def fake_gen_stream():
+        import asyncio
+        async def event_generator():
+            sent_stdout = 0
+            sent_stderr = 0
+            while True:
+                with _FakeGenLock:
+                    new_stdout = _FakeGenState["stdout_lines"][sent_stdout:]
+                    new_stderr = _FakeGenState["stderr_lines"][sent_stderr:]
+                    sent_stdout = len(_FakeGenState["stdout_lines"])
+                    sent_stderr = len(_FakeGenState["stderr_lines"])
+                    status = _FakeGenState["status"]
+                    exit_code = _FakeGenState["exit_code"]
+
+                for line in new_stdout:
+                    yield f"data: {line}\n\n"
+                for line in new_stderr:
+                    yield f"event: stderr\ndata: {line}\n\n"
+
+                if status in ("done", "cancelled", "error"):
+                    yield f"event: done\ndata: {{\"status\": \"{status}\", \"exit_code\": {exit_code}}}\n\n"
+                    return
+
+                await asyncio.sleep(0.2)
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+    @router.get("/api/fake-gen/status")
+    async def fake_gen_status():
+        with _FakeGenLock:
+            return dict(_FakeGenState)
+
+    @router.post("/api/fake-gen/stop")
+    async def fake_gen_stop():
+        with _FakeGenLock:
+            if _FakeGenState["status"] != "running":
+                raise HTTPException(
+                    status_code=409,
+                    detail=ErrorResponse(code="CONFLICT", message="No running generation to stop.").model_dump(),
+                )
+            _FakeGenState["status"] = "cancelled"
+        return {"status": "cancelled"}
+
+    @router.get("/api/fake-gen/batches")
+    async def fake_gen_list_batches():
+        with _ManifestLock:
+            _migrate_legacy_fakes(paths)
+            manifest = _load_manifest(paths)
+        return {"count": len(manifest), "batches": manifest}
+
+    @router.delete("/api/fake-gen/batches/{slug}")
+    async def fake_gen_delete_batch(slug: str, req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        if not body.get("confirm"):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="confirm: true is required to delete a batch.",
+                ).model_dump(),
+            )
+        with _ManifestLock:
+            manifest = _load_manifest(paths)
+            batch = next((b for b in manifest if b["slug"] == slug), None)
+            if batch is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=ErrorResponse(code="NOT_FOUND", message=f"Batch '{slug}' not found.").model_dump(),
+                )
+            if os.path.exists(batch["file"]):
+                os.remove(batch["file"])
+            manifest = [b for b in manifest if b["slug"] != slug]
+            _save_manifest(paths, manifest)
+        invalidate_cache()
+        return {"deleted": 1, "slug": slug}
+
+    @router.patch("/api/fake-gen/batches/{slug}")
+    async def fake_gen_toggle_batch(slug: str, req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        active = body.get("active")
+        if active is None or not isinstance(active, bool):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(code="BAD_REQUEST", message="active (boolean) is required.").model_dump(),
+            )
+        with _ManifestLock:
+            manifest = _load_manifest(paths)
+            batch = next((b for b in manifest if b["slug"] == slug), None)
+            if batch is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=ErrorResponse(code="NOT_FOUND", message=f"Batch '{slug}' not found.").model_dump(),
+                )
+            batch["active"] = active
+            _save_manifest(paths, manifest)
+        invalidate_cache()
+        return {"slug": slug, "active": active}
+
+    @router.delete("/api/fake-gen/batches")
+    async def fake_gen_delete_all_batches(req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        if not body.get("confirm"):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="confirm: true is required to delete all batches.",
+                ).model_dump(),
+            )
+        with _ManifestLock:
+            manifest = _load_manifest(paths)
+            deleted = 0
+            for batch in manifest:
+                if os.path.exists(batch["file"]):
+                    os.remove(batch["file"])
+                deleted += 1
+            _save_manifest(paths, [])
+        invalidate_cache()
+        return {"deleted": deleted}
+
+    @router.delete("/api/fake-gen/data")
+    async def fake_gen_delete_data(req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        if not body.get("confirm"):
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponse(
+                    code="BAD_REQUEST",
+                    message="confirm: true is required to delete fake data.",
+                ).model_dump(),
+            )
+        # Intentionally duplicates delete_all_batches logic + also cleans legacy fakes.jsonl
+        with _ManifestLock:
+            manifest = _load_manifest(paths)
+            deleted = 0
+            for batch in manifest:
+                if os.path.exists(batch["file"]):
+                    os.remove(batch["file"])
+                deleted += 1
+            _save_manifest(paths, [])
+        fakes_path = os.path.join(str(paths.memory_dir), "fakes.jsonl")
+        if os.path.exists(fakes_path):
+            with open(fakes_path, encoding="utf-8") as f:
+                deleted += sum(1 for line in f if line.strip())
+            os.remove(fakes_path)
+        invalidate_cache()
+        return {"deleted": deleted}
 
     return router
