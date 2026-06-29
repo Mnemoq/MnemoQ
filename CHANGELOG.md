@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `capture_interaction` MCP tool for programmatic conversation capture
 - `--capture-file` CLI flag for batch conversation capture
 - 4 `capture_*` tuning parameters in `config.json` (`capture_enabled`, `capture_always_log`, `capture_max_summaries`, `capture_mode`)
+- Capture heuristic improvements: negation-aware outcome detection, sentence-boundary gist extraction, deduplication, outcome-weighted summary ranking, and signal-gated none-outcome logging
+- `capture_none_log_requires_signal` tuning parameter in `config.json`
 
 ### Fixed
 - Hooks now return an error when a foreign hook refuses overwrite (#15)
@@ -50,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Bumped dependencies: httpx >=0.28.1, ruff >=0.15.20, setuptools >=82.0.1, fastapi >=0.138.1, pytest-xdist >=3.8.0
+- Heuristic capture hardening: multi-outcome detection, improved component/file/gist extraction, filler filtering, cross-turn context, tightened workaround/correction regexes
 
 ## [1.20.6] - 2026-06-25
 

@@ -237,3 +237,69 @@ class TestCaptureConfigValidation:
         learnings_path = temp_project / "memory" / "learnings.jsonl"
         lines = [line for line in learnings_path.read_text().strip().split("\n") if line]
         assert len(lines) == 0
+
+    def test_capture_none_outcome_smalltalk_not_logged(self, temp_project):
+        """none-outcome turns with no real signal (smalltalk) are not logged."""
+        conv_file = temp_project / "conversation.txt"
+        conv_file.write_text("Human: hello\nAI: hi there")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+
+        learnings_path = temp_project / "memory" / "learnings.jsonl"
+        lines = [line for line in learnings_path.read_text().strip().split("\n") if line]
+        assert len(lines) == 0
+
+    def test_capture_none_outcome_with_file_still_logged(self, temp_project):
+        """none-outcome turns with a real file path are still logged."""
+        conv_file = temp_project / "conversation.txt"
+        conv_file.write_text("Human: let me check src/app.py for the issue")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+
+        learnings_path = temp_project / "memory" / "learnings.jsonl"
+        lines = [line for line in learnings_path.read_text().strip().split("\n") if line]
+        assert len(lines) >= 1
+
+    def test_capture_ranking_prioritizes_corrections(self, temp_project):
+        """With a low max_summaries cap, corrections survive over smalltalk."""
+        memory_dir = temp_project / "memory"
+        (memory_dir / "config.json").write_text(json.dumps({
+            "tuning": {"capture_max_summaries": 3}
+        }))
+
+        turns = "\n".join([
+            "Human: hello there",
+            "AI: hi",
+            "Human: how are you",
+            "AI: doing fine",
+            "Human: no, don't use sync writes in src/db.py, use async instead",
+            "AI: ok",
+            "Human: thanks",
+            "AI: sure",
+        ])
+        conv_file = temp_project / "conversation.txt"
+        conv_file.write_text(turns)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        assert result.returncode == 0
+        assert "Summaries: 3" in result.stdout
+
+        learnings_path = temp_project / "memory" / "learnings.jsonl"
+        lines = [line for line in learnings_path.read_text().strip().split("\n") if line]
+        entries = [json.loads(line) for line in lines]
+        actions = " ".join(e.get("action", "") for e in entries)
+        assert "async" in actions.lower() or "sync" in actions.lower()

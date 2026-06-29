@@ -220,3 +220,4 @@ Copy a preset to your project's `memory/config.json` and customize as needed.
 | `capture_enabled` | bool | `true` | bool | Master toggle for conversation capture (under `tuning`) |
 | `capture_always_log` | bool | `true` | bool | Log even "none" outcomes — the LOTS mandate (under `tuning`) |
 | `capture_max_summaries` | int | `10` | >= 1 | Max summaries per interaction, prevents runaway logging (under `tuning`) |
+| `capture_none_log_requires_signal` | bool | `true` | bool | Only auto-log "none" outcomes if real components or files were detected (under `tuning`) |

@@ -58,6 +58,7 @@
     "capture_enabled": true,
     "capture_always_log": true,
     "capture_max_summaries": 10,
+    "capture_none_log_requires_signal": true,
     "agents_conflict_jaccard_threshold": 0.1,
     "agents_conflict_containment_threshold": 3
   }
