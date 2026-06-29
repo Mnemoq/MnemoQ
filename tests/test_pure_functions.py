@@ -26,6 +26,8 @@ from agent_memory.engine.capture import (
     _extract_components,
     _extract_corrected_action,
     _extract_files,
+    _extract_gist,
+    _is_negated,
     _parse_llm_response,
     _split_turns,
     heuristic_extract,
@@ -1676,3 +1678,121 @@ class TestHeuristicExtract:
         steps = [s["step"] for s in result]
         assert steps == sorted(steps)
         assert len(set(steps)) == len(steps)
+
+
+# ---------------------------------------------------------------------------
+# capture: _extract_gist
+# ---------------------------------------------------------------------------
+
+class TestExtractGist:
+    def test_file_extension_not_split(self):
+        gist = _extract_gist("modified src/config.json to add settings")
+        assert "config.json" in gist
+        assert "to add settings" in gist
+
+    def test_version_number_not_split(self):
+        gist = _extract_gist("upgraded to v1.2 and it works")
+        assert "v1.2" in gist
+
+    def test_abbreviation_not_split(self):
+        gist = _extract_gist("use e.g. async writes for this")
+        assert "e.g." in gist
+
+    def test_real_sentence_boundary(self):
+        gist = _extract_gist("First sentence. Second sentence starts here")
+        assert gist == "First sentence."
+
+    def test_no_boundary_fallback(self):
+        text = "just some text without a sentence boundary here"
+        gist = _extract_gist(text)
+        assert gist == text[:200].strip()
+
+    def test_empty_string(self):
+        assert _extract_gist("") == ""
+
+    def test_truncates_at_max_chars(self):
+        text = "a" * 300
+        gist = _extract_gist(text, max_chars=50)
+        assert len(gist) <= 50
+
+
+# ---------------------------------------------------------------------------
+# capture: _is_negated
+# ---------------------------------------------------------------------------
+
+class TestIsNegated:
+    def test_not_before_keyword(self):
+        assert _is_negated("that's not wrong", 13) is True
+
+    def test_no_negation(self):
+        assert _is_negated("that's wrong", 7) is False
+
+    def test_dont_before_keyword(self):
+        assert _is_negated("don't stop this", 6) is True
+
+    def test_negation_outside_window(self):
+        assert _is_negated("not really sure if this is wrong", 30) is False
+
+
+# ---------------------------------------------------------------------------
+# capture: _detect_outcome negation awareness
+# ---------------------------------------------------------------------------
+
+class TestDetectOutcomeNegation:
+    def test_not_wrong_is_none(self):
+        assert _detect_outcome("that's not wrong") == "none"
+
+    def test_not_always_is_none(self):
+        assert _detect_outcome("not always needed") == "none"
+
+    def test_no_error_is_none(self):
+        assert _detect_outcome("no error here") == "none"
+
+    def test_dont_stop_is_correction(self):
+        assert _detect_outcome("don't stop") == "correction"
+
+    def test_no_is_correction(self):
+        assert _detect_outcome("no, that's wrong") == "correction"
+
+    def test_positive_bug_fixed_still_works(self):
+        assert _detect_outcome("fixed the crash error") == "bug_fixed"
+
+    def test_positive_decision_still_works(self):
+        assert _detect_outcome("let's use Redis") == "decision"
+
+    def test_positive_preference_still_works(self):
+        assert _detect_outcome("always remember to validate") == "preference"
+
+    def test_positive_workaround_still_works(self):
+        assert _detect_outcome("for now, skip the test") == "workaround"
+
+    def test_not_a_bug_is_none(self):
+        assert _detect_outcome("this is not a bug") == "none"
+
+    def test_negated_crash_is_none(self):
+        assert _detect_outcome("this isn't a crash") == "none"
+
+
+# ---------------------------------------------------------------------------
+# capture: heuristic_extract dedup
+# ---------------------------------------------------------------------------
+
+class TestHeuristicExtractDedup:
+    def test_identical_turns_deduped(self):
+        text = (
+            "Human: no, don't use sync writes in src/db.py, use async instead\n"
+            "AI: understood\n"
+            "Human: no, don't use sync writes in src/db.py, use async instead"
+        )
+        result = heuristic_extract(text)
+        corrections = [s for s in result if s["outcome"] == "correction"]
+        assert len(corrections) == 1
+
+    def test_different_corrections_not_deduped(self):
+        text = (
+            "Human: don't use sync writes in src/db.py\n"
+            "Human: don't use raw SQL in src/db.py"
+        )
+        result = heuristic_extract(text)
+        corrections = [s for s in result if s["outcome"] == "correction"]
+        assert len(corrections) == 2
