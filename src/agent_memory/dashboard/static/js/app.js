@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Mnemoq
+// SPDX-License-Identifier: AGPL-3.0-or-later
 "use strict";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +61,7 @@ function handleHash() {
   if (name === "consolidation") loadConsolidation();
   if (name === "fleet") loadFleet();
   if (name === "settings") loadSettings();
+  if (name === "fake-gen") loadFakeGen();
 }
 
 tabs.forEach((tab) => {

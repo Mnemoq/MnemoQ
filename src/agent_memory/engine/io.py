@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Mnemoq
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """File I/O helpers for the memory engine.
 
 Extracted from filter.py (Phase 1). All functions take a Paths object
@@ -39,12 +42,35 @@ def read_learnings(paths):
 
 
 def read_learnings_for_dashboard(paths, ctx):
-    """Read learnings or fakes depending on config data_source."""
+    """Read learnings or fakes depending on config data_source.
+
+    When data_source is 'fakes', reads the fake_batches manifest and merges
+    all active batch files from memory/fake_batches/. Falls back to
+    memory/fakes.jsonl if no manifest exists (pre-migration).
+    """
     source = (ctx or {}).get("data_source", "real")
-    path = paths.learnings_path
-    if source == "fakes":
-        path = os.path.join(paths.memory_dir, "fakes.jsonl")
-    return [migrate_entry(e) for e in _read_raw_jsonl(path)]
+    if source != "fakes":
+        return [migrate_entry(e) for e in _read_raw_jsonl(paths.learnings_path)]
+
+    # ponytail: no _ManifestLock here — _save_manifest uses atomic
+    # tmp+replace, so reads see old or new state, never corrupted
+    manifest_path = os.path.join(paths.memory_dir, "fake_batches.json")
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            manifest = []
+        entries = []
+        for batch in manifest:
+            if not batch.get("active", True):
+                continue
+            entries.extend(_read_raw_jsonl(batch["file"]))
+        return [migrate_entry(e) for e in entries]
+
+    # Fallback: pre-migration fakes.jsonl
+    fakes_path = os.path.join(paths.memory_dir, "fakes.jsonl")
+    return [migrate_entry(e) for e in _read_raw_jsonl(fakes_path)]
 
 
 def append_learning(paths, entry):

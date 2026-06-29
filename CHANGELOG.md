@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/ship` meta-workflow with branch protection awareness
 - `/fast-ship` workflow for quick safe edits
 - `/commit` (professional-commit) workflow with Conventional Commit formatting
+- Fake data generator dashboard tab with batch management (create, stream, stop, delete, toggle active)
+- `sim_dialogue.py` script for dialogue simulation with evaluate_core integration
+- Fake batch manifest system in `io.py` with active/inactive batch merging and legacy `fakes.jsonl` fallback
+- PATCH and DELETE helpers in dashboard `api.js`
 
 ### Fixed
 - Hooks now return an error when a foreign hook refuses overwrite (#15)

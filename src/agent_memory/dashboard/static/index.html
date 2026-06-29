@@ -33,6 +33,7 @@
         <li data-tab="consolidation"><i data-lucide="layers"></i><span>Consolidation</span></li>
         <li data-tab="fleet"><i data-lucide="network"></i><span>Fleet</span></li>
         <li data-tab="settings"><i data-lucide="settings"></i><span>Settings</span></li>
+        <li data-tab="fake-gen"><i data-lucide="flask-conical"></i><span>Fake Generator</span></li>
       </ul>
       <div class="sidebar-footer">
         <div id="health-badge" class="health-badge unknown">—</div>
@@ -174,8 +175,24 @@
         <div class="view-header"><h2>Settings</h2></div>
         <div id="settings-content"><p class="placeholder">Loading config...</p></div>
       </section>
+
+      <!-- Fake Generator -->
+      <section id="view-fake-gen" class="view">
+        <div class="view-header"><h2>Fake Generator</h2></div>
+        <div id="fake-gen-content"></div>
+      </section>
     </main>
   </div>
+
+  <footer class="agpl-footer">
+    <span>Copyright (C) 2026 Mnemoq</span>
+    <span>·</span>
+    <a href="https://github.com/Mnemoq/MnemoQ" target="_blank" rel="noopener">Source code</a>
+    <span>·</span>
+    <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">Licensed under AGPLv3</a>
+    <span>·</span>
+    <span>This program comes with ABSOLUTELY NO WARRANTY.</span>
+  </footer>
 
   <!-- Event Log Panel -->
   <div id="event-log" class="event-log collapsed">
@@ -210,6 +227,7 @@
   <script src="/js/consolidation.js"></script>
   <script src="/js/fleet.js"></script>
   <script src="/js/settings.js"></script>
+  <script src="/js/fake-gen.js"></script>
   <script src="/js/events.js"></script>
 </body>
 </html>
