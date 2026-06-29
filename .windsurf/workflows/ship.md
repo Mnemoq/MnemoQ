@@ -37,6 +37,26 @@ If the user stops here, end the workflow.
 
 ---
 
+### 1.5 Doc sync safety net (only if /commit was skipped)
+
+If the user pre-committed and `/commit` was skipped, check whether docs may be stale:
+
+```bash
+git diff origin/main..<current-branch> --stat
+```
+
+Check if any doc-relevant code files changed (see the doc-relevance table in `/commit` Step 3.5) **and** no `.md` files are in the diff. If so, warn the user:
+
+> **This branch has code changes but no doc updates. Run /docs-writer before pushing?**
+> 1. **Yes** — delegate to /docs-writer, then commit the doc changes
+> 2. **No, push as-is**
+
+If yes: delegate to `/docs-writer`, `git add` the updated `.md` files, and commit them with a `docs:` prefix message before proceeding to Step 2.
+
+If `/commit` was **not** skipped (it already ran Step 3.5), skip this step entirely.
+
+---
+
 ### 2. Push
 
 Delegate to `/push` — it handles pre-flight checks (lint + tests), remote sync, and push.

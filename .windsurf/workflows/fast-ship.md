@@ -23,6 +23,7 @@ Small, low-risk edits you're confident about: typo fixes, doc updates, one-line 
 - **Rebase if behind remote** — always rebase, never merge
 - **CI wait** — if CI fails, stop and surface. Do not auto-merge red CI.
 - **Branch hygiene** — never push directly to `main`/`master`
+- **Doc sync** — automatically run /docs-writer for non-trivial code changes (no prompt)
 
 ---
 
@@ -100,6 +101,18 @@ git diff --staged | grep -E "^\+(<<<<<<<|=======|>>>>>>>)"
 ```
 
 - If conflict markers found: stop, surface them.
+
+**Doc sync (automatic):** Analyse the staged diff for doc-relevant code changes (see the doc-relevance table in `/commit` Step 3.5). Skip if:
+- Only `.md` files changed (docs already being updated)
+- Only trivial changes (whitespace, comments, config bumps, version strings)
+
+If doc-relevant code changes are detected, run `/docs-writer` automatically (no prompt — consistent with fast-ship philosophy). Stage any updated `.md` files:
+
+```bash
+git add docs/*.md README.md CHANGELOG.md AGENTS.md
+```
+
+Re-run `git diff --staged` to confirm doc changes are included.
 
 Auto-generate a Conventional Commit message from the diff (same rules as `/commit` Step 4 — type, scope, imperative mood, ≤72 chars). No approval prompt.
 

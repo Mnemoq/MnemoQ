@@ -135,6 +135,48 @@ Show the user the recent log so they can sanity-check what's going into the rele
 
 ---
 
+### 8.5 Full doc audit
+
+Before tagging, run a comprehensive documentation audit to catch any accumulated drift. This is the last chance to fix docs before a public release.
+
+Delegate to `/docs-writer` with the full release diff:
+
+```bash
+git diff v<CURRENT_VERSION>..HEAD
+```
+
+After `/docs-writer` completes, verify these specific consistency checks:
+
+1. **README.md config table** — parameter count matches `docs/config-tuning.md`:
+   ```bash
+   grep -c "tuning\." README.md
+   grep -c "tuning\." docs/config-tuning.md
+   ```
+
+2. **CLI flags** — flags in `docs/cli-reference.md` match actual `cli.py` argparse:
+   ```bash
+   grep -oP '"--[\w-]+"' src/agent_memory/cli.py | sort -u
+   grep -oP '\|--[\w-]+' docs/cli-reference.md | sort -u
+   ```
+
+3. **Module list** — `docs/architecture-overview.md` module map matches actual engine directory:
+   ```bash
+   ls src/agent_memory/engine/*.py | xargs -I{} basename {} .py
+   ```
+
+4. **CHANGELOG.md** — `[Unreleased]` section is populated (already checked in Step 7, re-verify here).
+
+If any drift is found, fix it and amend the release commit:
+
+```bash
+git add docs/*.md README.md AGENTS.md
+git commit --amend --no-edit
+```
+
+If no drift is found, proceed to Step 9.
+
+---
+
 ### 9. Tag the release (annotated)
 
 ```bash
