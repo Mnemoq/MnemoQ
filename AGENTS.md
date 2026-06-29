@@ -13,11 +13,12 @@ memory/config.json holds project-specific tuning. Copy from templates/config.jso
 VALID_DOMAINS and VALID_SOURCE_AGENTS constrain what entries are accepted.
 
 ## Testing
-Run `python -m pytest tests/` before committing. Tests live in tests/test_memory.py.
+Run `python -m pytest tests/` before committing. Tests live in tests/ (split across module-focused files).
 Engine modules are tested via cli.py CLI integration, not direct imports.
 Exception: `tests/test_server.py` may import `agent_memory.engine.server.create_app` directly to exercise the HTTP API surface.
 Exception: `tests/test_triggers.py` may import `agent_memory.engine.triggers` directly to exercise sleep cycle trigger logic.
 Exception: `tests/test_pure_functions.py` may import pure functions directly from engine modules (validation, retrieval, consolidation, auto_learn, evaluate, capture) for unit testing without side effects.
+Exception: `tests/test_config.py`, `tests/test_handlers.py`, and `tests/test_retrieval_integration.py` may import `*_core` functions (`log_core`, `stats_core`, `retrieve_core`, `update_core`, `resolve_core`) directly from engine modules for integration testing without subprocess overhead.
 
 ## Deployment
 Bump VERSION file, then run scripts/deploy.ps1. Deploy copies to ~/.agent-memory/engine/.
