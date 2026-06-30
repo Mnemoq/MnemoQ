@@ -1,6 +1,6 @@
 # Roadmap
 
-## Shipped (v1.17 – v1.21)
+## Shipped (v1.17 – v1.22)
 
 **Retrieval Quality (v1.17 – v1.19)**
 
@@ -24,6 +24,10 @@
 
 - [x] Python SDK (`MemoryClient` / `AsyncMemoryClient`) with local + HTTP transports
 - [x] pip packaging with console entry points (`mnemoq`, `mnemoq-mcp`, `mnemoq-scaffold`, `mnemoq-update`)
+
+**1.22.x Hardening Line** — depth/quality polish to existing features before the SQLite store (which shifts to v1.23+)
+
+- [x] v1.22.0 — Trustworthy grading harness: in-process eval (no per-fixture subprocess), `--match exact|fuzzy|semantic|auto`, MRR/nDCG + per-fixture diagnostics, `--eval-json`
 
 ## Tier 3 — Scalability & Intelligence (v1.22 – v1.28)
 
