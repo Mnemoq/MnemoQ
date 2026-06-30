@@ -730,6 +730,13 @@ Examples:
                         help="Run schema migration on learnings.jsonl and write updated file")
     parser.add_argument("--eval", action="store_true",
                         help="Run grading harness: test retrieval quality against memory/eval/grading.jsonl")
+    parser.add_argument("--match", choices=["exact", "fuzzy", "semantic", "auto"], default="exact",
+                        help="Matching mode for --eval (default: exact substring; "
+                             "fuzzy=token overlap, semantic=embedding cosine, auto=semantic if model present)")
+    parser.add_argument("--eval-json", action="store_true",
+                        help="Emit --eval results as machine-readable JSON")
+    parser.add_argument("--compare", nargs=2, metavar=("CONFIG_A", "CONFIG_B"),
+                        help="With --eval: grade the fixtures under two config files and show the A/B delta")
     parser.add_argument("--memory-dir", type=str,
                         help="Path to memory directory (default: <cwd>/memory)")
     parser.add_argument("--no-profile", action="store_true",
@@ -957,7 +964,8 @@ Examples:
 
     if args.eval:
         from mnemoq.engine.eval import run_eval
-        return run_eval(_get_paths(), _build_ctx())
+        return run_eval(_get_paths(), _build_ctx(), match=args.match,
+                        as_json=args.eval_json, compare=args.compare)
 
     if args.mcp:
         from mnemoq.engine.mcp_server import run_server

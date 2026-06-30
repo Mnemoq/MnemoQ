@@ -56,3 +56,11 @@ memory/archive/*.jsonl
 
 # Test junk
 test.json
+
+# Biomimicry loop (local-only, not tracked)
+.Auto-script/
+.windsurf/workflows/bioloop.md
+
+# Root-level log artifacts
+backfill_log.txt
+log5.txt
