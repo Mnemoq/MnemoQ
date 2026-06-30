@@ -14,7 +14,7 @@ class TestScaffoldIntegration:
         """Test that scaffold creates memory directory structure."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -32,7 +32,7 @@ class TestScaffoldIntegration:
         """Test that --opencode flag wires opencode.json."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--opencode"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--opencode"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -55,7 +55,7 @@ class TestScaffoldIntegration:
         """Test that --ide opencode produces same results as --opencode."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "opencode"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "opencode"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -69,7 +69,7 @@ class TestScaffoldIntegration:
         """Test that --opencode hidden alias still works."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--opencode"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--opencode"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -81,7 +81,7 @@ class TestScaffoldIntegration:
         """Test that --ide windsurf creates workflows, Plans dir, and AGENTS.md."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "windsurf"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "windsurf"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -100,7 +100,7 @@ class TestScaffoldIntegration:
         """Test that --ide cursor creates .cursor/rules/*.mdc and AGENTS.md."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "cursor"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "cursor"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -118,7 +118,7 @@ class TestScaffoldIntegration:
         """Test that --ide claude-code creates CLAUDE.md with memory protocol."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "claude-code"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "claude-code"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -133,7 +133,7 @@ class TestScaffoldIntegration:
         """Test that --ide copilot creates .github/copilot-instructions.md and AGENTS.md."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "copilot"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "copilot"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -150,7 +150,7 @@ class TestScaffoldIntegration:
         """Test that --ide windsurf,cursor wires both platforms."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project),
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project),
              "--defaults", "--ide", "windsurf,cursor"],
             capture_output=True, text=True,
             cwd=str(source_dir)
@@ -165,7 +165,7 @@ class TestScaffoldIntegration:
         """Test that unknown IDE platform exits with error."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "foo"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "foo"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -177,7 +177,7 @@ class TestScaffoldIntegration:
         """Test that --ide ? lists available platforms and exits 0."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", "--ide", "?"],
+            [sys.executable, "-m", "mnemoq.scaffold", "--ide", "?"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -194,7 +194,7 @@ class TestScaffoldIntegration:
         """Test that --ide all wires every platform."""
         source_dir = Path(__file__).parent.parent / "src"
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--ide", "all"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--ide", "all"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -215,7 +215,7 @@ class TestScaffoldIntegration:
         logic, independent of deploy state. The canonical body must reach every
         generated IDE target — AGENTS.md, CLAUDE.md, copilot-instructions.md, and
         cursor's generated memory-protocol.mdc (which must keep its frontmatter)."""
-        import agent_memory.scaffold as scaffold
+        import mnemoq.scaffold as scaffold
 
         repo_root = Path(__file__).parent.parent
         monkeypatch.setattr(scaffold, "ENGINE_DIR", repo_root)
@@ -264,7 +264,7 @@ class TestUpdateHygiene:
 
     def test_is_temp_path_detects_temp(self):
         """is_temp_path returns True for paths under system temp dir."""
-        from agent_memory.update import is_temp_path
+        from mnemoq.update import is_temp_path
 
         temp_dir = Path(tempfile.gettempdir())
         assert is_temp_path(temp_dir) is True
@@ -274,7 +274,7 @@ class TestUpdateHygiene:
 
     def test_is_temp_path_rejects_non_temp(self):
         """is_temp_path returns False for paths not under system temp dir."""
-        from agent_memory.update import is_temp_path
+        from mnemoq.update import is_temp_path
 
         assert is_temp_path(Path("C:/Projects/magpie-swoop")) is False
         assert is_temp_path(Path("/home/user/projects/foo")) is False
@@ -282,13 +282,13 @@ class TestUpdateHygiene:
 
     def test_is_temp_path_handles_nonexistent(self):
         """is_temp_path returns False for non-existent paths (doesn't crash)."""
-        from agent_memory.update import is_temp_path
+        from mnemoq.update import is_temp_path
 
         assert is_temp_path(Path("Z:/nonexistent/path")) is False
 
     def test_load_projects_prunes_temp_entries(self, tmp_path, monkeypatch):
         """load_projects auto-prunes temp entries with backup."""
-        from agent_memory import update
+        from mnemoq import update
 
         engine_dir = tmp_path / "engine"
         engine_dir.mkdir()
@@ -314,7 +314,7 @@ class TestUpdateHygiene:
 
     def test_load_projects_dry_run_no_prune(self, tmp_path, monkeypatch):
         """load_projects with dry_run=True does not modify projects.txt."""
-        from agent_memory import update
+        from mnemoq import update
 
         engine_dir = tmp_path / "engine"
         engine_dir.mkdir()
@@ -341,7 +341,7 @@ class TestShim:
 
     def test_shim_delegates_to_engine(self, temp_project):
         """Test that shim correctly delegates to central engine."""
-        from agent_memory.shim import SHIM_TEMPLATE
+        from mnemoq.shim import SHIM_TEMPLATE
 
         memory_dir = temp_project / "memory"
         shim_path = memory_dir / "filter.py"
@@ -358,7 +358,7 @@ class TestShim:
 
     def test_shim_memory_dir_override(self, temp_project, tmp_path):
         """Test that --memory-dir CLI flag overrides AGENT_MEMORY_DIR set by shim."""
-        from agent_memory.shim import SHIM_TEMPLATE
+        from mnemoq.shim import SHIM_TEMPLATE
 
         memory_dir = temp_project / "memory"
         shim_path = memory_dir / "filter.py"
@@ -381,8 +381,8 @@ class TestShim:
 
     def test_migrate_to_shim(self, temp_project):
         """Test --migrate-to-shim converts full copy to shim."""
-        from agent_memory.shim import is_shim
-        from agent_memory.update import migrate_to_shim
+        from mnemoq.shim import is_shim
+        from mnemoq.update import migrate_to_shim
 
         memory_dir = temp_project / "memory"
         engine_filter = Path.home() / ".agent-memory" / "engine" / "filter.py"
@@ -407,7 +407,7 @@ class TestShim:
 
     def test_migrate_to_shim_idempotent(self, temp_project):
         """Test running --migrate-to-shim twice is safe."""
-        from agent_memory.update import migrate_to_shim
+        from mnemoq.update import migrate_to_shim
 
         memory_dir = temp_project / "memory"
         engine_filter = Path.home() / ".agent-memory" / "engine" / "filter.py"
@@ -431,7 +431,7 @@ class TestShim:
 
     def test_shim_missing_engine(self, temp_project, tmp_path):
         """Test shim handles missing engine gracefully."""
-        from agent_memory.shim import SHIM_TEMPLATE
+        from mnemoq.shim import SHIM_TEMPLATE
 
         missing_engine = tmp_path / "nonexistent" / "engine" / "filter.py"
         custom_shim = SHIM_TEMPLATE.replace(
@@ -455,7 +455,7 @@ class TestShim:
 
     def test_profile_loads_post_migration(self, temp_project):
         """Test that profile.py loads from central location after migration."""
-        from agent_memory.update import migrate_to_shim
+        from mnemoq.update import migrate_to_shim
 
         memory_dir = temp_project / "memory"
         engine_filter = Path.home() / ".agent-memory" / "engine" / "filter.py"
@@ -477,7 +477,7 @@ class TestShim:
 
     def test_scaffold_force_overwrites_old_copy(self, fresh_project):
         """Test that scaffold.py --force overwrites old full copy with shim."""
-        from agent_memory.shim import is_shim
+        from mnemoq.shim import is_shim
 
         source_dir = Path(__file__).parent.parent / "src"
 
@@ -492,7 +492,7 @@ class TestShim:
         assert not is_shim(memory_dir / "filter.py")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.scaffold", str(fresh_project), "--defaults", "--force"],
+            [sys.executable, "-m", "mnemoq.scaffold", str(fresh_project), "--defaults", "--force"],
             capture_output=True, text=True,
             cwd=str(source_dir)
         )
@@ -502,7 +502,7 @@ class TestShim:
 
     def test_scaffold_idempotent(self, fresh_project):
         """Test that scaffold.py is idempotent when already a shim."""
-        from agent_memory.shim import SHIM_TEMPLATE, is_shim
+        from mnemoq.shim import SHIM_TEMPLATE, is_shim
 
         memory_dir = fresh_project / "memory"
         memory_dir.mkdir()
@@ -511,7 +511,7 @@ class TestShim:
 
         mtime_before = shim_path.stat().st_mtime_ns
 
-        from agent_memory.scaffold import copy_engine_files
+        from mnemoq.scaffold import copy_engine_files
 
         copy_engine_files(memory_dir, force=False)
 

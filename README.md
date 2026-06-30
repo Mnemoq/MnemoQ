@@ -176,8 +176,8 @@ pytest
 
 ## Structure
 
-- `src/agent_memory/` — Engine source (CLI, retrieval, validation, consolidation, MCP server, dashboard, SDK)
-- `src/agent_memory/engine/` — Core modules (retrieval, scoring, reranking, consolidation, validation, server)
+- `src/mnemoq/` — Engine source (CLI, retrieval, validation, consolidation, MCP server, dashboard, SDK)
+- `src/mnemoq/engine/` — Core modules (retrieval, scoring, reranking, consolidation, validation, server)
 - `tests/` — Test suite
 - `templates/` — Config templates, prompts, eval data
 - `docs/` — Architecture documentation ([index](docs/README.md))

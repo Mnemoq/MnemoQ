@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-# ponytail: surface src/ to subprocesses so `python -m agent_memory.cli` resolves without a pip install.
+# ponytail: surface src/ to subprocesses so `python -m mnemoq.cli` resolves without a pip install.
 _SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 if "PYTHONPATH" in os.environ:
     if _SRC_DIR not in os.environ["PYTHONPATH"].split(os.pathsep):
@@ -69,7 +69,7 @@ def _load_config(config_path):
 
     Encapsulates the save/restore pattern so callers can't forget the finally block.
     """
-    from agent_memory import cli
+    from mnemoq import cli
     memory_dir = Path(config_path).parent
     repo_root = memory_dir.parent
     paths = _make_paths(memory_dir, repo_root)
@@ -88,7 +88,7 @@ def _make_ctx(config_path=None, **overrides):
     encapsulates the cli.PATHS save/restore).
     Safe under pytest-xdist (separate processes, no shared state).
     """
-    from agent_memory.engine.constants import DEFAULTS
+    from mnemoq.engine.constants import DEFAULTS
     ctx = {k.lower(): v for k, v in DEFAULTS.items()}
 
     if config_path is not None:

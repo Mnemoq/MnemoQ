@@ -15,7 +15,7 @@ class TestMetrics:
         """log_event appends a valid JSON line to metrics.jsonl."""
         paths = _make_paths(temp_project / "memory", temp_project)
 
-        from agent_memory.engine.metrics import log_event, read_metrics
+        from mnemoq.engine.metrics import log_event, read_metrics
 
         log_event(paths, "retrieval", query_step=1, warnings_returned=2,
                   patterns_returned=1, top_score=0.85, latency_ms=3.2)
@@ -36,14 +36,14 @@ class TestMetrics:
         """log_event silently ignores errors (best-effort)."""
         paths = _make_paths("/nonexistent/path/xyz", "/nonexistent")
 
-        from agent_memory.engine.metrics import log_event
+        from mnemoq.engine.metrics import log_event
         log_event(paths, "retrieval", query_step=1)
 
     def test_read_metrics_filters_by_type(self, temp_project):
         """read_metrics filters by event_type."""
         paths = _make_paths(temp_project / "memory", temp_project)
 
-        from agent_memory.engine.metrics import log_event, read_metrics
+        from mnemoq.engine.metrics import log_event, read_metrics
 
         log_event(paths, "retrieval", query_step=1)
         log_event(paths, "log", outcome="ADDED")
@@ -59,7 +59,7 @@ class TestMetrics:
 
     def test_metrics_cli_summary(self, temp_project):
         """--metrics prints a summary report after events exist."""
-        source_filter = ["-m", "agent_memory.cli"]
+        source_filter = ["-m", "mnemoq.cli"]
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -86,7 +86,7 @@ class TestMetrics:
 
     def test_metrics_cli_empty(self, temp_project):
         """--metrics handles no events gracefully."""
-        source_filter = ["-m", "agent_memory.cli"]
+        source_filter = ["-m", "mnemoq.cli"]
 
         result = subprocess.run(
             [sys.executable, *source_filter, "--metrics"],
@@ -98,7 +98,7 @@ class TestMetrics:
 
     def test_metrics_cli_json_output(self, temp_project):
         """--metrics --metrics-json outputs valid JSON."""
-        source_filter = ["-m", "agent_memory.cli"]
+        source_filter = ["-m", "mnemoq.cli"]
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -130,7 +130,7 @@ class TestSchemaMigration:
 
     def test_migration_v0_to_v1(self):
         """Unit test: v0 entries get migrated to v1 with correct fields."""
-        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
+        from mnemoq.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
 
         v0_entry = {"step": 1, "type": "bug_fix", "trigger": "When test", "action": "ALWAYS test"}
         migrated = migrate_entry(dict(v0_entry))
@@ -144,7 +144,7 @@ class TestSchemaMigration:
 
     def test_migrate_entry_noop_on_current(self):
         """migrate_entry is a no-op on already-current entries."""
-        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
+        from mnemoq.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_entry
 
         entry = {"schema_version": CURRENT_SCHEMA_VERSION, "step": 1, "embedding": [0.1, 0.2]}
         migrated = migrate_entry(dict(entry))
@@ -154,7 +154,7 @@ class TestSchemaMigration:
 
     def test_migrate_all_count(self):
         """migrate_all returns correct count of migrated entries."""
-        from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_all
+        from mnemoq.engine.migrate import CURRENT_SCHEMA_VERSION, migrate_all
 
         entries = [
             {"step": 1, "type": "bug_fix"},
@@ -181,12 +181,12 @@ class TestSchemaMigration:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import stats_core
+        from mnemoq.engine.handlers import stats_core
         result = stats_core(paths, ctx=ctx)
         assert result["exit_code"] == 0
 
         # Now run migration on disk
-        from agent_memory.engine.migrate import run_migration
+        from mnemoq.engine.migrate import run_migration
         run_migration(paths)
 
         lines = learnings_path.read_text().strip().split("\n")
@@ -200,7 +200,7 @@ class TestSchemaMigration:
         memory_dir = temp_project / "memory"
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix", "domain": "tooling",
@@ -234,7 +234,7 @@ class TestSchemaMigration:
                 f.write(json.dumps(e) + "\n")
 
         paths = _make_paths(memory_dir, temp_project)
-        from agent_memory.engine.migrate import run_migration
+        from mnemoq.engine.migrate import run_migration
         rc = run_migration(paths)
         assert rc == 0
 
@@ -258,8 +258,8 @@ class TestEmbeddingRetrieval:
         memory_dir = temp_project / "memory"
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core
-        from agent_memory.engine.retrieval import retrieve_core
+        from mnemoq.engine.handlers import log_core
+        from mnemoq.engine.retrieval import retrieve_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -281,7 +281,7 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding(self):
         """Base64 round-trip preserves vector values within float16 precision."""
-        from agent_memory.engine.retrieval import decode_embedding, encode_embedding
+        from mnemoq.engine.retrieval import decode_embedding, encode_embedding
 
         if importlib.util.find_spec("numpy") is None:
             pytest.skip("numpy not installed")
@@ -297,14 +297,14 @@ class TestEmbeddingRetrieval:
 
     def test_embedding_encoding_none(self):
         """encode_embedding(None) returns None, decode_embedding(None) returns None."""
-        from agent_memory.engine.retrieval import decode_embedding, encode_embedding
+        from mnemoq.engine.retrieval import decode_embedding, encode_embedding
 
         assert encode_embedding(None) is None
         assert decode_embedding(None) is None
 
     def test_embedding_encoding_plain_list_fallback(self):
         """encode_embedding falls back to plain list when numpy unavailable."""
-        from agent_memory.engine.retrieval import decode_embedding
+        from mnemoq.engine.retrieval import decode_embedding
 
         original = [0.1, 0.2, 0.3]
         decoded = decode_embedding(original)
@@ -312,7 +312,7 @@ class TestEmbeddingRetrieval:
 
     def test_cosine_similarity(self):
         """cosine_similarity: orthogonal -> 0.0, identical -> 1.0."""
-        from agent_memory.engine.retrieval import cosine_similarity
+        from mnemoq.engine.retrieval import cosine_similarity
 
         vec = [1.0, 0.0, 0.0]
         assert abs(cosine_similarity(vec, vec) - 1.0) < 1e-6
@@ -329,7 +329,7 @@ class TestEmbeddingRetrieval:
         """New entries get entry['embedding'] field (None if embedder unavailable)."""
         paths = _make_paths(temp_project / "memory", temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -360,8 +360,8 @@ class TestEmbeddingRetrieval:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
-        from agent_memory.engine.retrieval import retrieve_core
+        from mnemoq.engine.handlers import log_core
+        from mnemoq.engine.retrieval import retrieve_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -382,7 +382,7 @@ class TestEmbeddingRetrieval:
         memory_dir = temp_project / "memory"
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core, update_core
+        from mnemoq.engine.handlers import log_core, update_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -434,7 +434,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_no_embeddings(self):
         """find_semantic_duplicate returns (0.0, None) when no embeddings available."""
-        from agent_memory.engine.retrieval import find_semantic_duplicate
+        from mnemoq.engine.retrieval import find_semantic_duplicate
 
         entry = {"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": None}
         existing = [{"domain": "tooling", "trigger": "When X", "action": "ALWAYS Y", "reason": "Z", "embedding": None}]
@@ -446,7 +446,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_high_cosine(self):
         """find_semantic_duplicate detects match when embeddings are identical."""
-        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
+        from mnemoq.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -464,7 +464,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_resolved(self):
         """find_semantic_duplicate skips resolved entries."""
-        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
+        from mnemoq.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -481,7 +481,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_skips_different_domain(self):
         """find_semantic_duplicate only checks same-domain entries."""
-        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
+        from mnemoq.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         vec = [0.1, 0.2, 0.3, 0.4]
         emb = encode_embedding(vec)
@@ -498,7 +498,7 @@ class TestSemanticDedup:
 
     def test_find_semantic_duplicate_picks_highest(self):
         """find_semantic_duplicate returns the highest cosine match."""
-        from agent_memory.engine.retrieval import encode_embedding, find_semantic_duplicate
+        from mnemoq.engine.retrieval import encode_embedding, find_semantic_duplicate
 
         entry_vec = [1.0, 0.0, 0.0]
         close_vec = [0.99, 0.01, 0.0]
@@ -520,7 +520,7 @@ class TestSemanticDedup:
         """Logging an entry should populate project_id, origin_project, contributing_projects, contributors."""
         paths = _make_paths(temp_project / "memory", temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -546,7 +546,7 @@ class TestSemanticDedup:
         """Semantic dedup should gracefully fall back to Jaccard when no embedding model is available."""
         paths = _make_paths(temp_project / "memory", temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning1 = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",

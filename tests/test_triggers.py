@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from agent_memory.engine.triggers import _last_consolidation_ts, check_sleep_cycle
+from mnemoq.engine.triggers import _last_consolidation_ts, check_sleep_cycle
 
 
 class _Paths:

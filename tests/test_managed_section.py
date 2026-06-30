@@ -2,7 +2,7 @@
 engine-owned Memory block current in shared agent files without clobbering user
 content."""
 
-from agent_memory.managed_section import sync_managed_section
+from mnemoq.managed_section import sync_managed_section
 
 SECTION = "## Memory\n\nDo the memory thing. --install-hooks\n"
 SECTION_V2 = "## Memory\n\nDo the memory thing, revised. --install-hooks\n"
@@ -113,7 +113,7 @@ def test_migrate_legacy_unmarked_section(tmp_path):
 
 def test_update_sync_instructions_existing_only(tmp_path, monkeypatch):
     """update.sync_instructions refreshes present files and never creates new ones."""
-    import agent_memory.update as update
+    import mnemoq.update as update
 
     monkeypatch.setattr(update, "read_memory_section", lambda: SECTION_V2)
 

@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from agent_memory.engine.auto_learn import (
+from mnemoq.engine.auto_learn import (
     _derive_domain,
     detect_conflicts,
     detect_over_injected,
@@ -20,7 +20,7 @@ from agent_memory.engine.auto_learn import (
     detect_reverts,
     detect_under_retrieved,
 )
-from agent_memory.engine.capture import (
+from mnemoq.engine.capture import (
     _build_extraction_prompt,
     _detect_outcomes,
     _extract_components,
@@ -34,14 +34,14 @@ from agent_memory.engine.capture import (
     _split_turns,
     heuristic_extract,
 )
-from agent_memory.engine.consolidation import (
+from mnemoq.engine.consolidation import (
     detect_contradictions,
     get_agents_md_suggestions,
     infer_sprint_number,
     is_promotion_candidate,
     score_for_promotion,
 )
-from agent_memory.engine.constants import (
+from mnemoq.engine.constants import (
     VALID_DEBT_LEVELS,
     VALID_DOMAINS,
     VALID_SCOPES,
@@ -49,7 +49,7 @@ from agent_memory.engine.constants import (
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
 )
-from agent_memory.engine.evaluate import (
+from mnemoq.engine.evaluate import (
     _build_candidate,
     detect_bug_fixed,
     detect_decision,
@@ -57,8 +57,8 @@ from agent_memory.engine.evaluate import (
     detect_human_correction,
     detect_workaround,
 )
-from agent_memory.engine.retrieval import is_in_retention, score_entry
-from agent_memory.engine.validation import (
+from mnemoq.engine.retrieval import is_in_retention, score_entry
+from mnemoq.engine.validation import (
     actions_oppose,
     find_best_match,
     jaccard_similarity,
@@ -204,6 +204,19 @@ class TestValidateEntrySourceAgent:
         quarantined cascade entry."""
         errors = validate_entry(_valid_entry(source_agent="cascade"), _ctx(valid_source_agents=None))
         assert errors == []
+
+    def test_system_agent_always_passes(self):
+        """source_agent='system' must always validate, even when not in the
+        project's valid_source_agents whitelist. Engine-generated entries
+        (evaluate_core, capture_core, auto_learn_core) use 'system' and
+        were being silently rejected by projects with explicit agent lists."""
+        restricted_agents = {"gm", "code-reviewer", "test-writer"}
+        errors = validate_entry(
+            _valid_entry(source_agent="system"),
+            _ctx(valid_source_agents=restricted_agents),
+        )
+        assert not any("source_agent must be one of" in e for e in errors), \
+            "system agent must bypass per-project whitelist"
 
 
 # ---------------------------------------------------------------------------
@@ -1383,7 +1396,7 @@ class TestReadLearningsForDashboard:
         return p
 
     def test_real_reads_learnings(self, tmp_path):
-        from agent_memory.engine.io import read_learnings_for_dashboard
+        from mnemoq.engine.io import read_learnings_for_dashboard
 
         paths = self._paths(tmp_path, learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}])
         entries = read_learnings_for_dashboard(paths, {"data_source": "real"})
@@ -1391,7 +1404,7 @@ class TestReadLearningsForDashboard:
         assert entries[0]["ts"] == "2024-01-01T00:00:00Z"
 
     def test_fakes_reads_fakes(self, tmp_path):
-        from agent_memory.engine.io import read_learnings_for_dashboard
+        from mnemoq.engine.io import read_learnings_for_dashboard
 
         paths = self._paths(
             tmp_path,
@@ -1403,7 +1416,7 @@ class TestReadLearningsForDashboard:
         assert entries[0]["ts"] == "2024-01-02T00:00:00Z"
 
     def test_no_data_source_key_defaults_to_real(self, tmp_path):
-        from agent_memory.engine.io import read_learnings_for_dashboard
+        from mnemoq.engine.io import read_learnings_for_dashboard
 
         paths = self._paths(tmp_path, learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}])
         entries = read_learnings_for_dashboard(paths, {})
@@ -1411,7 +1424,7 @@ class TestReadLearningsForDashboard:
         assert entries[0]["ts"] == "2024-01-01T00:00:00Z"
 
     def test_fakes_missing_file_returns_empty(self, tmp_path):
-        from agent_memory.engine.io import read_learnings_for_dashboard
+        from mnemoq.engine.io import read_learnings_for_dashboard
 
         paths = self._paths(tmp_path, learnings=[{"ts": "2024-01-01T00:00:00Z", "step": 1}])
         entries = read_learnings_for_dashboard(paths, {"data_source": "fakes"})
@@ -1435,7 +1448,7 @@ class TestTemplateConfigDrift:
     def test_template_tuning_matches_defaults(self):
         import json
 
-        from agent_memory.engine.constants import DEFAULTS
+        from mnemoq.engine.constants import DEFAULTS
 
         template_path = Path(__file__).parent.parent / "templates" / "config.json"
         with open(template_path, encoding="utf-8") as f:

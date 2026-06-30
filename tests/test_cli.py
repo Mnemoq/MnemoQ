@@ -12,7 +12,7 @@ class TestVersionStderr:
     def test_version_outputs_to_stderr(self):
         """Test that --version outputs to stderr, not stdout."""
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--version"],
+            [sys.executable, "-m", "mnemoq.cli", "--version"],
             capture_output=True, text=True
         )
 
@@ -23,7 +23,7 @@ class TestVersionStderr:
     def test_version_format(self):
         """Test that --version has correct format."""
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--version"],
+            [sys.executable, "-m", "mnemoq.cli", "--version"],
             capture_output=True, text=True
         )
 
@@ -55,17 +55,17 @@ class TestRetrievalStdoutStability:
         learning_file.write_text(json.dumps(learning))
 
         subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--log-file", str(learning_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--log-file", str(learning_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
         result1 = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--step", "1", "--components", "TestComponent"],
+            [sys.executable, "-m", "mnemoq.cli", "--step", "1", "--components", "TestComponent"],
             cwd=temp_project, capture_output=True, text=True
         )
 
         result2 = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--step", "1", "--components", "TestComponent"],
+            [sys.executable, "-m", "mnemoq.cli", "--step", "1", "--components", "TestComponent"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -77,7 +77,7 @@ class TestRetrievalStdoutStability:
     def test_retrieval_no_version_in_stdout(self, temp_project):
         """Test that version info is not in retrieval stdout."""
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--step", "1", "--domain", "tooling"],
+            [sys.executable, "-m", "mnemoq.cli", "--step", "1", "--domain", "tooling"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -90,7 +90,7 @@ class TestResolver:
 
     def test_resolve_memory_dir_priority(self, monkeypatch, tmp_path):
         """Test resolve_memory_dir() honors priority: --memory-dir > env > cwd/memory."""
-        from agent_memory.cli import resolve_memory_dir
+        from mnemoq.cli import resolve_memory_dir
 
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
@@ -110,7 +110,7 @@ class TestResolver:
 
     def test_resolve_memory_dir_errors(self, monkeypatch, tmp_path):
         """Test resolve_memory_dir() raises ValueError on invalid paths."""
-        from agent_memory.cli import resolve_memory_dir
+        from mnemoq.cli import resolve_memory_dir
 
         with pytest.raises(ValueError, match="--memory-dir path does not exist"):
             resolve_memory_dir(str(tmp_path / "nonexistent"))
@@ -130,7 +130,7 @@ class TestResolver:
 
     def test_get_paths_raises_if_uninitialized(self):
         """Test _get_paths() raises RuntimeError if PATHS is None."""
-        from agent_memory import cli as filter
+        from mnemoq import cli as filter
         old_paths = filter.PATHS
         try:
             filter.PATHS = None

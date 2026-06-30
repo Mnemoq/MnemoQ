@@ -3,17 +3,17 @@
 # NOTE: Replace @Mnemoq with @Mnemoq/maintainers once the GitHub Org and team exist.
 
 # Engine core
-/src/agent_memory/engine/   @Mnemoq
+/src/mnemoq/engine/   @Mnemoq
 
 # CLI
-/src/agent_memory/cli.py    @Mnemoq
+/src/mnemoq/cli.py    @Mnemoq
 
 # MCP server
-/src/agent_memory/engine/mcp_server.py  @Mnemoq
-/src/agent_memory/mcp_main.py           @Mnemoq
+/src/mnemoq/engine/mcp_server.py  @Mnemoq
+/src/mnemoq/mcp_main.py           @Mnemoq
 
 # SDK
-/src/agent_memory/sdk/     @Mnemoq
+/src/mnemoq/sdk/     @Mnemoq
 
 # Tests
 /tests/                    @Mnemoq

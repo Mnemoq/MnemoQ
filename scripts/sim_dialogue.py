@@ -23,7 +23,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from generate_fakes import COMMON_SLOTS, DOMAIN_POOLS, build_ctx  # noqa: E402
 
-from agent_memory.engine.evaluate import (  # noqa: E402
+from mnemoq.engine.evaluate import (  # noqa: E402
     detect_bug_fixed,
     detect_decision,
     detect_explicit_remember,
@@ -324,9 +324,9 @@ class DialogueRunner:
             json.dump(summary, f, ensure_ascii=False)
             tmp_path = f.name
         try:
-            cmd = [sys.executable, "-m", "agent_memory.cli", "--evaluate-file", tmp_path]
+            cmd = [sys.executable, "-m", "mnemoq.cli", "--evaluate-file", tmp_path]
             cwd = self.paths.repo_root
-            if not os.path.isdir(os.path.join(cwd, "agent_memory")) and not os.path.isdir(os.path.join(cwd, "src", "agent_memory")):
+            if not os.path.isdir(os.path.join(cwd, "mnemoq")) and not os.path.isdir(os.path.join(cwd, "src", "mnemoq")):
                 cwd = os.getcwd()
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
             if result.returncode == 0:

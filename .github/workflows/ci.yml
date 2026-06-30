@@ -27,30 +27,30 @@ jobs:
       - name: Deploy engine to ~/.agent-memory
         run: |
           mkdir -p ~/.agent-memory/engine
-          cp -r src/agent_memory ~/.agent-memory/engine/agent_memory
+          cp -r src/mnemoq ~/.agent-memory/engine/mnemoq
           cp -r templates ~/.agent-memory/engine/templates
           cp VERSION ~/.agent-memory/engine/VERSION
           cat > ~/.agent-memory/engine/filter.py <<'EOF'
           #!/usr/bin/env python3
-          """Backward-compat wrapper - delegates to installed agent_memory package."""
+          """Backward-compat wrapper - delegates to installed mnemoq package."""
           import sys
-          from agent_memory.cli import main
+          from mnemoq.cli import main
           if __name__ == "__main__":
               sys.exit(main())
           EOF
           cat > ~/.agent-memory/engine/scaffold.py <<'EOF'
           #!/usr/bin/env python3
-          """Backward-compat wrapper - delegates to installed agent_memory package."""
+          """Backward-compat wrapper - delegates to installed mnemoq package."""
           import sys
-          from agent_memory.scaffold import main
+          from mnemoq.scaffold import main
           if __name__ == "__main__":
               sys.exit(main())
           EOF
           cat > ~/.agent-memory/engine/update.py <<'EOF'
           #!/usr/bin/env python3
-          """Backward-compat wrapper - delegates to installed agent_memory package."""
+          """Backward-compat wrapper - delegates to installed mnemoq package."""
           import sys
-          from agent_memory.update import main
+          from mnemoq.update import main
           if __name__ == "__main__":
               sys.exit(main())
           EOF
