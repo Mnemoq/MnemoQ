@@ -2,7 +2,7 @@
 
 Programmatic access to the MnemoQ memory engine — log, retrieve, update, resolve, consolidate, and read metrics from Python code.
 
-**Source of truth:** [`sdk/client.py`](../src/agent_memory/sdk/client.py), [`sdk/exceptions.py`](../src/agent_memory/sdk/exceptions.py)
+**Source of truth:** [`sdk/client.py`](../src/mnemoq/sdk/client.py), [`sdk/exceptions.py`](../src/mnemoq/sdk/exceptions.py)
 
 ---
 
@@ -21,7 +21,7 @@ pip install mnemoq
 ### Local file access
 
 ```python
-from agent_memory.sdk import MemoryClient
+from mnemoq.sdk import MemoryClient
 
 client = MemoryClient(memory_dir="/path/to/project/memory")
 
@@ -48,7 +48,7 @@ print(results["total_entries"], "matching entries")
 ### HTTP API access
 
 ```python
-from agent_memory.sdk import MemoryClient
+from mnemoq.sdk import MemoryClient
 
 client = MemoryClient(
     base_url="http://localhost:8765",
@@ -63,7 +63,7 @@ client.close()  # close the underlying HTTP connection pool
 
 ```python
 import asyncio
-from agent_memory.sdk import AsyncMemoryClient
+from mnemoq.sdk import AsyncMemoryClient
 
 async def main():
     async with AsyncMemoryClient(base_url="http://localhost:8765") as client:
@@ -287,10 +287,10 @@ Called automatically when used as a context manager.
 
 ## Exceptions
 
-All SDK exceptions inherit from `MemoryError`. Import from `agent_memory.sdk`:
+All SDK exceptions inherit from `MemoryError`. Import from `mnemoq.sdk`:
 
 ```python
-from agent_memory.sdk import (
+from mnemoq.sdk import (
     MemoryError,
     ValidationError,
     NotFoundError,
@@ -316,7 +316,7 @@ Every exception carries structured fields:
 | `entry_ref` | `str` or `None` | Timestamp of the related entry, if applicable |
 
 ```python
-from agent_memory.sdk import MemoryClient, ValidationError
+from mnemoq.sdk import MemoryClient, ValidationError
 
 try:
     client.log({"step": 1})  # missing required fields
@@ -351,7 +351,7 @@ The `trigger` field must start with "When" (case-insensitive). The `action` fiel
 ### Full lifecycle with local transport
 
 ```python
-from agent_memory.sdk import MemoryClient
+from mnemoq.sdk import MemoryClient
 
 client = MemoryClient(memory_dir="./memory")
 
@@ -402,7 +402,7 @@ print(f"{stats['resolved']} resolved, {stats['unresolved']} open")
 
 ```python
 import asyncio
-from agent_memory.sdk import AsyncMemoryClient
+from mnemoq.sdk import AsyncMemoryClient
 
 async def main():
     async with AsyncMemoryClient(

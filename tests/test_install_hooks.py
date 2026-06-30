@@ -27,7 +27,7 @@ def _run_install_hooks(cwd):
     src_dir = str(Path(__file__).parent.parent / "src")
     env = dict(os.environ, PYTHONPATH=src_dir)
     return subprocess.run(
-        [sys.executable, "-m", "agent_memory.cli", "--install-hooks"],
+        [sys.executable, "-m", "mnemoq.cli", "--install-hooks"],
         capture_output=True, text=True, env=env, cwd=str(cwd),
     )
 
@@ -44,7 +44,7 @@ def test_install_hooks_creates_post_commit():
         assert hook.exists(), "post-commit hook was not created"
 
         body = hook.read_text(encoding="utf-8")
-        assert "agent_memory.cli --auto-learn" in body
+        assert "mnemoq.cli --auto-learn" in body
         assert body.startswith("#!/bin/sh")
         # LF line endings so sh can parse the script.
         assert "\r\n" not in body

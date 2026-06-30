@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-# ponytail: surface src/ to subprocesses so `python -m agent_memory.cli` resolves without a pip install.
+# ponytail: surface src/ to subprocesses so `python -m mnemoq.cli` resolves without a pip install.
 _SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 if "PYTHONPATH" in os.environ:
     if _SRC_DIR not in os.environ["PYTHONPATH"].split(os.pathsep):
@@ -47,7 +47,7 @@ class TestCaptureFileCli:
         )
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -71,7 +71,7 @@ class TestCaptureFileCli:
         conv_file.write_text("Human: test conversation")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -91,7 +91,7 @@ class TestCaptureFileCli:
         conv_file.write_text(turns)
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -101,7 +101,7 @@ class TestCaptureFileCli:
     def test_capture_file_not_found(self, temp_project):
         """--capture-file errors on missing file."""
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", "nonexistent.txt"],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", "nonexistent.txt"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -114,7 +114,7 @@ class TestCaptureFileCli:
         conv_file.write_text("test")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file), "--stats"],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file), "--stats"],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -126,7 +126,7 @@ class TestCaptureFileCli:
         conv_file.write_text("")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -141,7 +141,7 @@ class TestCaptureFileCli:
         )
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -169,7 +169,7 @@ class TestCaptureFileCli:
         conv_file.write_text("Human: test conversation about src/app.py")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -192,7 +192,7 @@ class TestCaptureConfigValidation:
         conv_file.write_text("test")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -210,7 +210,7 @@ class TestCaptureConfigValidation:
         conv_file.write_text("test")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -228,7 +228,7 @@ class TestCaptureConfigValidation:
         conv_file.write_text("Human: test")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -244,7 +244,7 @@ class TestCaptureConfigValidation:
         conv_file.write_text("Human: hello\nAI: hi there")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -260,7 +260,7 @@ class TestCaptureConfigValidation:
         conv_file.write_text("Human: let me check src/app.py for the issue")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -291,7 +291,7 @@ class TestCaptureConfigValidation:
         conv_file.write_text(turns)
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--capture-file", str(conv_file)],
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
             cwd=temp_project, capture_output=True, text=True
         )
 

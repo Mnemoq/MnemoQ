@@ -16,12 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 fastapi = pytest.importorskip("fastapi")
 import httpx
 
-import agent_memory.engine.dashboard_api as dashboard_api
-from agent_memory.engine.server import create_app
+import mnemoq.engine.dashboard_api as dashboard_api
+from mnemoq.engine.server import create_app
 
 
 def _make_paths(project_dir):
-    from agent_memory.cli import Paths
+    from mnemoq.cli import Paths
     memory_dir = str(project_dir / "memory")
     return Paths(
         memory_dir=memory_dir,
@@ -431,7 +431,7 @@ class TestBatchManagement:
     async def test_read_fakes_merges_active_only(self, temp_project):
         import json as _json
 
-        from agent_memory.engine.io import read_learnings_for_dashboard
+        from mnemoq.engine.io import read_learnings_for_dashboard
         batch_dir = temp_project / "memory" / "fake_batches"
         batch_dir.mkdir(parents=True, exist_ok=True)
         active_file = batch_dir / "active.jsonl"

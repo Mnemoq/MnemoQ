@@ -17,19 +17,19 @@ import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import agent_memory.cli as cli
-from agent_memory.cli import load_config, setup_paths
-from agent_memory.engine.constants import (
+import mnemoq.cli as cli
+from mnemoq.cli import load_config, setup_paths
+from mnemoq.engine.constants import (
     DEFAULTS,
     VALID_DOMAINS,
     VALID_RETRIEVAL_ONLY_AGENTS,
     VALID_SOURCE_AGENTS,
     VALID_TYPES,
 )
-from agent_memory.engine.metrics import _get_project_id
-from agent_memory.engine.migrate import CURRENT_SCHEMA_VERSION
-from agent_memory.engine.retrieval import cosine_similarity, embed_entry, encode_embedding
-from agent_memory.engine.validation import validate_entry
+from mnemoq.engine.metrics import _get_project_id
+from mnemoq.engine.migrate import CURRENT_SCHEMA_VERSION
+from mnemoq.engine.retrieval import cosine_similarity, embed_entry, encode_embedding
+from mnemoq.engine.validation import validate_entry
 
 # --- Bootstrap ---
 
@@ -577,7 +577,7 @@ def run_pipeline(args, entries, ctx, paths):
         tmp = os.path.join(paths.memory_dir, f"_fake_entry_{uuid.uuid4().hex}.json")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(entry, f, ensure_ascii=False)
-        cmd = [sys.executable, "-m", "agent_memory.cli", "--log-file", tmp]
+        cmd = [sys.executable, "-m", "mnemoq.cli", "--log-file", tmp]
         if args.memory_dir:
             cmd += ["--memory-dir", args.memory_dir]
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=paths.repo_root)

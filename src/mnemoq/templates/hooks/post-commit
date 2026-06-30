@@ -1,0 +1,14 @@
+#!/bin/sh
+# agent-memory-engine (mnemoq) post-commit hook.
+# Runs auto-learning in the background after each commit. Never blocks the commit.
+LOG="$(git rev-parse --git-dir)/mnemoq-auto-learn.log"
+(
+  if command -v mnemoq >/dev/null 2>&1; then
+    mnemoq --auto-learn >/dev/null 2>>"$LOG" \
+      || echo "mnemoq auto-learn failed (see $LOG)" >>"$LOG"
+  else
+    python -m mnemoq.cli --auto-learn >/dev/null 2>>"$LOG" \
+      || echo "mnemoq auto-learn failed (see $LOG)" >>"$LOG"
+  fi
+) &
+exit 0

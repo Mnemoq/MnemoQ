@@ -40,7 +40,7 @@ def _run_evaluate(summary_json, memory_dir, project_dir):
     src_dir = str(Path(__file__).parent.parent / "src")
     env = dict(os.environ, PYTHONPATH=src_dir)
     return subprocess.run(
-        [sys.executable, "-m", "agent_memory.cli", "--evaluate", summary_json,
+        [sys.executable, "-m", "mnemoq.cli", "--evaluate", summary_json,
          "--memory-dir", str(memory_dir)],
         capture_output=True, text=True, env=env, cwd=str(project_dir),
     )

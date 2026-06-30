@@ -12,7 +12,7 @@ class TestBM25Score:
 
     def test_bm25_rare_term_scores_higher(self):
         """Rare matching term should score higher than common matching term."""
-        from agent_memory.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
+        from mnemoq.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
 
         stop_words = set()
         entries = []
@@ -38,7 +38,7 @@ class TestBM25Score:
 
     def test_bm25_no_match_scores_zero(self):
         """Doc with no matching query terms should score 0.0."""
-        from agent_memory.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
+        from mnemoq.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
 
         stop_words = set()
         entries = [
@@ -55,7 +55,7 @@ class TestBM25Score:
 
     def test_bm25_empty_corpus(self):
         """Empty corpus should return 0.0 without crashing."""
-        from agent_memory.engine.retrieval import bm25_score
+        from mnemoq.engine.retrieval import bm25_score
 
         score = bm25_score(["test"], ["test"], {}, 0, 0.0, 1.5, 0.75)
         assert score == 0.0
@@ -68,8 +68,8 @@ class TestRRFFusion:
         """RRF should rank entries that match both channels higher."""
         paths = _make_paths(temp_project / "memory", temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import log_core
-        from agent_memory.engine.retrieval import retrieve_core
+        from mnemoq.engine.handlers import log_core
+        from mnemoq.engine.retrieval import retrieve_core
 
         entry_a = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -130,8 +130,8 @@ class TestRRFFusion:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
-        from agent_memory.engine.retrieval import retrieve_core
+        from mnemoq.engine.handlers import log_core
+        from mnemoq.engine.retrieval import retrieve_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -163,7 +163,7 @@ class TestReranker:
 
     def test_rerank_none_passthrough(self):
         """rerank_none returns candidates unchanged."""
-        from agent_memory.engine.reranker import rerank_none
+        from mnemoq.engine.reranker import rerank_none
         candidates = [(0.9, 0.8, 0.7, {"severity": "critical"}), (0.5, 0.4, 0.3, {"severity": "minor"})]
         result, active = rerank_none("query", candidates, {})
         assert result is candidates
@@ -171,7 +171,7 @@ class TestReranker:
 
     def test_rerank_dispatch_none(self):
         """rerank() with mode 'none' returns candidates unchanged."""
-        from agent_memory.engine.reranker import rerank
+        from mnemoq.engine.reranker import rerank
         candidates = [(0.9, 0.8, 0.7, {"severity": "critical"})]
         result, active = rerank("query", candidates, {"reranker": "none"})
         assert result is candidates
@@ -179,7 +179,7 @@ class TestReranker:
 
     def test_rerank_cross_encoder_mock(self):
         """Cross-encoder reranking with mocked model."""
-        from agent_memory.engine import reranker
+        from mnemoq.engine import reranker
 
         class MockCrossEncoder:
             def predict(self, pairs):
@@ -204,7 +204,7 @@ class TestReranker:
 
     def test_rerank_cross_encoder_fallback(self):
         """Cross-encoder falls back to passthrough when model unavailable."""
-        from agent_memory.engine import reranker
+        from mnemoq.engine import reranker
 
         reranker._ce_cache["unavailable-model"] = None
 
@@ -222,7 +222,7 @@ class TestReranker:
 
     def test_rerank_llm_local_malformed_response(self):
         """LLM-local returns passthrough when response has fewer numbers than candidates."""
-        from agent_memory.engine import reranker
+        from mnemoq.engine import reranker
 
         reranker._PROBE_CACHE = {"endpoint": None, "checked": False}
 
@@ -247,7 +247,7 @@ class TestReranker:
 
     def test_rerank_llm_local_no_endpoint(self):
         """LLM-local falls back when no endpoint is found."""
-        from agent_memory.engine import reranker
+        from mnemoq.engine import reranker
 
         reranker._PROBE_CACHE = {"endpoint": None, "checked": True}
 
@@ -262,7 +262,7 @@ class TestReranker:
 
     def test_rerank_llm_local_mock_success(self):
         """LLM-local reranks successfully with mocked response."""
-        from agent_memory.engine import reranker
+        from mnemoq.engine import reranker
 
         reranker._PROBE_CACHE = {"endpoint": "http://localhost:11434", "checked": True}
 
@@ -287,7 +287,7 @@ class TestReranker:
 
     def test_rerank_unknown_mode(self):
         """Unknown reranker mode falls back to passthrough."""
-        from agent_memory.engine import reranker
+        from mnemoq.engine import reranker
         candidates = [(0.9, 0.8, 0.7, {"severity": "critical"})]
         result, active = reranker.rerank("query", candidates, {"reranker": "bogus"})
         assert active is False
@@ -295,19 +295,19 @@ class TestReranker:
 
     def test_parse_scores_sufficient(self):
         """_parse_scores returns floats when enough numbers found."""
-        from agent_memory.engine.reranker import _parse_scores
+        from mnemoq.engine.reranker import _parse_scores
         scores = _parse_scores("7.5 3 9.0 1", 4)
         assert scores == [7.5, 3.0, 9.0, 1.0]
 
     def test_parse_scores_insufficient(self):
         """_parse_scores returns None when too few numbers found."""
-        from agent_memory.engine.reranker import _parse_scores
+        from mnemoq.engine.reranker import _parse_scores
         scores = _parse_scores("only 2 numbers here", 5)
         assert scores is None
 
     def test_probe_llm_endpoint_configured(self):
         """_probe_llm_endpoint returns configured endpoint without probing."""
-        from agent_memory.engine.reranker import _probe_llm_endpoint
+        from mnemoq.engine.reranker import _probe_llm_endpoint
         result = _probe_llm_endpoint("http://custom:8080")
         assert result == "http://custom:8080"
 
@@ -369,8 +369,8 @@ class TestReranker:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
-        from agent_memory.engine.retrieval import retrieve_core
+        from mnemoq.engine.handlers import log_core
+        from mnemoq.engine.retrieval import retrieve_core
 
         learning = {
             "step": 1, "source_agent": "gm", "type": "bug_fix",
@@ -394,7 +394,7 @@ class TestEvalHarness:
     """Test the grading harness (--eval flag).
 
     These tests assert on CLI stdout formatting (Top-1 hit rate, HIT@, MISS)
-    so they stay as subprocess tests using `python -m agent_memory.cli`.
+    so they stay as subprocess tests using `python -m mnemoq.cli`.
     """
 
     @staticmethod
@@ -417,7 +417,7 @@ class TestEvalHarness:
         f = temp_project / "learning.json"
         f.write_text(json.dumps(learning))
         subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--log-file", str(f)],
+            [sys.executable, "-m", "mnemoq.cli", "--log-file", str(f)],
             cwd=temp_project, capture_output=True, text=True
         )
 
@@ -430,7 +430,7 @@ class TestEvalHarness:
     def test_eval_no_fixture(self, temp_project):
         """--eval with no fixture file returns 1 with helpful message."""
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--eval"],
+            [sys.executable, "-m", "mnemoq.cli", "--eval"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 1
@@ -441,7 +441,7 @@ class TestEvalHarness:
         self._setup_learning_and_fixture(temp_project, "When AABB collision detected")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--eval"],
+            [sys.executable, "-m", "mnemoq.cli", "--eval"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 0
@@ -454,7 +454,7 @@ class TestEvalHarness:
         self._setup_learning_and_fixture(temp_project, "When physics body overlaps")
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--eval"],
+            [sys.executable, "-m", "mnemoq.cli", "--eval"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 0
@@ -488,7 +488,7 @@ class TestEvalHarness:
             f = temp_project / fname
             f.write_text(json.dumps(learning))
             subprocess.run(
-                [sys.executable, "-m", "agent_memory.cli", "--log-file", str(f)],
+                [sys.executable, "-m", "mnemoq.cli", "--log-file", str(f)],
                 cwd=temp_project, capture_output=True, text=True
             )
 
@@ -503,7 +503,7 @@ class TestEvalHarness:
         )
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--eval"],
+            [sys.executable, "-m", "mnemoq.cli", "--eval"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 0
@@ -522,7 +522,7 @@ class TestEvalHarness:
         )
 
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--eval"],
+            [sys.executable, "-m", "mnemoq.cli", "--eval"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode == 0
@@ -531,7 +531,7 @@ class TestEvalHarness:
     def test_eval_mutual_exclusion(self, temp_project):
         """--eval cannot be combined with --stats."""
         result = subprocess.run(
-            [sys.executable, "-m", "agent_memory.cli", "--eval", "--stats"],
+            [sys.executable, "-m", "mnemoq.cli", "--eval", "--stats"],
             cwd=temp_project, capture_output=True, text=True
         )
         assert result.returncode != 0

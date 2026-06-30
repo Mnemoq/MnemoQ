@@ -65,7 +65,7 @@ def test_auto_learn_generates_entries():
     env = dict(os.environ, PYTHONPATH=src_dir)
 
     result = subprocess.run(
-        [sys.executable, "-m", "agent_memory.cli", "--auto-learn",
+        [sys.executable, "-m", "mnemoq.cli", "--auto-learn",
          "--memory-dir", str(memory_dir)],
         capture_output=True, text=True, env=env, cwd=str(project_dir),
     )
@@ -108,7 +108,7 @@ def test_auto_learn_disabled():
     env = dict(os.environ, PYTHONPATH=src_dir)
 
     result = subprocess.run(
-        [sys.executable, "-m", "agent_memory.cli", "--auto-learn",
+        [sys.executable, "-m", "mnemoq.cli", "--auto-learn",
          "--memory-dir", str(memory_dir)],
         capture_output=True, text=True, env=env, cwd=str(project_dir),
     )

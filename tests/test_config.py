@@ -24,7 +24,7 @@ class TestConfigLoad:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import stats_core
+        from mnemoq.engine.handlers import stats_core
         result = stats_core(paths, ctx=ctx)
 
         assert result["exit_code"] == 0
@@ -33,7 +33,7 @@ class TestConfigLoad:
         """Test that missing config.json falls back to defaults."""
         paths = _make_paths(temp_project / "memory", temp_project)
         ctx = _make_ctx()
-        from agent_memory.engine.handlers import stats_core
+        from mnemoq.engine.handlers import stats_core
         result = stats_core(paths, ctx=ctx)
 
         assert result["exit_code"] == 0
@@ -50,7 +50,7 @@ class TestConfigLoad:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         # Step 49 should be accepted (within bound)
         learning_49 = {
@@ -102,7 +102,7 @@ class TestConfigLoad:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         # Valid domain should be accepted
         learning_valid = {
@@ -154,7 +154,7 @@ class TestConfigLoad:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         # Valid agent should be accepted
         learning_valid = {
@@ -209,7 +209,7 @@ class TestFallbackToDefaults:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import stats_core
+        from mnemoq.engine.handlers import stats_core
         result = stats_core(paths, ctx=ctx)
 
         assert result["exit_code"] == 0
@@ -222,7 +222,7 @@ class TestFallbackToDefaults:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import stats_core
+        from mnemoq.engine.handlers import stats_core
         result = stats_core(paths, ctx=ctx)
 
         assert result["exit_code"] == 0
@@ -243,7 +243,7 @@ class TestNullAcceptAny:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 1,
@@ -275,7 +275,7 @@ class TestNullAcceptAny:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 1,
@@ -311,7 +311,7 @@ class TestMaxStepBound:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 999,
@@ -343,7 +343,7 @@ class TestMaxStepBound:
 
         paths = _make_paths(memory_dir, temp_project)
         ctx = _make_ctx(config_path=str(config_path))
-        from agent_memory.engine.handlers import log_core
+        from mnemoq.engine.handlers import log_core
 
         learning = {
             "step": 11,

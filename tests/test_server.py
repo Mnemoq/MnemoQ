@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 fastapi = pytest.importorskip("fastapi")
 import httpx
 
-from agent_memory.engine.server import create_app
+from mnemoq.engine.server import create_app
 
 
 def _make_client(app):
@@ -41,7 +41,7 @@ def temp_project():
 
 def _make_paths(project_dir):
     """Build a Paths-like object matching filter.py's dataclass."""
-    from agent_memory.cli import Paths
+    from mnemoq.cli import Paths
     memory_dir = str(project_dir / "memory")
     return Paths(
         memory_dir=memory_dir,
@@ -361,7 +361,7 @@ class TestFleet:
         paths = _make_paths(temp_project)
         ctx = _make_ctx()
         # Stub project discovery to return the temp project only
-        monkeypatch.setattr("agent_memory.engine.dashboard_api._load_project_paths", lambda: [temp_project])
+        monkeypatch.setattr("mnemoq.engine.dashboard_api._load_project_paths", lambda: [temp_project])
         app = create_app(paths, ctx, api_key=None, dashboard=True)
         async with _make_client(app) as c:
             resp = await c.get("/api/fleet")
@@ -381,7 +381,7 @@ class TestFleet:
     async def test_project_metrics_summary(self, temp_project, monkeypatch):
         paths = _make_paths(temp_project)
         ctx = _make_ctx()
-        monkeypatch.setattr("agent_memory.engine.dashboard_api._load_project_paths", lambda: [temp_project])
+        monkeypatch.setattr("mnemoq.engine.dashboard_api._load_project_paths", lambda: [temp_project])
         app = create_app(paths, ctx, api_key=None, dashboard=True)
         async with _make_client(app) as c:
             fleet_resp = await c.get("/api/fleet")
@@ -478,7 +478,7 @@ class TestHealthVersion:
 class TestWebSocketDedup:
     async def test_eventhub_dedup(self):
         """Verify EventHub skips duplicate keys and broadcasts distinct ones."""
-        from agent_memory.engine.server import EventHub
+        from mnemoq.engine.server import EventHub
         hub = EventHub()
         received = []
 
@@ -495,7 +495,7 @@ class TestWebSocketDedup:
 
     async def test_watcher_dedup_against_api_hook(self):
         """File watcher re-read of a metrics.jsonl line must not produce a second WS broadcast."""
-        from agent_memory.engine.server import EventHub
+        from mnemoq.engine.server import EventHub
         hub = EventHub()
         received = []
 
@@ -790,7 +790,7 @@ class TestAutoLearn:
 class TestMCPEvaluatePromptSchema:
     def test_evaluate_prompt_in_tools(self):
         """MCP TOOLS list must include evaluate_prompt with expected required fields."""
-        from agent_memory.engine.mcp_server import TOOLS
+        from mnemoq.engine.mcp_server import TOOLS
         tool = next((t for t in TOOLS if t["name"] == "evaluate_prompt"), None)
         assert tool is not None, "evaluate_prompt not found in TOOLS"
         required = set(tool["inputSchema"].get("required", []))
