@@ -29,11 +29,13 @@ Fixture format (one JSON object per line):
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import os
 import re
 import sys
+from types import SimpleNamespace
 
 from mnemoq.engine.retrieval import (
     compute_embedding,
@@ -221,6 +223,66 @@ def grade_fixtures(paths, ctx, fixtures, mode="exact"):
     return metrics
 
 
+# --- A/B config comparison ---
+
+def _swap_config_path(paths, config_path):
+    """Return a paths-like object identical to `paths` but with config_path swapped.
+
+    Works whether `paths` is the frozen Paths dataclass (production) or the
+    namedtuple used in tests; load_config only reads `.config_path`.
+    """
+    if dataclasses.is_dataclass(paths):
+        fields = dataclasses.asdict(paths)
+    elif hasattr(paths, "_asdict"):
+        fields = dict(paths._asdict())
+    else:
+        fields = dict(getattr(paths, "__dict__", {}))
+    fields["config_path"] = str(config_path)
+    return SimpleNamespace(**fields)
+
+
+def _ctx_from_config(paths, config_path):
+    """Build a ctx from DEFAULTS overlaid with a config file, via the real loader.
+
+    Reuses ``cli.load_config()`` (whitelist + tuning block + validation) by
+    temporarily pointing the cli ``PATHS`` singleton at ``config_path``, so an
+    A/B config grades exactly as it would in a real run. Propagates
+    TypeError/ValueError if the config is invalid.
+    """
+    import mnemoq.cli as cli
+    from mnemoq.engine.constants import DEFAULTS
+
+    ctx = {k.lower(): v for k, v in DEFAULTS.items()}
+    old = cli.PATHS
+    try:
+        cli.PATHS = _swap_config_path(paths, config_path)
+        raw = cli.load_config()
+    finally:
+        cli.PATHS = old
+    ctx.update({k.lower(): v for k, v in raw.items()})
+    return ctx
+
+
+_SUMMARY_KEYS = ("fixtures", "top1_hits", "top3_hits", "top1_rate",
+                 "top3_rate", "mrr", "ndcg", "match_mode")
+_DELTA_KEYS = ("top1_rate", "top3_rate", "mrr", "ndcg")
+
+
+def _summary(metrics):
+    """Project the headline metrics (drop the per-fixture detail) for JSON output."""
+    return {k: metrics[k] for k in _SUMMARY_KEYS}
+
+
+def _compare_configs(paths, fixtures, match, cfg_a, cfg_b):
+    """Grade `fixtures` (same corpus) under two config files. Returns (metrics_a, metrics_b)."""
+    ctx_a = _ctx_from_config(paths, cfg_a)
+    ctx_b = _ctx_from_config(paths, cfg_b)
+    mode_a, _ = _resolve_mode(match, ctx_a)
+    mode_b, _ = _resolve_mode(match, ctx_b)
+    return (grade_fixtures(paths, ctx_a, fixtures, mode_a),
+            grade_fixtures(paths, ctx_b, fixtures, mode_b))
+
+
 # --- Reporting ---
 
 def _print_report(metrics, mode_note=None):
@@ -248,7 +310,25 @@ def _print_report(metrics, mode_note=None):
         print(f"{rec['n']:>3}  {rec['status']:<10}  {rec['expected'][:60]}")
 
 
-def run_eval(paths, ctx, match="exact", as_json=False):
+def _print_compare(cfg_a, metrics_a, cfg_b, metrics_b):
+    """Print a side-by-side A/B grading comparison with B-A deltas."""
+    print("## Grading Harness A/B Comparison")
+    print()
+    print(f"A: {cfg_a}  (match: {metrics_a['match_mode']})")
+    print(f"B: {cfg_b}  (match: {metrics_b['match_mode']})")
+    print(f"Fixtures: {metrics_a['fixtures']}")
+    print()
+    print(f"{'Metric':<16}{'A':>10}{'B':>10}{'delta(B-A)':>14}")
+    print("-" * 50)
+    for label, key in [("Top-1 hit rate", "top1_rate"), ("Top-3 hit rate", "top3_rate")]:
+        a, b = metrics_a[key], metrics_b[key]
+        print(f"{label:<16}{a * 100:>9.1f}%{b * 100:>9.1f}%{(b - a) * 100:>+13.1f}%")
+    for label, key in [("MRR", "mrr"), ("nDCG", "ndcg")]:
+        a, b = metrics_a[key], metrics_b[key]
+        print(f"{label:<16}{a:>10.3f}{b:>10.3f}{b - a:>+14.3f}")
+
+
+def run_eval(paths, ctx, match="exact", as_json=False, compare=None):
     """Run the grading harness.
 
     Reads memory/eval/grading.jsonl, grades each fixture in-process, and prints
@@ -270,6 +350,23 @@ def run_eval(paths, ctx, match="exact", as_json=False):
         print('    {"step": 5, "components": "Player,Collision", "files": "", '
               '"domain": "gameplay", "expected_trigger": "When AABB collision detected"}')
         return 1
+
+    if compare:
+        cfg_a, cfg_b = compare
+        try:
+            metrics_a, metrics_b = _compare_configs(paths, fixtures, match, cfg_a, cfg_b)
+        except (TypeError, ValueError) as e:
+            print(f"ERROR: invalid config in --compare: {e}", file=sys.stderr)
+            return 1
+        if as_json:
+            print(json.dumps({
+                "a": {"config": str(cfg_a), **_summary(metrics_a)},
+                "b": {"config": str(cfg_b), **_summary(metrics_b)},
+                "delta": {k: metrics_b[k] - metrics_a[k] for k in _DELTA_KEYS},
+            }, indent=2))
+        else:
+            _print_compare(cfg_a, metrics_a, cfg_b, metrics_b)
+        return 0
 
     mode, mode_note = _resolve_mode(match, ctx)
     metrics = grade_fixtures(paths, ctx, fixtures, mode)

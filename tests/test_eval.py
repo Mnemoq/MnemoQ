@@ -144,3 +144,64 @@ class TestRunEval:
         assert data["match_mode"] == "exact"
         assert "mrr" in data and "ndcg" in data
         assert data["per_fixture"][0]["status"] == "HIT@1"
+
+
+class TestCompare:
+    """A/B config comparison (--compare) using the real config loader."""
+
+    _FIXTURE = {"step": 2, "components": "CollisionSystem", "domain": "tooling",
+                "expected_trigger": "When AABB collision detected"}
+
+    def _setup(self, temp_project):
+        """Log one entry; write config A (high threshold -> filtered) and B (low -> kept)."""
+        paths = _make_paths(temp_project / "memory", temp_project)
+        _log(paths, _make_ctx(), _LEARNING)
+        cfg_a = temp_project / "config_a.json"
+        cfg_b = temp_project / "config_b.json"
+        cfg_a.write_text(json.dumps({"tuning": {"score_threshold": 0.99}}))
+        cfg_b.write_text(json.dumps({"tuning": {"score_threshold": 0.01}}))
+        return paths, cfg_a, cfg_b
+
+    def _write_fixture(self, temp_project):
+        eval_dir = temp_project / "memory" / "eval"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        (eval_dir / "grading.jsonl").write_text(json.dumps(self._FIXTURE) + "\n")
+
+    def test_ctx_from_config_overlays_tuning(self, temp_project):
+        paths, cfg_a, cfg_b = self._setup(temp_project)
+        from mnemoq.engine.eval import _ctx_from_config
+        assert _ctx_from_config(paths, cfg_a)["score_threshold"] == 0.99
+        assert _ctx_from_config(paths, cfg_b)["score_threshold"] == 0.01
+
+    def test_compare_configs_delta(self, temp_project):
+        paths, cfg_a, cfg_b = self._setup(temp_project)
+        from mnemoq.engine.eval import _compare_configs
+        ma, mb = _compare_configs(paths, [self._FIXTURE], "exact", str(cfg_a), str(cfg_b))
+        # A's high threshold filters the entry out (miss); B keeps it (hit).
+        assert ma["top1_hits"] == 0
+        assert mb["top1_hits"] == 1
+
+    def test_run_eval_compare_text(self, temp_project, capsys):
+        paths, cfg_a, cfg_b = self._setup(temp_project)
+        self._write_fixture(temp_project)
+        from mnemoq.engine.eval import run_eval
+        capsys.readouterr()
+        rc = run_eval(paths, _make_ctx(), match="exact", compare=[str(cfg_a), str(cfg_b)])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "A/B Comparison" in out
+        assert "Top-1 hit rate" in out
+
+    def test_run_eval_compare_json(self, temp_project, capsys):
+        paths, cfg_a, cfg_b = self._setup(temp_project)
+        self._write_fixture(temp_project)
+        from mnemoq.engine.eval import run_eval
+        capsys.readouterr()
+        rc = run_eval(paths, _make_ctx(), match="exact", as_json=True,
+                      compare=[str(cfg_a), str(cfg_b)])
+        out = capsys.readouterr().out
+        assert rc == 0
+        data = json.loads(out)
+        assert data["a"]["top1_hits"] == 0
+        assert data["b"]["top1_hits"] == 1
+        assert abs(data["delta"]["top1_rate"] - 1.0) < 1e-9
