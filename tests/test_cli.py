@@ -9,6 +9,7 @@ import pytest
 class TestVersionStderr:
     """Test --version outputs to stderr."""
 
+    @pytest.mark.smoke
     def test_version_outputs_to_stderr(self):
         """Test that --version outputs to stderr, not stdout."""
         result = subprocess.run(
@@ -88,6 +89,7 @@ class TestRetrievalStdoutStability:
 class TestResolver:
     """Test resolve_memory_dir() and _get_paths() guard."""
 
+    @pytest.mark.smoke
     def test_resolve_memory_dir_priority(self, monkeypatch, tmp_path):
         """Test resolve_memory_dir() honors priority: --memory-dir > env > cwd/memory."""
         from mnemoq.cli import resolve_memory_dir
@@ -108,6 +110,7 @@ class TestResolver:
         result = resolve_memory_dir(None)
         assert result == str(memory_dir.resolve())
 
+    @pytest.mark.smoke
     def test_resolve_memory_dir_errors(self, monkeypatch, tmp_path):
         """Test resolve_memory_dir() raises ValueError on invalid paths."""
         from mnemoq.cli import resolve_memory_dir

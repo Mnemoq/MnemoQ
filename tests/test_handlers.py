@@ -11,6 +11,7 @@ from conftest import _make_ctx, _make_paths
 class TestMetrics:
     """Test metrics logging and reporting."""
 
+    @pytest.mark.smoke
     def test_log_event_writes_jsonl(self, temp_project):
         """log_event appends a valid JSON line to metrics.jsonl."""
         paths = _make_paths(temp_project / "memory", temp_project)
@@ -39,6 +40,7 @@ class TestMetrics:
         from mnemoq.engine.metrics import log_event
         log_event(paths, "retrieval", query_step=1)
 
+    @pytest.mark.smoke
     def test_read_metrics_filters_by_type(self, temp_project):
         """read_metrics filters by event_type."""
         paths = _make_paths(temp_project / "memory", temp_project)

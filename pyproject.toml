@@ -52,6 +52,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 addopts = "-n auto"
+markers = [
+    "smoke: fast, high-signal subset run by local + agent workflows; full suite runs only in CI",
+]
 
 [tool.coverage.run]
 source = ["src"]

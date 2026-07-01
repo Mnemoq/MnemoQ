@@ -19,7 +19,7 @@ Before reviewing, read `AGENTS.md` for project-specific constraints and `memory/
 
 1. Read the relevant step from `.windsurf/Plans/` to understand intent and test criteria. If no step is specified, check conversation context for the current task.
 2. Run `git diff` to get the changes under review.
-3. Run `python -m pytest tests/ -x -q` to verify tests pass.
+3. Run `python -m pytest -m smoke -q -x` to verify the fast smoke subset passes. Full suite runs in GitHub CI on push/PR — do not run the full local suite here.
 4. Run `python -m agent_memory.cli --step <N> --components <CompA,CompB> --domain <domain>` to retrieve memory warnings.
 5. For each changed file, check against the invariants and rules.
 6. Classify findings by severity.

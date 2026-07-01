@@ -1,6 +1,7 @@
 param(
     [switch]$DryRun,
     [switch]$SkipTests,
+    [switch]$FullTests,
     [string]$CanaryProject = ""
 )
 
@@ -21,8 +22,23 @@ foreach ($f in $requiredFiles) {
 
 if ($SkipTests) {
     Write-Host "Skipping tests (-SkipTests)"
+} elseif (-not $FullTests) {
+    # Default: fast smoke subset only. The full suite is the responsibility of
+    # GitHub CI on push/PR; use -FullTests for a release-grade deploy gate.
+    Write-Host "Running smoke tests (fast subset; use -FullTests for full+coverage)..."
+    Push-Location $DevRoot
+    $testOutput = python -m pytest -m smoke -q *>&1
+    $testExitCode = $LASTEXITCODE
+    Pop-Location
+
+    if ($testExitCode -ne 0) {
+        Write-Error "Smoke tests failed (exit code $testExitCode). Aborting deploy."
+        Write-Host $testOutput
+        exit 1
+    }
+    Write-Host "  Smoke tests passed."
 } else {
-    Write-Host "Running tests with coverage..."
+    Write-Host "Running full test suite with coverage (-FullTests)..."
     Push-Location $DevRoot
     $testOutput = python -m pytest tests/ --tb=short --cov=src --cov-report=term-missing *>&1
     $testExitCode = $LASTEXITCODE

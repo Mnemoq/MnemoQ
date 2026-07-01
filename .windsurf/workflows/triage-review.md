@@ -61,7 +61,7 @@ For each finding, look up **severity** (from the report) and **estimated fix siz
 
 1. **Apply fixes individually** — one `edit` or `multi_edit` call per finding. This enables per-finding rollback.
 2. **Snapshot before editing** — before applying each fix, read the file with `read_file` and hold the returned content in conversation context. On rollback, restore from that snapshot rather than `git checkout` (which may destroy uncommitted pre-fix work).
-3. **Run `python -m pytest tests/ -x -q`** after each fix.
+3. **Run `python -m pytest -m smoke -q -x`** after each fix. Full suite runs in GitHub CI on push/PR — do not run the full local suite here.
 4. **Rollback on failure** — if tests fail after a fix, restore the file from the snapshot, reclassify the finding as Deferred, note the failure reason in `memory/HANDOFF.md`, and continue with remaining fixes.
 5. **Log a learning** if a fix required >2 iterations or revealed a non-obvious pattern (per AGENTS.md memory protocol and `/code-reviewer` logging format).
 6. **Update `memory/HANDOFF.md`** with any deferred items, including the finding text and `file:line`.

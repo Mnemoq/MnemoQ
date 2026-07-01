@@ -33,8 +33,10 @@ Then run local checks to catch issues before CI does:
 
 ```bash
 ruff check .
-python -m pytest
+python -m pytest -m smoke -q
 ```
+
+Full suite runs in GitHub CI on push/PR — do not run the full local suite here. The smoke subset is a fast pre-flight; CI remains the merge-blocking source of truth.
 
 Also scan the committed diff for unresolved conflict markers:
 

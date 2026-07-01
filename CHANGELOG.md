@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `generate_fakes.py` updated for `agent_memory` package; removed legacy `original_filter.py` and `test.json`
 
 ### Changed
+- Test suite topology: the full pytest suite now runs in exactly one place — GitHub CI on push/PR (`ci.yml`, unchanged 3-Python matrix). A new `smoke` pytest marker (~24 curated fast tests) is the single "fast subset" mechanism; all non-CI callers (agent workflows, `push`/`gm`/`triage-review`/`refactorer`/`code-reviewer`/`test-writer`/`plan-reviewer` workflows, deploy scripts, `publish.yml`) run `pytest -m smoke -q`. Deploy scripts default to smoke with a `-FullTests` (PS) / `--full` (bash) opt-in for the full+coverage release gate.
 - Bumped dependencies: httpx >=0.28.1, ruff >=0.15.20, setuptools >=82.0.1, fastapi >=0.138.1, pytest-xdist >=3.8.0
 - Heuristic capture hardening: multi-outcome detection, improved component/file/gist extraction, filler filtering, cross-turn context, tightened workaround/correction regexes
 

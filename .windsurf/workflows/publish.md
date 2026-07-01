@@ -23,12 +23,12 @@ Ensure your project venv is active, then install dev dependencies:
 pip install -e ".[dev]"
 ```
 
-Then run the test suite:
+Then run the smoke subset as a fast release sanity check:
 ```bash
-python -m pytest tests/
+python -m pytest -m smoke -q
 ```
 
-Abort if any tests fail. Do not publish a broken release — PyPI does not allow re-uploading the same version.
+Abort if any smoke tests fail. Do not publish a broken release — PyPI does not allow re-uploading the same version. The full suite is the responsibility of GitHub CI on push/PR (`.github/workflows/ci.yml`); tags are cut from `main`, which has already passed the full 3-Python matrix.
 
 ---
 

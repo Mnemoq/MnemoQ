@@ -53,9 +53,10 @@ If AGENTS.md does not define test candidates/exclusions, use these general guide
 - Keep fixtures minimal and local to the test file
 
 ### 3. Validate before finishing
-- Run `python -m pytest tests/ -x -q` after writing.
+- Run `python -m pytest -m smoke -q tests/test_<new>.py` after writing — the smoke subset plus the specific test file you just authored, so your new tests are always exercised.
 - If tests fail, fix the test or report the blocker clearly.
 - Do not conclude without validation.
+- Full suite runs in GitHub CI on push/PR — do not run the full local suite here.
 
 ### 4. Import rules (critical)
 - Engine modules are tested via CLI integration, not direct imports.

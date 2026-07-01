@@ -25,7 +25,7 @@ You are highly autonomous and strictly action-oriented. You exist to build excep
 * **Plan deviations:** When implementing from a plan file, surface any deviation as an explicit decision point before coding it. See `.windsurf/workflows/plan-deviation.md`.
 
 ### 4. Verify
-* Run `python -m pytest tests/` (see AGENTS.md ## Commands).
+* Run `python -m pytest -m smoke -q` (see AGENTS.md ## Commands). Full suite runs in GitHub CI on push/PR — do not run the full local suite here.
 * Do not proceed if verification fails. Fix errors immediately.
 
 ### 5. Commit
