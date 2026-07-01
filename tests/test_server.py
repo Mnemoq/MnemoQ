@@ -110,6 +110,36 @@ async def client(temp_project):
         yield c
 
 
+@pytest_asyncio.fixture
+async def dash_client(temp_project):
+    """Dashboard-enabled client — eliminates repeated 4-line setup."""
+    paths = _make_paths(temp_project)
+    ctx = _make_ctx()
+    app = create_app(paths, ctx, api_key=None, dashboard=True)
+    async with _make_client(app) as c:
+        yield c, paths, ctx
+
+
+def _entry(**overrides):
+    """Minimal valid log entry with overrides."""
+    base = {"step": 1, "source_agent": "gm", "type": "anti_pattern",
+            "domain": "backend", "components": ["api"], "files_touched": ["src/main.py"],
+            "trigger": "When testing", "action": "ALWAYS test", "reason": "test reason",
+            "importance": 5, "severity": "minor"}
+    base.update(overrides)
+    return base
+
+
+def _base_config(name="test"):
+    """Base config dict for config update tests."""
+    return {"project_name": name, "tuning": {
+        "score_threshold": 0.15, "decay_rate": 0.995,
+        "component_weight": 1.0, "file_weight": 0.7,
+        "domain_weight": 0.4, "no_match_weight": 0.1,
+        "max_warnings": 5, "max_patterns": 15,
+        "minor_retention": 5, "major_retention": 20}}
+
+
 class TestHealth:
     async def test_health(self, client):
         resp = await client.get("/api/health")
@@ -185,100 +215,56 @@ class TestConsolidate:
 
 
 class TestLearningsFilters:
-    async def test_learnings_domain_filter(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            # Log two entries with different domains
-            for i, domain in enumerate(("backend", "frontend")):
-                entry = {
-                    "step": i + 1, "source_agent": "gm", "type": "anti_pattern",
-                    "domain": domain, "components": ["api"], "files_touched": ["src/main.py"],
-                    "trigger": f"When testing {domain} domain filters",
-                    "action": "ALWAYS verify domain", "reason": "test reason",
-                    "importance": 5, "severity": "minor",
-                }
-                await c.post("/api/log", json={"entry": entry})
-            resp = await c.get("/api/learnings", params={"domain": "backend"})
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["count"] == 1
-            assert data["entries"][0]["domain"] == "backend"
+    async def test_learnings_domain_filter(self, dash_client):
+        c, _, _ = dash_client
+        for i, domain in enumerate(("backend", "frontend")):
+            await c.post("/api/log", json={"entry": _entry(
+                step=i + 1, domain=domain,
+                trigger=f"When testing {domain} domain filters",
+                action="ALWAYS verify domain")})
+        resp = await c.get("/api/learnings", params={"domain": "backend"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        assert data["entries"][0]["domain"] == "backend"
 
-    async def test_learnings_severity_and_step_filter(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            for sev, step, comp, file in [("minor", 1, "Logger", "src/log.py"),
-                                           ("major", 5, "Router", "src/router.py"),
-                                           ("critical", 10, "Auth", "src/auth.py")]:
-                entry = {
-                    "step": step, "source_agent": "gm", "type": "anti_pattern",
-                    "domain": "backend", "components": [comp], "files_touched": [file],
-                    "trigger": f"When {comp} raises {sev} error at step {step}",
-                    "action": f"ALWAYS handle {comp} {sev} errors",
-                    "reason": f"{comp} {sev} errors cause distinct failures",
-                    "importance": 5, "severity": sev,
-                }
-                await c.post("/api/log", json={"entry": entry})
-            resp = await c.get("/api/learnings", params={"severity": "major"})
-            assert resp.status_code == 200
-            assert resp.json()["count"] == 1
+    async def test_learnings_severity_and_step_filter(self, dash_client):
+        c, _, _ = dash_client
+        for sev, step, comp, file in [("minor", 1, "Logger", "src/log.py"),
+                                       ("major", 5, "Router", "src/router.py"),
+                                       ("critical", 10, "Auth", "src/auth.py")]:
+            await c.post("/api/log", json={"entry": _entry(
+                step=step, severity=sev, components=[comp], files_touched=[file],
+                trigger=f"When {comp} raises {sev} error at step {step}",
+                action=f"ALWAYS handle {comp} {sev} errors",
+                reason=f"{comp} {sev} errors cause distinct failures")})
+        assert (await c.get("/api/learnings", params={"severity": "major"})).json()["count"] == 1
+        assert (await c.get("/api/learnings", params={"step_min": 5})).json()["count"] == 2
+        assert (await c.get("/api/learnings", params={"step_min": 3, "step_max": 7})).json()["count"] == 1
 
-            resp = await c.get("/api/learnings", params={"step_min": 5})
-            assert resp.status_code == 200
-            assert resp.json()["count"] == 2
-
-            resp = await c.get("/api/learnings", params={"step_min": 3, "step_max": 7})
-            assert resp.status_code == 200
-            assert resp.json()["count"] == 1
-
-    async def test_learnings_q_filter(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            entry = {
-                "step": 1, "source_agent": "gm", "type": "anti_pattern",
-                "domain": "backend", "components": ["api"], "files_touched": ["src/main.py"],
-                "trigger": "When searching for unique_keyword_here",
-                "action": "ALWAYS use q filter", "reason": "because",
-                "importance": 5, "severity": "minor",
-            }
-            await c.post("/api/log", json={"entry": entry})
-            resp = await c.get("/api/learnings", params={"q": "unique_keyword"})
-            assert resp.status_code == 200
-            assert resp.json()["count"] == 1
-
-            resp = await c.get("/api/learnings", params={"q": "nonexistent"})
-            assert resp.status_code == 200
-            assert resp.json()["count"] == 0
+    async def test_learnings_q_filter(self, dash_client):
+        c, _, _ = dash_client
+        await c.post("/api/log", json={"entry": _entry(
+            trigger="When searching for unique_keyword_here",
+            action="ALWAYS use q filter", reason="because")})
+        assert (await c.get("/api/learnings", params={"q": "unique_keyword"})).json()["count"] == 1
+        assert (await c.get("/api/learnings", params={"q": "nonexistent"})).json()["count"] == 0
 
 
 class TestQuarantine:
-    async def test_quarantine_empty(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            resp = await c.get("/api/metrics/quarantine")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["count"] == 0
+    async def test_quarantine_empty(self, dash_client):
+        c, _, _ = dash_client
+        resp = await c.get("/api/metrics/quarantine")
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 0
 
 
 class TestArchive:
-    async def test_archive_empty(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            resp = await c.get("/api/metrics/archive")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["count"] == 0
+    async def test_archive_empty(self, dash_client):
+        c, _, _ = dash_client
+        resp = await c.get("/api/metrics/archive")
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 0
 
 
 class TestMetrics:
@@ -292,68 +278,40 @@ class TestMetrics:
         resp = await client.get("/api/metrics", params={"since": "not-a-date"})
         assert resp.status_code == 400
 
-    async def test_metrics_type_filter(self, client):
-        resp = await client.get("/api/metrics", params={"type": "retrieval"})
+    @pytest.mark.parametrize("metric_type,expect_key,exclude_key", [
+        ("retrieval", "retrieval", "logging"),
+        ("log", "logging", "retrieval"),
+        ("stats", "events", "retrieval"),
+        ("review_agents", "events", "retrieval"),
+    ])
+    async def test_metrics_type_filter(self, client, metric_type, expect_key, exclude_key):
+        resp = await client.get("/api/metrics", params={"type": metric_type})
         assert resp.status_code == 200
         data = resp.json()
-        assert "retrieval" in data
-        assert "logging" not in data
-
-    async def test_metrics_type_filter_log(self, client):
-        resp = await client.get("/api/metrics", params={"type": "log"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "logging" in data
-        assert "retrieval" not in data
-
-    async def test_metrics_type_filter_stats(self, client):
-        resp = await client.get("/api/metrics", params={"type": "stats"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "events" in data
-        assert "retrieval" not in data
-
-    async def test_metrics_type_filter_review_agents(self, client):
-        resp = await client.get("/api/metrics", params={"type": "review_agents"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "events" in data
-        assert "retrieval" not in data
+        assert expect_key in data
+        assert exclude_key not in data
 
 
 class TestConsolidationState:
-    async def test_consolidation_state(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            entry = {
-                "step": 5,
-                "source_agent": "gm",
-                "type": "architectural_pattern",
-                "domain": "backend",
-                "components": ["api"],
-                "files_touched": ["src/main.py"],
-                "trigger": "When building APIs",
-                "action": "ALWAYS validate input",
-                "reason": "This replaces the old approach and supersedes prior guidance",
-                "importance": 7,
-                "severity": "major",
-            }
-            resp = await c.post("/api/log", json={"entry": entry})
-            assert resp.status_code == 200
+    async def test_consolidation_state(self, dash_client):
+        c, _, _ = dash_client
+        resp = await c.post("/api/log", json={"entry": _entry(
+            step=5, type="architectural_pattern", importance=7, severity="major",
+            trigger="When building APIs", action="ALWAYS validate input",
+            reason="This replaces the old approach and supersedes prior guidance")})
+        assert resp.status_code == 200
 
-            resp = await c.get("/api/consolidation")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["unresolved"] >= 1
-            assert data["total_entries"] >= 1
-            assert isinstance(data["promotion_candidates"], list)
-            assert isinstance(data["contradictions"], list)
-            assert len(data["contradictions"]) >= 1
-            assert isinstance(data["stale_entries"], list)
-            assert "quarantine" in data
-            assert "archive_history" in data
+        resp = await c.get("/api/consolidation")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["unresolved"] >= 1
+        assert data["total_entries"] >= 1
+        assert isinstance(data["promotion_candidates"], list)
+        assert isinstance(data["contradictions"], list)
+        assert len(data["contradictions"]) >= 1
+        assert isinstance(data["stale_entries"], list)
+        assert "quarantine" in data
+        assert "archive_history" in data
 
 
 class TestFleet:
@@ -401,19 +359,16 @@ class TestFleet:
 
 
 class TestDashboard:
-    async def test_dashboard_static(self, temp_project):
-        paths = _make_paths(temp_project)
-        ctx = _make_ctx()
-        app = create_app(paths, ctx, api_key=None, dashboard=True)
-        async with _make_client(app) as c:
-            resp = await c.get("/")
-            assert resp.status_code == 200
-            assert "Agent Memory Engine" in resp.text
-            for js_file in ["api.js", "app.js", "dashboard.js", "learnings.js",
-                            "retrieval.js", "metrics.js", "consolidation.js",
-                            "fleet.js", "settings.js", "events.js"]:
-                resp = await c.get(f"/js/{js_file}")
-                assert resp.status_code == 200, f"/js/{js_file} should be served"
+    async def test_dashboard_static(self, dash_client):
+        c, _, _ = dash_client
+        resp = await c.get("/")
+        assert resp.status_code == 200
+        assert "Agent Memory Engine" in resp.text
+        for js_file in ["api.js", "app.js", "dashboard.js", "learnings.js",
+                        "retrieval.js", "metrics.js", "consolidation.js",
+                        "fleet.js", "settings.js", "events.js"]:
+            resp = await c.get(f"/js/{js_file}")
+            assert resp.status_code == 200, f"/js/{js_file} should be served"
 
 
 class TestAPIKey:

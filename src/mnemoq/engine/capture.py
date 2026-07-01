@@ -20,6 +20,7 @@ import urllib.request
 from mnemoq.engine.auto_learn import _derive_domain
 from mnemoq.engine.evaluate import evaluate_core
 from mnemoq.engine.handlers import log_core
+from mnemoq.engine.metrics import log_event
 from mnemoq.engine.reranker import _call_llm, _probe_llm_endpoint
 
 # ---------------------------------------------------------------------------
@@ -148,6 +149,7 @@ _CAPITAL_STOPWORDS = {
     "What", "Which", "With", "From", "Into", "Also", "Just", "Like",
     "Some", "Such", "More", "Most", "Only", "Very", "Well", "Even",
     "Still", "Over", "Under",
+    "Human", "Agent", "Assistant", "Cascade", "Claude",
 }
 
 _SNAKE_STOPWORDS = {
@@ -662,6 +664,28 @@ def capture_core(conversation_text: str, paths, ctx: dict) -> dict:
                 "files_touched": entry["files_touched"],
                 "domain": entry["domain"],
             })
+
+    # Escalation / tier-degradation observability.
+    #
+    # The cascade is LLM-primary -> heuristic-fallback (online -> offline ->
+    # heuristic), so "degraded" means the configured `mode` could not be
+    # satisfied and extraction fell to a lower tier. For mode="heuristic"
+    # (the default) there is nothing to degrade to, so degraded is always False.
+    # Per-domain rollups (see metrics._capture_stats) attribute the run-level
+    # tier to every domain touched by this capture.
+    _TIER_RANK = {"online": 3, "offline": 2, "heuristic": 1}
+    degraded = _TIER_RANK.get(tier, 1) < _TIER_RANK.get(mode, 1)
+    domains = sorted({
+        _derive_domain((s.get("files_touched") or ["unknown"])[0])
+        for s in summaries
+    }) or ["unknown"]
+    log_event(paths, "capture",
+              mode=mode,
+              tier=tier,
+              degraded=degraded,
+              summaries_count=len(summaries),
+              auto_logged=len(auto_logged),
+              domains=domains)
 
     return {
         "exit_code": 0,
