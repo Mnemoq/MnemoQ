@@ -129,7 +129,9 @@ Archives all unresolved entries to `archive/sprint-N.jsonl`, then generates a re
  save_session()             ← 10-min window for --confirm-reset
 ```
 
-Sleep cycle triggers automatically flag when consolidation is due: >20 unresolved entries, ≥1 day since last consolidation, or quarantine count ≥ 20.
+Sleep cycle triggers automatically flag when consolidation is due: >20 unresolved entries, ≥1 day since last consolidation, or quarantine count ≥ 20. The time trigger is self-damped by the last pass's activity (`consolidation_interval_adjustment`): a busy pass widens the interval, a no-op narrows it. Only the time trigger is affected — the threshold and quarantine safety nets always fire at their configured values.
+
+When `adaptive_thresholds` is enabled, the consolidation pass also recomputes each domain's `usefulness_offset` from access-based value (`recompute_usefulness` in `homeostasis.py`). Domains whose auto-logged memories are genuinely retrieved earn a lower auto-log bar. This is the accept-driven *lowering* half of the adaptive threshold — run periodically here rather than per-turn to avoid a runaway positive-feedback loop.
 
 ### Secondary Operations
 
@@ -223,7 +225,7 @@ Every module under `src/agent_memory/`, grouped by tier. The `*_core` convention
 | `migrate.py` | Schema migration (migrate-on-read, batch migration) | `migrate_entry()`, `migrate_all()`, `run_migration()` | io.py, cli.py (`--migrate-schema`) |
 | `models.py` | Pydantic models for API request/response schemas | `LogRequest`, `UpdateRequest`, `ResolveRequest`, `ErrorResponse` | server.py, sdk/client.py |
 | `profile.py` | Developer profile loader (global preferences) | `load_profile()`, `get_profile_context()` | retrieval.py |
-| `triggers.py` | Sleep cycle trigger checks (threshold, time, quarantine) | `check_sleep_cycle()` | retrieval.py, handlers.py |
+| `triggers.py` | Sleep cycle trigger checks (threshold, time, quarantine) with self-damping cadence | `check_sleep_cycle()`, `_effective_sleep_days()` | retrieval.py, handlers.py |
 | `agents_review.py` | AGENTS.md conflict detection and section health review | `check_agents_conflict()`, `handle_review_agents()` | handlers.py, cli.py |
 | `capture.py` | Conversation capture: three-tier extraction (online LLM, offline LLM, heuristic) feeding `evaluate_core` | `capture_core()`, `heuristic_extract()`, `online_llm_extract()`, `offline_llm_extract()` | cli.py, mcp_server.py |
 | `__init__.py` | Package marker | — | — |

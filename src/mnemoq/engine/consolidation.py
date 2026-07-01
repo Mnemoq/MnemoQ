@@ -310,6 +310,28 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
 
     _metrics_summary = _sprint_metrics(paths)
 
+    # Accept-driven threshold lowering (homeostasis Part B). Periodic, access-
+    # based recompute of each domain's usefulness offset — the safe lowering half
+    # deferred by the per-turn loop. Gated by adaptive_thresholds; best-effort.
+    usefulness_lowered = 0
+    if ctx.get("adaptive_thresholds", False):
+        from mnemoq.engine import homeostasis as hz
+        dom_stats = {}
+        for e in entries:
+            if e.get("source_agent") != "system":
+                continue
+            d = e.get("domain")
+            if not d:
+                continue
+            st = dom_stats.setdefault(d, {"n": 0, "_sum": 0})
+            st["n"] += 1
+            st["_sum"] += int(e.get("access_count", 0) or 0)
+        for st in dom_stats.values():
+            st["mean_access"] = st["_sum"] / st["n"] if st["n"] else 0.0
+        state = hz.load_state(paths)
+        usefulness_lowered = hz.recompute_usefulness(state, dom_stats, ctx)
+        hz.save_state(paths, state)
+
     save_session(sprint_number, paths)
 
     log_event(paths, "consolidate",
@@ -324,6 +346,7 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
         stale_entries=stale_count,
         stale_errors=error_count,
         agents_md_suggestions=len(agents_suggestions),
+        usefulness_lowered=usefulness_lowered,
         latency_ms=round((time.perf_counter() - _start) * 1000, 2),
     )
 

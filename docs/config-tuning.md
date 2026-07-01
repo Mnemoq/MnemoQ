@@ -80,13 +80,14 @@
 | `reranker_llm_endpoint` | string \| null | `null` | URL | LLM endpoint URL (for `llm-local` mode); `null` = auto-probe Ollama/LM Studio |
 | `reranker_llm_model` | string \| null | `null` | model name | LLM model name (for `llm-local` mode) |
 
-### Sleep Cycle / Consolidation (3 params, under `tuning`)
+### Sleep Cycle / Consolidation (4 params, under `tuning`)
 
 | Parameter | Type | Default | Range | Description |
 |-----------|------|---------|-------|-------------|
 | `sleep_cycle_days` | int | `1` | ≥ 0 | Days between automatic consolidation triggers (`0` disables) |
 | `sleep_cycle_quarantine_threshold` | int | `20` | ≥ 0 | Quarantine entry count that triggers consolidation (`0` disables) |
 | `sleep_cycle_unresolved_threshold` | int | `20` | ≥ 0 | Unresolved entry count that triggers consolidation (`0` disables) |
+| `consolidation_interval_adjustment` | float | `0.25` | [0.0, 1.0] | Self-damping cadence: scales the **time** trigger by the last pass's activity (±this fraction). Busy pass → wider interval; no-op → narrower. `0.0` disables. Only affects the time trigger, never the unresolved/quarantine safety nets |
 
 ### Step Bound (1 param, top-level)
 
@@ -207,7 +208,7 @@ Copy a preset to your project's `memory/config.json` and customize as needed.
 | `evaluate_auto_log_threshold` | float | `0.9` | [0.0, 1.0] | Confidence threshold above which detected signals are auto-logged via `log_core` |
 | `evaluate_max_per_turn` | int | `3` | >= 1 | Cap on signals processed per prompt evaluation (highest-confidence first) |
 
-## Adaptive Threshold / Homeostasis Parameters (7 params, under `tuning`)
+## Adaptive Threshold / Homeostasis Parameters (8 params, under `tuning`)
 
 Turns `evaluate_auto_log_threshold` into a **per-domain regulated variable**
 (state persisted in `<memory_dir>/.domain_state.json`). **Off by default** — when
@@ -225,6 +226,7 @@ domain's reject rate. New/low-traffic domains fall back to the base threshold.
 | `adaptive_offset_ceiling` | float | `0.2` | [0.0, 1.0] | Max the effective threshold may rise above base. Note `bump / (1 - decay)` = the flood saturation point; align it with the ceiling |
 | `adaptive_offset_floor` | float | `0.1` | [0.0, 1.0] | Max the effective threshold may fall below base (reserved; v1 only raises) |
 | `adaptive_min_samples` | int | `10` | >= 1 | Outcome events a domain must accumulate before the reject bias engages (volume gate) |
+| `adaptive_usefulness_gain` | float | `0.1` | [0.0, 1.0] | Max downward offset from access-based usefulness. Set on the consolidation pass: domains whose auto-logged entries are actually retrieved get a *lower* auto-log bar. Saturates against `auto_learn_over_injected_access`; gated by `adaptive_min_samples` entries |
 
 ## Conversation Capture Parameters (7 params, top-level + tuning)
 

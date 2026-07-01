@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `parse_transcript()` in `engine/capture.py`: parses Windsurf JSONL transcripts into `Human: ... / Agent: ...` format
 - `.windsurf/hooks.json` workspace hook config for automatic per-turn conversation capture
 - `/capture` Windsurf workflow for manual on-demand full-conversation capture
+- Adaptive threshold usefulness offset: `adaptive_usefulness_gain` param lowers the auto-log bar for domains whose memories are genuinely retrieved (recomputed on consolidation pass)
+- Self-damping consolidation cadence: `consolidation_interval_adjustment` param scales the time trigger by the last pass's activity (busy → wider interval, no-op → narrower)
 
 ### Fixed
 - Hooks now return an error when a foreign hook refuses overwrite (#15)
