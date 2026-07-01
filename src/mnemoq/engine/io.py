@@ -9,6 +9,7 @@ instead of reading module globals.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -16,6 +17,114 @@ import time
 from datetime import datetime, timezone
 
 from mnemoq.engine.migrate import migrate_entry
+
+# ---------------------------------------------------------------------------
+# Cross-platform advisory file lock
+# ---------------------------------------------------------------------------
+
+_LOCK_SUFFIX = ".lock"
+_LOCK_TIMEOUT = 5.0  # seconds before giving up and logging a warning
+
+# Per-path threading.Lock for same-process thread safety.  The OS-level lock
+# (msvcrt/fcntl) only guards against concurrent *processes*; within a single
+# process threads must additionally acquire this Python lock.
+import threading as _threading
+_thread_locks: dict = {}
+_thread_locks_mu = _threading.Lock()
+
+
+def _get_thread_lock(path: str) -> _threading.Lock:
+    with _thread_locks_mu:
+        if path not in _thread_locks:
+            _thread_locks[path] = _threading.Lock()
+        return _thread_locks[path]
+
+
+@contextlib.contextmanager
+def file_lock(path, timeout=_LOCK_TIMEOUT):
+    """Exclusive lock for read-modify-write sequences — thread AND process safe.
+
+    Two-layer locking:
+    1. A ``threading.Lock`` per path guards concurrent threads in the same process.
+    2. A sibling ``<path>.lock`` file locked with platform-native calls
+       (``msvcrt.locking`` on Windows, ``fcntl.flock`` on POSIX) guards
+       concurrent *processes*.
+
+    If the OS-level lock cannot be acquired within *timeout* seconds, logs a
+    single WARN and continues under the thread lock only — best-effort so a
+    wedged lock never hangs the engine.
+
+    Usage::
+
+        with file_lock(paths.learnings_path):
+            entries = read_learnings(paths)
+            # ... mutate ...
+            write_learnings(paths, entries)
+    """
+    thread_lock = _get_thread_lock(path)
+    thread_lock.acquire()
+    try:
+        # OS-level lock for cross-process safety.
+        lock_path = path + _LOCK_SUFFIX
+        deadline = time.monotonic() + timeout
+        sleep = 0.05
+
+        try:
+            lf = open(lock_path, "w", encoding="utf-8")
+        except OSError as e:
+            print(f"WARN: Cannot open lock file {lock_path}: {e} — proceeding unlocked",
+                  file=sys.stderr)
+            yield
+            return
+
+        os_acquired = False
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                while time.monotonic() < deadline:
+                    try:
+                        msvcrt.locking(lf.fileno(), msvcrt.LK_NBLCK, 1)
+                        os_acquired = True
+                        break
+                    except OSError:
+                        time.sleep(sleep)
+                        sleep = min(sleep * 2, 0.5)
+            else:
+                import fcntl
+                while time.monotonic() < deadline:
+                    try:
+                        fcntl.flock(lf.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        os_acquired = True
+                        break
+                    except OSError:
+                        time.sleep(sleep)
+                        sleep = min(sleep * 2, 0.5)
+
+            if not os_acquired:
+                print(f"WARN: Could not acquire OS lock on {lock_path} within {timeout}s "
+                      f"— proceeding under thread lock only (potential cross-process write)",
+                      file=sys.stderr)
+
+            yield
+
+        finally:
+            if os_acquired:
+                try:
+                    if sys.platform == "win32":
+                        import msvcrt
+                        msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            lf.close()
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
+    finally:
+        thread_lock.release()
 
 
 def _read_raw_jsonl(path):
@@ -125,12 +234,21 @@ def write_learnings(paths, entries):
 
 
 def quarantine(paths, raw_input, reason):
-    """Append a malformed/rejected entry to quarantine.jsonl."""
+    """Append a malformed/rejected entry to quarantine.jsonl with Windows retry."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    record = {
-        "raw": raw_input,
-        "reason": reason,
-        "ts": ts
-    }
-    with open(paths.quarantine_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    record = {"raw": raw_input, "reason": reason, "ts": ts}
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with open(paths.quarantine_path, "a", encoding="utf-8") as f:
+                f.write(line)
+            return
+        except PermissionError:
+            if attempt < max_retries - 1:
+                time.sleep(0.1 * (2 ** attempt))
+            else:
+                print(f"ERROR: Cannot write to {paths.quarantine_path} after {max_retries} attempts",
+                      file=sys.stderr)
+                raise
