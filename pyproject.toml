@@ -9,7 +9,7 @@ description = "Local-first memory engine for AI agents — MCP-native, graph-lin
 requires-python = ">=3.10"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
-dependencies = ["pydantic>=2.0", "httpx>=0.28.1"]
+dependencies = ["pydantic>=2.13.4", "httpx>=0.28.1"]
 authors = [{name = "Mnemoq"}]
 readme = "README.md"
 keywords = ["memory", "agent", "llm", "mcp", "ai", "episodic-memory"]
