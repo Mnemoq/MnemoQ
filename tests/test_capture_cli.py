@@ -178,6 +178,86 @@ class TestCaptureFileCli:
         assert "heuristic" in result.stdout
 
 
+class TestCaptureEscalationMetrics:
+    """Capture tier-degradation observability (metrics event + summary)."""
+
+    def _read_capture_events(self, temp_project):
+        metrics_path = temp_project / "memory" / "metrics.jsonl"
+        assert metrics_path.exists(), "metrics.jsonl not written"
+        events = []
+        for line in metrics_path.read_text().strip().split("\n"):
+            if not line:
+                continue
+            e = json.loads(line)
+            if e.get("event_type") == "capture":
+                events.append(e)
+        return events
+
+    def test_capture_emits_metric_event(self, temp_project):
+        """A heuristic capture emits a non-degraded 'capture' event with domains."""
+        conv_file = temp_project / "conversation.txt"
+        conv_file.write_text(
+            "Human: no, don't use sync writes in src/db.py, use async instead\n"
+            "AI: understood, switching to async writes"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        events = self._read_capture_events(temp_project)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["tier"] == "heuristic"
+        assert ev["mode"] == "heuristic"
+        assert ev["degraded"] is False
+        assert isinstance(ev["domains"], list) and ev["domains"]
+
+    def test_capture_degraded_when_llm_unavailable(self, temp_project):
+        """mode=online with no endpoint degrades to heuristic and flags it."""
+        memory_dir = temp_project / "memory"
+        (memory_dir / "config.json").write_text(json.dumps({
+            "capture_mode": "online",
+            "capture_online_endpoint": None,
+            "capture_online_model": None,
+        }))
+
+        conv_file = temp_project / "conversation.txt"
+        conv_file.write_text("Human: fixed the bug in src/app.py by adding a null check")
+
+        result = subprocess.run(
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+
+        events = self._read_capture_events(temp_project)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["mode"] == "online"
+        assert ev["tier"] == "heuristic"
+        assert ev["degraded"] is True
+
+    def test_metrics_summary_shows_capture(self, temp_project):
+        """--metrics summary surfaces the Capture section after a capture run."""
+        conv_file = temp_project / "conversation.txt"
+        conv_file.write_text("Human: remember to always run tests in src/app.py before pushing")
+        subprocess.run(
+            [sys.executable, "-m", "mnemoq.cli", "--capture-file", str(conv_file)],
+            cwd=temp_project, capture_output=True, text=True
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-m", "mnemoq.cli", "--metrics"],
+            cwd=temp_project, capture_output=True, text=True
+        )
+        assert result.returncode == 0
+        assert "Capture" in result.stdout
+        assert "Degradation rate" in result.stdout
+
+
 class TestCaptureConfigValidation:
     """Config validation tests for capture keys."""
 

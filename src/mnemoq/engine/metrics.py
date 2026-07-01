@@ -352,6 +352,56 @@ def _consolidation_stats(events):
     }
 
 
+def _capture_stats(events):
+    """Compute capture tier-degradation metrics from 'capture' events.
+
+    A run is "degraded" when the configured mode could not be satisfied and
+    extraction fell to a lower tier (see capture.capture_core). Per-domain
+    rates attribute each run's degraded flag to every domain it touched, so a
+    domain's rate answers: "when this domain is involved, how often does the
+    preferred extraction tier fail?"
+    """
+    total = len(events)
+    if not total:
+        return {}
+
+    tiers = {}
+    modes = {}
+    degraded = 0
+    # per-domain: [runs_touched, degraded_runs]
+    dom = {}
+    for e in events:
+        t = e.get("tier", "unknown")
+        tiers[t] = tiers.get(t, 0) + 1
+        m = e.get("mode", "unknown")
+        modes[m] = modes.get(m, 0) + 1
+        is_deg = bool(e.get("degraded", False))
+        if is_deg:
+            degraded += 1
+        for d in e.get("domains", []) or []:
+            if d not in dom:
+                dom[d] = [0, 0]
+            dom[d][0] += 1
+            if is_deg:
+                dom[d][1] += 1
+
+    domain_rates = sorted(
+        ({"domain": d, "runs": c[0], "degraded": c[1],
+          "degradation_rate": c[1] / c[0] if c[0] else 0}
+         for d, c in dom.items()),
+        key=lambda x: (-x["degradation_rate"], -x["runs"]),
+    )
+
+    return {
+        "total_captures": total,
+        "degraded": degraded,
+        "degradation_rate": degraded / total,
+        "tier_distribution": sorted(tiers.items(), key=lambda x: -x[1]),
+        "mode_distribution": sorted(modes.items(), key=lambda x: -x[1]),
+        "domain_degradation": domain_rates,
+    }
+
+
 def _trend_stats(events, days=30):
     """Compute time-series trends, bucketed by day."""
     if not events:
@@ -705,10 +755,12 @@ def _report_summary(events, json_out=False):
     r = _retrieval_stats([e for e in events if e.get("event_type") == "retrieval"])
     log_stats = _logging_stats([e for e in events if e.get("event_type") == "log"])
     c = _consolidation_stats([e for e in events if e.get("event_type") == "consolidate"])
+    cap = _capture_stats([e for e in events if e.get("event_type") == "capture"])
 
     if json_out:
         print(json.dumps({"summary": {"total_events": len(events),
-              "retrieval": r, "logging": log_stats, "consolidation": c}},
+              "retrieval": r, "logging": log_stats, "consolidation": c,
+              "capture": cap}},
               indent=2, default=str))
         return 0
 
@@ -739,6 +791,21 @@ def _report_summary(events, json_out=False):
               f"Contradictions: {c['total_contradictions']}, Stale: {c['total_stale']}")
     else:
         print("  No consolidation events.")
+    print()
+
+    print("### Capture")
+    if cap:
+        tiers = ", ".join(f"{t}:{n}" for t, n in cap['tier_distribution'])
+        print(f"  Total: {cap['total_captures']}, "
+              f"Degradation rate: {cap['degradation_rate']:.1%} "
+              f"({cap['degraded']} degraded)")
+        print(f"  Tiers used: {tiers}")
+        top_deg = [d for d in cap['domain_degradation'] if d['degraded'] > 0][:5]
+        if top_deg:
+            print("  Top degrading domains: " + ", ".join(
+                f"{d['domain']} {d['degradation_rate']:.0%}" for d in top_deg))
+    else:
+        print("  No capture events.")
     return 0
 
 

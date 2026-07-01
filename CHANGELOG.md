@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `capture_interaction` MCP tool for programmatic conversation capture
 - `--capture-file` CLI flag for batch conversation capture
 - 4 `capture_*` tuning parameters in `config.json` (`capture_enabled`, `capture_always_log`, `capture_max_summaries`, `capture_mode`)
+- Capture tier-degradation observability: `capture` metrics event with mode/tier/degraded flag and per-domain degradation rates in `--metrics` summary
 - Capture heuristic improvements: negation-aware outcome detection, sentence-boundary gist extraction, deduplication, outcome-weighted summary ranking, and signal-gated none-outcome logging
 - `capture_none_log_requires_signal` tuning parameter in `config.json`
 
