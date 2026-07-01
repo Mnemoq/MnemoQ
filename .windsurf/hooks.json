@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "post_cascade_response_with_transcript": [
+      {
+        "command": "python3 -m mnemoq.cli --capture-hook",
+        "powershell": "python -m mnemoq.cli --capture-hook",
+        "show_output": false
+      }
+    ]
+  }
+}
