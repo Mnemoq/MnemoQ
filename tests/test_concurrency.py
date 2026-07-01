@@ -64,8 +64,9 @@ class TestFileLock:
         open(target, "w").close()
         with file_lock(target):
             assert (tmp_path / "learnings.jsonl.lock").exists()
-        # lock file is cleaned up after exit
-        assert not (tmp_path / "learnings.jsonl.lock").exists()
+        # Lock file is intentionally PERSISTENT (not removed) to avoid the POSIX
+        # unlink/re-create race that would break cross-process exclusion.
+        assert (tmp_path / "learnings.jsonl.lock").exists()
 
     def test_sequential_reacquire(self, tmp_path):
         """Lock can be acquired multiple times in sequence (not reentrant test)."""

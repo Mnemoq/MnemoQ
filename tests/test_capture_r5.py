@@ -96,6 +96,16 @@ class TestMultiSentenceGist:
         gist = _extract_gist(long_sentence, max_chars=200, max_sentences=3)
         assert len(gist) <= 200
 
+    def test_non_signal_first_sentence_does_not_crowd_out_correction(self):
+        """Regression: a long non-signal opener must not eat the budget and
+        drop the actual correction (the real signal-bearing sentence)."""
+        text = ("This is a long neutral opening sentence with no signal at all "
+                "and it goes on for a while to eat the budget up completely. "
+                "That is wrong, switch to async.")
+        gist = _extract_gist(text, max_chars=90, max_sentences=3)
+        assert "wrong" in gist or "switch to async" in gist, f"got: {gist!r}"
+        assert "neutral opening" not in gist
+
 
 class TestLLMFailLoud:
     """LLM extractors emit a WARN line on failure instead of silent None."""

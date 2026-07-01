@@ -70,7 +70,12 @@ def file_lock(path, timeout=_LOCK_TIMEOUT):
         sleep = 0.05
 
         try:
-            lf = open(lock_path, "w", encoding="utf-8")
+            # Open append (create-if-absent, never truncate). The lock file is
+            # persistent — it is NOT removed on release. Removing it would create
+            # an unlink race on POSIX: after A unlinks the path, C could open a
+            # fresh inode and flock() it while B still holds the old inode, so two
+            # processes would hold "the lock" on different inodes at once.
+            lf = open(lock_path, "a", encoding="utf-8")
         except OSError as e:
             print(f"WARN: Cannot open lock file {lock_path}: {e} — proceeding unlocked",
                   file=sys.stderr)
@@ -119,10 +124,8 @@ def file_lock(path, timeout=_LOCK_TIMEOUT):
                 except OSError:
                     pass
             lf.close()
-            try:
-                os.remove(lock_path)
-            except OSError:
-                pass
+            # Intentionally do NOT remove lock_path — see the open() note above.
+            # The persistent sidecar avoids the POSIX unlink/re-create race.
     finally:
         thread_lock.release()
 

@@ -89,9 +89,10 @@ _SPEAKER_RE = re.compile(
     re.IGNORECASE,
 )
 # Matches file paths including Windows drive prefixes (C:\..., D:/...).
-# The optional ([A-Za-z]:) prefix captures the drive letter before the colon,
-# which the original r'[\w/\\]+\.\w{1,5}' dropped because ':' is not in \w.
-_FILE_PATH_RE = re.compile(r'(?:[A-Za-z]:)?[\w/\\]+\.\w{1,5}')
+# The optional (?:[A-Za-z]:[\\/]) prefix captures a drive letter, but only when
+# followed by a separator, so a bare token like "C:foo.py" is not mistaken for a
+# path. The original r'[\w/\\]+\.\w{1,5}' dropped the drive because ':' is not \w.
+_FILE_PATH_RE = re.compile(r'(?:[A-Za-z]:[\\/])?[\w/\\]+\.\w{1,5}')
 _BACKTICK_RE = re.compile(r'`([^`]+)`')
 _PASCAL_CAMEL_RE = re.compile(r'\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}[a-z]\w*')
 _CORRECTION_SELF_RE = re.compile(
@@ -266,7 +267,7 @@ def _detect_outcomes(text: str) -> list[str]:
 
 
 _GIST_SIGNAL_RE = re.compile(
-    r'(?:[A-Za-z]:)?[\w/\\]+\.\w{1,5}'
+    r'(?:[A-Za-z]:[\\/])?[\w/\\]+\.\w{1,5}'
     r'|error|exception|crash|traceback'
     r'|no,|stop|wrong|incorrect|shouldn\'t|not that|won\'t work|switch to',
     re.IGNORECASE,
@@ -301,19 +302,21 @@ def _extract_gist(text: str, max_chars: int = 200, max_sentences: int = 1) -> st
         sentences = [text]
 
     if max_sentences > 1:
-        # Collect up to max_sentences signal-bearing sentences
+        # Collect up to max_sentences *signal-bearing* sentences within budget.
+        # A non-signal sentence is never eagerly included (that could consume the
+        # whole budget and drop the actual correction); fall back to the first
+        # sentence only if no signal sentence is found at all.
         chosen_parts: list[str] = []
         total = 0
         for s in sentences:
-            if not s:
+            if not s or not _GIST_SIGNAL_RE.search(s):
                 continue
-            if _GIST_SIGNAL_RE.search(s) or not chosen_parts:
-                if total + len(s) + 1 > max_chars:
-                    break
-                chosen_parts.append(s)
-                total += len(s) + 1
-                if len(chosen_parts) >= max_sentences:
-                    break
+            if total + len(s) + 1 > max_chars:
+                break
+            chosen_parts.append(s)
+            total += len(s) + 1
+            if len(chosen_parts) >= max_sentences:
+                break
         chosen = " ".join(chosen_parts) if chosen_parts else sentences[0]
     else:
         # Prefer first sentence with signal; fall back to first sentence
@@ -471,7 +474,8 @@ def heuristic_extract(conversation_text: str, ctx: dict | None = None) -> list[d
         files = _extract_files(turn_text)
         # Corrections can span multiple clauses; allow up to 3 sentences so
         # "that's wrong, use X instead. Also avoid Y." is captured fully.
-        is_correction = "correction" in _detect_outcomes(turn_text)
+        # Reuse `outcomes` (already computed above) rather than re-detecting.
+        is_correction = "correction" in outcomes
         gist = _extract_gist(turn_text, max_sentences=3 if is_correction else 1)
 
         for outcome in outcomes:
