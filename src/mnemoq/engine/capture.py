@@ -149,6 +149,7 @@ _CAPITAL_STOPWORDS = {
     "What", "Which", "With", "From", "Into", "Also", "Just", "Like",
     "Some", "Such", "More", "Most", "Only", "Very", "Well", "Even",
     "Still", "Over", "Under",
+    "Human", "Agent", "Assistant", "Cascade", "Claude",
 }
 
 _SNAKE_STOPWORDS = {
