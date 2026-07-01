@@ -76,6 +76,77 @@ def test_auto_log_human_correction():
     assert entries[0]["action"].startswith("ALWAYS ")
 
 
+def _make_temp_project_adaptive(threshold, **adaptive):
+    """Temp project with adaptive thresholds enabled."""
+    project_dir, memory_dir = _make_temp_project()
+    tuning = {
+        "evaluate_enabled": True,
+        "evaluate_auto_log_threshold": threshold,
+        "evaluate_max_per_turn": 3,
+        "adaptive_thresholds": True,
+    }
+    tuning.update(adaptive)
+    config = {"project_name": "test-eval", "tuning": tuning}
+    with open(memory_dir / "config.json", "w") as f:
+        json.dump(config, f)
+    return project_dir, memory_dir
+
+
+_DECISION_SUMMARY = json.dumps({
+    "step": 1,
+    "outcome": "decision",
+    "text": "route all writes through the repository layer",
+    "components": ["Repo"],
+    "files_touched": ["src/repo.py"],
+})
+
+
+def test_adaptive_off_writes_no_state_file():
+    """With the flag off (default), no .domain_state.json is created."""
+    project_dir, memory_dir = _make_temp_project_threshold(0.5)
+    result = _run_evaluate(_DECISION_SUMMARY, memory_dir, project_dir)
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert _read_learnings(memory_dir), "0.60 decision should log at threshold 0.5"
+    assert not (memory_dir / ".domain_state.json").exists()
+
+
+def test_adaptive_on_writes_state_and_bumps_offset():
+    """With the flag on, an auto-log records a positive offset for its domain."""
+    project_dir, memory_dir = _make_temp_project_adaptive(0.5)
+    result = _run_evaluate(_DECISION_SUMMARY, memory_dir, project_dir)
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+
+    state_path = memory_dir / ".domain_state.json"
+    assert state_path.exists(), "adaptive on must persist .domain_state.json"
+    state = json.loads(state_path.read_text())
+    # decision on src/repo.py -> some domain with a bumped offset + accept count
+    assert len(state) == 1
+    entry = next(iter(state.values()))
+    assert entry["offset"] > 0
+    assert entry["accept"] == 1
+
+
+def test_adaptive_high_offset_suppresses_auto_log():
+    """A pre-existing high offset raises the domain threshold above the
+    detector's confidence, demoting the auto-log to a suggestion. Isolates the
+    per-domain threshold effect without relying on dedup behaviour."""
+    from mnemoq.engine.auto_learn import _derive_domain
+
+    project_dir, memory_dir = _make_temp_project_adaptive(0.5)
+    domain = _derive_domain("src/repo.py")
+    # offset 0.2 -> effective threshold 0.70 (after decay 0.18 -> 0.68),
+    # both above the 0.60 decision confidence, so it must NOT auto-log.
+    (memory_dir / ".domain_state.json").write_text(json.dumps({
+        domain: {"offset": 0.2, "accept": 0,
+                 "detector_reject": 0, "actuation_reject": 0}
+    }))
+
+    result = _run_evaluate(_DECISION_SUMMARY, memory_dir, project_dir)
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert not _read_learnings(memory_dir), \
+        "0.60 decision must be suppressed when the domain threshold is ~0.68"
+
+
 def _make_temp_project_threshold(threshold):
     """Temp project with a custom evaluate_auto_log_threshold."""
     project_dir, memory_dir = _make_temp_project()

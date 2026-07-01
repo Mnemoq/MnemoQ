@@ -207,6 +207,25 @@ Copy a preset to your project's `memory/config.json` and customize as needed.
 | `evaluate_auto_log_threshold` | float | `0.9` | [0.0, 1.0] | Confidence threshold above which detected signals are auto-logged via `log_core` |
 | `evaluate_max_per_turn` | int | `3` | >= 1 | Cap on signals processed per prompt evaluation (highest-confidence first) |
 
+## Adaptive Threshold / Homeostasis Parameters (7 params, under `tuning`)
+
+Turns `evaluate_auto_log_threshold` into a **per-domain regulated variable**
+(state persisted in `<memory_dir>/.domain_state.json`). **Off by default** — when
+disabled, behaviour is identical to the static scalar above. Two upward forces
+raise a domain's effective threshold and decay back toward the base: feedforward
+inhibition (flood control) on each auto-log, plus a volume-gated bias from the
+domain's reject rate. New/low-traffic domains fall back to the base threshold.
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `adaptive_thresholds` | bool | `false` | bool | Master toggle for per-domain adaptive auto-log thresholds |
+| `adaptive_bump` | float | `0.02` | [0.0, 1.0] | Offset added to a domain per auto-log (feedforward inhibition) |
+| `adaptive_decay` | float | `0.9` | (0.0, 1.0] | Per-event multiplicative decay of a domain's offset toward base |
+| `adaptive_reject_gain` | float | `0.15` | [0.0, 1.0] | Max upward bias from a domain's reject rate (detector + actuation rejects) |
+| `adaptive_offset_ceiling` | float | `0.2` | [0.0, 1.0] | Max the effective threshold may rise above base. Note `bump / (1 - decay)` = the flood saturation point; align it with the ceiling |
+| `adaptive_offset_floor` | float | `0.1` | [0.0, 1.0] | Max the effective threshold may fall below base (reserved; v1 only raises) |
+| `adaptive_min_samples` | int | `10` | >= 1 | Outcome events a domain must accumulate before the reject bias engages (volume gate) |
+
 ## Conversation Capture Parameters (7 params, top-level + tuning)
 
 | Parameter | Type | Default | Range | Description |

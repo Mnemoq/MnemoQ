@@ -14,6 +14,14 @@ import time
 
 from mnemoq.engine.auto_learn import _derive_domain
 from mnemoq.engine.handlers import log_core
+from mnemoq.engine.homeostasis import (
+    decay_all,
+    effective_threshold,
+    load_state,
+    record_auto_log,
+    record_outcome,
+    save_state,
+)
 from mnemoq.engine.metrics import log_event
 from mnemoq.engine.validation import validate_entry
 
@@ -359,7 +367,18 @@ def evaluate_core(summary, paths, ctx):
     max_per_turn = ctx.get("evaluate_max_per_turn", 3)
     signals = signals[:max_per_turn]
 
-    threshold = ctx.get("evaluate_auto_log_threshold", 0.9)
+    base_threshold = ctx.get("evaluate_auto_log_threshold", 0.9)
+
+    # Per-domain adaptive threshold (homeostasis). Behaviour is byte-identical
+    # to the static scalar when adaptive_thresholds is off (default). When on,
+    # relax all offsets ('between events' decay) once per call, then use a
+    # per-domain effective threshold and record feedforward/outcome signals.
+    adaptive = ctx.get("adaptive_thresholds", False)
+    state = None
+    if adaptive:
+        state = load_state(paths)
+        decay_all(state, ctx.get("adaptive_decay", 0.9))
+
     auto_logged = []
     suggestions = []
     skipped_invalid = []
@@ -374,9 +393,18 @@ def evaluate_core(summary, paths, ctx):
             })
             continue
 
+        domain = candidate.get("domain", "tooling")
+        if adaptive:
+            threshold = effective_threshold(state, domain, base_threshold, ctx)
+        else:
+            threshold = base_threshold
+
         if confidence >= threshold:
             result = log_core(json.dumps(candidate), paths, ctx)
             status = result.get("status", "")
+            if adaptive:
+                record_auto_log(state, domain, ctx)
+                record_outcome(state, domain, status)
             auto_logged.append({
                 "confidence": confidence,
                 "status": status,
@@ -392,6 +420,9 @@ def evaluate_core(summary, paths, ctx):
                 "confidence": confidence,
                 "candidate": candidate,
             })
+
+    if adaptive and state is not None:
+        save_state(paths, state)
 
     latency_ms = round((time.perf_counter() - _start) * 1000, 2)
     log_event(paths, "evaluate",

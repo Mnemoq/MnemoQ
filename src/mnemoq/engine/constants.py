@@ -64,6 +64,18 @@ AUTO_LEARN_RETRIEVAL_FAILURE_CAP = 100
 CI_WRITEBACK = "pr"
 VALID_CI_WRITEBACKS = {"pr", "artifact", "commit"}
 
+# Per-domain adaptive auto-log threshold (homeostasis). OFF by default —
+# when enabled, EVALUATE_AUTO_LOG_THRESHOLD becomes a per-domain regulated
+# variable driven by feedforward inhibition (flood control) plus a volume-gated
+# reject bias. See engine/homeostasis.py. Mirror new keys in templates/config.json.
+ADAPTIVE_THRESHOLDS = False
+ADAPTIVE_BUMP = 0.02             # feedforward offset added per auto-log
+ADAPTIVE_DECAY = 0.9             # per-event offset decay toward base
+ADAPTIVE_REJECT_GAIN = 0.15      # max upward bias from a domain's reject rate
+ADAPTIVE_OFFSET_FLOOR = 0.1      # clamp: max below base (reserved; v1 only raises)
+ADAPTIVE_OFFSET_CEILING = 0.2    # clamp: max above base (== bump/(1-decay))
+ADAPTIVE_MIN_SAMPLES = 10        # outcome events before reject bias engages
+
 EVALUATE_ENABLED = True
 # Lowered 0.9 -> 0.5 (2026-06) so all detector signals auto-log: human
 # correction (0.95), explicit remember (0.85), bug fixed (0.70), decision
@@ -201,6 +213,13 @@ DEFAULTS = {
     "AUTO_LEARN_MAX_FILES_PER_COMMIT": AUTO_LEARN_MAX_FILES_PER_COMMIT,
     "AUTO_LEARN_MAX_PER_RUN": AUTO_LEARN_MAX_PER_RUN,
     "AUTO_LEARN_RETRIEVAL_FAILURE_CAP": AUTO_LEARN_RETRIEVAL_FAILURE_CAP,
+    "ADAPTIVE_THRESHOLDS": ADAPTIVE_THRESHOLDS,
+    "ADAPTIVE_BUMP": ADAPTIVE_BUMP,
+    "ADAPTIVE_DECAY": ADAPTIVE_DECAY,
+    "ADAPTIVE_REJECT_GAIN": ADAPTIVE_REJECT_GAIN,
+    "ADAPTIVE_OFFSET_FLOOR": ADAPTIVE_OFFSET_FLOOR,
+    "ADAPTIVE_OFFSET_CEILING": ADAPTIVE_OFFSET_CEILING,
+    "ADAPTIVE_MIN_SAMPLES": ADAPTIVE_MIN_SAMPLES,
     "EVALUATE_ENABLED": EVALUATE_ENABLED,
     "EVALUATE_AUTO_LOG_THRESHOLD": EVALUATE_AUTO_LOG_THRESHOLD,
     "EVALUATE_MAX_PER_TURN": EVALUATE_MAX_PER_TURN,

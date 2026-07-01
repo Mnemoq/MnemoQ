@@ -226,6 +226,11 @@ def load_config():
         "embedding_alpha": ("EMBEDDING_ALPHA", 0.0, 1.0, True, True),
         "semantic_dedup_threshold": ("SEMANTIC_DEDUP_THRESHOLD", 0.0, 1.0, True, True),
         "evaluate_auto_log_threshold": ("EVALUATE_AUTO_LOG_THRESHOLD", 0.0, 1.0, True, True),
+        "adaptive_bump": ("ADAPTIVE_BUMP", 0.0, 1.0, True, True),
+        "adaptive_decay": ("ADAPTIVE_DECAY", 0.0, 1.0, False, True),
+        "adaptive_reject_gain": ("ADAPTIVE_REJECT_GAIN", 0.0, 1.0, True, True),
+        "adaptive_offset_floor": ("ADAPTIVE_OFFSET_FLOOR", 0.0, 1.0, True, True),
+        "adaptive_offset_ceiling": ("ADAPTIVE_OFFSET_CEILING", 0.0, 1.0, True, True),
     }
     
     for config_key, (python_key, min_val, max_val, min_inclusive, max_inclusive) in float_params.items():
@@ -251,7 +256,8 @@ def load_config():
     
     # Boolean parameters
     bool_params = {"auto_learn_enabled": "AUTO_LEARN_ENABLED", "evaluate_enabled": "EVALUATE_ENABLED",
-                   "capture_enabled": "CAPTURE_ENABLED", "capture_always_log": "CAPTURE_ALWAYS_LOG"}
+                   "capture_enabled": "CAPTURE_ENABLED", "capture_always_log": "CAPTURE_ALWAYS_LOG",
+                   "adaptive_thresholds": "ADAPTIVE_THRESHOLDS"}
     for config_key, python_key in bool_params.items():
         if config_key in tuning:
             value = tuning[config_key]
@@ -282,6 +288,7 @@ def load_config():
         "auto_learn_retrieval_failure_cap": ("AUTO_LEARN_RETRIEVAL_FAILURE_CAP", 1, None),
         "evaluate_max_per_turn": ("EVALUATE_MAX_PER_TURN", 1, None),
         "capture_max_summaries": ("CAPTURE_MAX_SUMMARIES", 1, None),
+        "adaptive_min_samples": ("ADAPTIVE_MIN_SAMPLES", 1, None),
     }
     
     for config_key, (python_key, min_val, max_val) in int_params.items():
