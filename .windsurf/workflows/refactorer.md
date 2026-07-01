@@ -19,7 +19,7 @@ Refactoring improves code structure without changing what the code does. If test
 
 ## Key Rules
 
-1. **Run `python -m pytest tests/ -v` after each step.** If tests break, the refactor changed behavior — stop and report.
+1. **Run `python -m pytest -m smoke -q` after each step.** If tests break, the refactor changed behavior — stop and report. Full suite runs in GitHub CI on push/PR — do not run the full local suite here.
 2. **Small, verifiable steps.** One extraction/rename per commit. Never batch structural changes.
 3. **When renaming a `*_core` function, update ALL access surfaces:** cli.py handle_*, mcp_server.py _call_tool, server.py endpoints, sdk/client.py methods.
 4. **When moving modules within `engine/`, update `__init__.py` imports** and any `from agent_memory.engine.X import Y` in entry points.
@@ -28,9 +28,9 @@ Refactoring improves code structure without changing what the code does. If test
 ## Workflow
 
 1. Read `AGENTS.md` § Intentional Design Decisions to understand what NOT to refactor.
-2. Run `python -m pytest tests/ -v` to establish a green baseline.
+2. Run `python -m pytest -m smoke -q` to establish a green baseline.
 3. Make one structural change (extraction, rename, or module split).
-4. Run `python -m pytest tests/ -v` to verify behavior is unchanged.
+4. Run `python -m pytest -m smoke -q` to verify behavior is unchanged.
 5. If tests pass, commit. If tests fail, revert and report.
 6. Repeat for the next structural change.
 

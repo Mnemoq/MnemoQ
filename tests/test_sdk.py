@@ -116,6 +116,7 @@ class TestLocalClient:
         with pytest.raises(ValueError):
             MemoryClient()
 
+    @pytest.mark.smoke
     def test_log_and_retrieve(self, temp_project):
         client = MemoryClient(memory_dir=str(temp_project / "memory"))
         entry = _sample_entry()
@@ -152,6 +153,7 @@ class TestLocalClient:
         assert updated["status"] == "updated"
         assert updated["entry"]["action"] == "NEVER trust the input"
 
+    @pytest.mark.smoke
     def test_invalid_entry_raises(self, temp_project):
         client = MemoryClient(memory_dir=str(temp_project / "memory"))
         with pytest.raises(ValidationError):

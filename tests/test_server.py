@@ -141,6 +141,7 @@ def _base_config(name="test"):
 
 
 class TestHealth:
+    @pytest.mark.smoke
     async def test_health(self, client):
         resp = await client.get("/api/health")
         assert resp.status_code == 200
@@ -149,6 +150,7 @@ class TestHealth:
 
 
 class TestStats:
+    @pytest.mark.smoke
     async def test_stats_empty(self, client):
         resp = await client.get("/api/stats")
         assert resp.status_code == 200
@@ -177,6 +179,7 @@ class TestLog:
         data = resp.json()
         assert data["status"] in ("added", "duplicate", "semantic_duplicate")
 
+    @pytest.mark.smoke
     async def test_log_invalid_json(self, client):
         resp = await client.post("/api/log", json={"entry": {"not": "valid"}})
         assert resp.status_code == 422
@@ -187,6 +190,7 @@ class TestLog:
 
 
 class TestRetrieve:
+    @pytest.mark.smoke
     async def test_retrieve_empty(self, client):
         resp = await client.get("/api/retrieve", params={"step": 1, "components": "api"})
         assert resp.status_code == 200

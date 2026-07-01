@@ -39,12 +39,14 @@ def _write_metrics(paths, events):
 
 
 class TestThresholdTrigger:
+    @pytest.mark.smoke
     def test_fires_above_default(self, temp_memory):
         ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0}
         due, reasons = check_sleep_cycle(temp_memory, ctx, 21)
         assert due
         assert "threshold" in reasons
 
+    @pytest.mark.smoke
     def test_does_not_fire_at_default(self, temp_memory):
         ctx = {"sleep_cycle_days": 0, "sleep_cycle_quarantine_threshold": 0}
         due, reasons = check_sleep_cycle(temp_memory, ctx, 20)
@@ -93,6 +95,7 @@ class TestTimeTrigger:
 
 
 class TestQuarantineTrigger:
+    @pytest.mark.smoke
     def test_fires_at_threshold(self, temp_memory):
         with open(temp_memory.quarantine_path, "w") as f:
             for _ in range(20):

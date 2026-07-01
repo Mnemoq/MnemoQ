@@ -7,11 +7,15 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 DRY_RUN=false
 CANARY_PROJECT=""
+FULL_TESTS=false
+SKIP_TESTS=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dry-run) DRY_RUN=true; shift ;;
         --canary) CANARY_PROJECT="$2"; shift 2 ;;
+        --full) FULL_TESTS=true; shift ;;
+        --skip-tests) SKIP_TESTS=true; shift ;;
         *) echo "Unknown flag: $1"; exit 1 ;;
     esac
 done
@@ -24,8 +28,24 @@ for f in src/filter.py src/profile.py src/scaffold.py src/update.py src/engine_v
     fi
 done
 
-echo "Running tests with coverage..."
 cd "$DEV_ROOT"
+if [[ "$SKIP_TESTS" == "true" ]]; then
+    echo "Skipping tests (--skip-tests)"
+elif [[ "$FULL_TESTS" != "true" ]]; then
+    # Default: fast smoke subset only. The full suite is the responsibility of
+    # GitHub CI on push/PR; use --full for a release-grade deploy gate.
+    echo "Running smoke tests (fast subset; use --full for full+coverage)..."
+    SMOKE_OUTPUT=$(python -m pytest -m smoke -q 2>&1)
+    SMOKE_EXIT_CODE=$?
+    if [[ $SMOKE_EXIT_CODE -ne 0 ]]; then
+        echo "Smoke tests failed (exit code $SMOKE_EXIT_CODE). Aborting deploy." >&2
+        echo "$SMOKE_OUTPUT"
+        exit 1
+    fi
+    echo "  Smoke tests passed."
+else
+
+echo "Running full test suite with coverage (--full)..."
 TEST_OUTPUT=$(python -m pytest tests/ --tb=short --cov=src --cov-report=term-missing 2>&1)
 TEST_EXIT_CODE=$?
 
@@ -68,6 +88,8 @@ if [[ -n "$CURRENT_COVERAGE" ]]; then
 else
     echo "WARNING: Could not extract coverage from test output. Skipping coverage gate." >&2
 fi
+
+fi  # end test-mode selection (smoke / full / skip)
 
 BACKUP_DIR="$LIVE_ENGINE/backups/$TIMESTAMP"
 if [[ "$DRY_RUN" == "false" ]]; then

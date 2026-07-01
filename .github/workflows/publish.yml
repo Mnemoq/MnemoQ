@@ -23,8 +23,10 @@ jobs:
       - name: Install package and test deps
         run: pip install -e ".[dev]"
 
-      - name: Run tests
-        run: python -m pytest tests/
+      - name: Run smoke tests
+        # Tags are cut from main, which already passed the full CI matrix
+        # (.github/workflows/ci.yml). This is a fast release sanity check.
+        run: python -m pytest -m smoke -q
 
       - name: Install build
         run: pip install build

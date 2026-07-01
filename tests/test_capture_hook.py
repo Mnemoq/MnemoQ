@@ -28,6 +28,7 @@ from mnemoq.engine.capture import parse_transcript
 class TestParseTranscript:
     """Pure-function tests for parse_transcript()."""
 
+    @pytest.mark.smoke
     def test_parse_transcript_basic(self, tmp_path):
         """JSONL with user_input + planner_response → formatted conversation text."""
         transcript = tmp_path / "transcript.jsonl"
@@ -88,6 +89,7 @@ class TestParseTranscript:
         assert "Human: valid prompt" in result
         assert "Agent: valid response" in result
 
+    @pytest.mark.smoke
     def test_parse_transcript_missing_file(self):
         """Non-existent file → empty string."""
         result = parse_transcript("/nonexistent/path/to/transcript.jsonl")
@@ -132,6 +134,7 @@ def temp_project():
 class TestCaptureHookCli:
     """--capture-hook CLI integration tests (subprocess pattern)."""
 
+    @pytest.mark.smoke
     def test_capture_hook_e2e(self, temp_project):
         """Pipe stdin JSON with transcript_path → verify learnings.jsonl updated."""
         transcript = temp_project / "transcript.jsonl"
@@ -172,6 +175,7 @@ class TestCaptureHookCli:
         assert result.returncode == 0
         assert "no conversation" in result.stderr.lower() or "error" in result.stderr.lower()
 
+    @pytest.mark.smoke
     def test_capture_hook_invalid_json(self, temp_project):
         """Invalid stdin JSON → exits 0, stderr logged."""
         result = subprocess.run(

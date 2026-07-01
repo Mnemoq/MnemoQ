@@ -10,6 +10,7 @@ from conftest import _load_config, _make_ctx, _make_paths
 class TestBM25Score:
     """Test BM25 scoring function directly."""
 
+    @pytest.mark.smoke
     def test_bm25_rare_term_scores_higher(self):
         """Rare matching term should score higher than common matching term."""
         from mnemoq.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
@@ -36,6 +37,7 @@ class TestBM25Score:
             f"Rare term AABB ({score_aabb}) should score higher than "
             f"common term physics ({score_physics})")
 
+    @pytest.mark.smoke
     def test_bm25_no_match_scores_zero(self):
         """Doc with no matching query terms should score 0.0."""
         from mnemoq.engine.retrieval import _compute_corpus_stats, _tokenize, bm25_score
@@ -53,6 +55,7 @@ class TestBM25Score:
         score = bm25_score(query_tokens, doc_no_match, doc_freqs, total_docs, avg_doc_len, 1.5, 0.75)
         assert score == 0.0
 
+    @pytest.mark.smoke
     def test_bm25_empty_corpus(self):
         """Empty corpus should return 0.0 without crashing."""
         from mnemoq.engine.retrieval import bm25_score

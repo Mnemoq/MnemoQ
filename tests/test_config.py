@@ -1,12 +1,14 @@
 """Tests for config.json loading and enforcement."""
 import json
 
+import pytest
 from conftest import _make_ctx, _make_paths
 
 
 class TestConfigLoad:
     """Test config.json loading."""
 
+    @pytest.mark.smoke
     def test_config_load_valid(self, temp_project):
         """Test that valid config.json is loaded correctly."""
         memory_dir = temp_project / "memory"
@@ -38,6 +40,7 @@ class TestConfigLoad:
 
         assert result["exit_code"] == 0
 
+    @pytest.mark.smoke
     def test_config_max_step_applied(self, temp_project):
         """Test that custom max_step is actually enforced."""
         memory_dir = temp_project / "memory"
@@ -90,6 +93,7 @@ class TestConfigLoad:
         assert result["exit_code"] == 1
         assert result["status"] == "quarantined"
 
+    @pytest.mark.smoke
     def test_config_valid_domains_applied(self, temp_project):
         """Test that custom valid_domains actually rejects invalid domains."""
         memory_dir = temp_project / "memory"
