@@ -18,6 +18,8 @@ def _ctx(**over):
         "adaptive_offset_floor": 0.1,
         "adaptive_offset_ceiling": 0.2,
         "adaptive_min_samples": 10,
+        "adaptive_usefulness_gain": 0.1,
+        "auto_learn_over_injected_access": 5,
     }
     base.update(over)
     return base
@@ -114,6 +116,57 @@ class TestOutcomeCounters:
         hz.record_outcome(state, "backend", "conflict")
         hz.record_outcome(state, "backend", "quarantined")
         assert state["backend"]["detector_reject"] == 2
+
+
+class TestUsefulnessRecompute:
+    def test_high_access_sets_negative_offset(self):
+        state = {}
+        # mean_access 5 == access_ref -> usefulness 1.0 -> offset -gain (-0.1)
+        stats = {"backend": {"n": 20, "mean_access": 5.0}}
+        lowered = hz.recompute_usefulness(state, stats, _ctx())
+        assert lowered == 1
+        assert state["backend"]["usefulness_offset"] == -0.1
+
+    def test_partial_access_scales_offset(self):
+        state = {}
+        # mean_access 2.5 / ref 5 = 0.5 -> offset -0.05
+        stats = {"backend": {"n": 20, "mean_access": 2.5}}
+        hz.recompute_usefulness(state, stats, _ctx())
+        assert state["backend"]["usefulness_offset"] == -0.05
+
+    def test_volume_gate_blocks_below_min_samples(self):
+        state = {}
+        stats = {"backend": {"n": 9, "mean_access": 100.0}}
+        lowered = hz.recompute_usefulness(state, stats, _ctx())
+        assert lowered == 0
+        assert state["backend"]["usefulness_offset"] == 0.0
+
+    def test_offset_clamped_to_floor(self):
+        state = {}
+        # huge access, but gain caps at floor 0.1
+        stats = {"backend": {"n": 50, "mean_access": 1000.0}}
+        hz.recompute_usefulness(state, stats, _ctx(adaptive_usefulness_gain=0.5))
+        assert state["backend"]["usefulness_offset"] == -0.1  # floor, not -0.5
+
+    def test_usefulness_lowers_effective_threshold(self):
+        state = {"backend": {"offset": 0.0, "usefulness_offset": -0.08,
+                             "accept": 0, "detector_reject": 0, "actuation_reject": 0}}
+        assert abs(hz.effective_threshold(state, "backend", 0.5, _ctx()) - 0.42) < 1e-9
+
+    def test_usefulness_offset_survives_decay(self):
+        """usefulness_offset is non-decaying; only feedforward offset decays."""
+        state = {"backend": {"offset": 0.1, "usefulness_offset": -0.08,
+                             "accept": 1, "detector_reject": 0, "actuation_reject": 0}}
+        hz.decay_all(state, 0.9)
+        assert state["backend"]["usefulness_offset"] == -0.08
+        assert abs(state["backend"]["offset"] - 0.09) < 1e-6
+
+    def test_domain_with_only_usefulness_not_dropped(self):
+        state = {"backend": {"offset": 1e-5, "usefulness_offset": -0.05,
+                             "accept": 0, "detector_reject": 0, "actuation_reject": 0}}
+        hz.decay_all(state, 0.9)
+        assert "backend" in state
+        assert state["backend"]["usefulness_offset"] == -0.05
 
 
 class TestStateIO:

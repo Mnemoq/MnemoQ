@@ -231,6 +231,8 @@ def load_config():
         "adaptive_reject_gain": ("ADAPTIVE_REJECT_GAIN", 0.0, 1.0, True, True),
         "adaptive_offset_floor": ("ADAPTIVE_OFFSET_FLOOR", 0.0, 1.0, True, True),
         "adaptive_offset_ceiling": ("ADAPTIVE_OFFSET_CEILING", 0.0, 1.0, True, True),
+        "adaptive_usefulness_gain": ("ADAPTIVE_USEFULNESS_GAIN", 0.0, 1.0, True, True),
+        "consolidation_interval_adjustment": ("CONSOLIDATION_INTERVAL_ADJUSTMENT", 0.0, 1.0, True, True),
     }
     
     for config_key, (python_key, min_val, max_val, min_inclusive, max_inclusive) in float_params.items():

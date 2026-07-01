@@ -10,26 +10,26 @@ EVALUATE_AUTO_LOG_THRESHOLD into a per-domain *regulated variable*.
 State lives in ``<memory_dir>/.domain_state.json``:
 
     {"<domain>": {"offset": float,
+                  "usefulness_offset": float,
                   "accept": int,
                   "detector_reject": int,
                   "actuation_reject": int}}
 
-Two upward forces raise a domain's effective threshold, both decaying back
-toward the base:
+The effective threshold sums three per-domain terms over the base:
 
-  * Feedforward inhibition (flood control): ``offset += bump`` on each auto-log,
-    ``offset *= decay`` each event. Under sustained flooding the offset
-    converges to ``bump / (1 - decay)`` — set that to the ceiling.
-  * Reject bias (detector-quality + redundancy): a volume-gated additive term
-    ``reject_gain * reject_rate`` that raises the bar for domains whose
+  * Feedforward inhibition (flood control, >= 0, decays): ``offset += bump`` on
+    each auto-log, ``offset *= decay`` each event. Under sustained flooding the
+    offset converges to ``bump / (1 - decay)`` — set that to the ceiling.
+  * Reject bias (detector-quality + redundancy, >= 0, volume-gated): a
+    ``reject_gain * reject_rate`` term that raises the bar for domains whose
     detectors emit invalid (CONFLICT/QUARANTINED) or redundant (DUPLICATE)
     entries.
-
-The accept-driven *lowering* half of the adaptive-threshold idea is deliberately
-deferred to a periodic recompute that reads access-based usefulness — lowering
-the bar off synchronous "added" counts would be a runaway positive-feedback
-loop. ``accept`` is tracked here only to feed that future recompute and the
-sample gate.
+  * Usefulness offset (<= 0, non-decaying): the accept-driven *lowering* half,
+    set periodically by ``recompute_usefulness`` from access-based value (run on
+    the consolidation pass, not per-turn). It reads *demonstrated retrieval
+    value* — not synchronous "added" counts — which is why lowering the bar here
+    is safe rather than a runaway loop. It does not decay: it reflects
+    accumulated usefulness and is only overwritten by the next recompute.
 
 All I/O is best-effort: helpers never raise, so a corrupt/unwritable state file
 degrades to global (non-adaptive) behaviour rather than disrupting the engine.
@@ -53,7 +53,8 @@ def _state_path(paths):
 
 
 def _blank():
-    return {"offset": 0.0, "accept": 0, "detector_reject": 0, "actuation_reject": 0}
+    return {"offset": 0.0, "usefulness_offset": 0.0,
+            "accept": 0, "detector_reject": 0, "actuation_reject": 0}
 
 
 def load_state(paths):
@@ -103,20 +104,24 @@ def decay_all(state, decay):
         entry["offset"] = round(entry["offset"] * decay, 6)
         if entry["offset"] < 1e-4:
             entry["offset"] = 0.0
+            # usefulness_offset does not decay; keep the domain if it carries one
+            # (or any counters) so the recompute's lowering isn't silently lost.
             if not (entry["accept"] or entry["detector_reject"]
-                    or entry["actuation_reject"]):
+                    or entry["actuation_reject"]
+                    or entry.get("usefulness_offset", 0.0)):
                 del state[domain]
 
 
 def effective_threshold(state, domain, base, ctx):
     """Compute the per-domain effective auto-log threshold.
 
-    threshold = clamp(base + feedforward_offset + reject_bias,
+    threshold = clamp(base + feedforward_offset + reject_bias + usefulness_offset,
                       base - floor, base + ceiling)
 
     reject_bias is applied only once the domain has accumulated at least
     `adaptive_min_samples` outcome events (volume gate) — new/low-traffic
-    domains fall back to the base threshold.
+    domains fall back to the base threshold. usefulness_offset (<= 0) is set by
+    the periodic recompute and lowers the bar for high-value domains.
     """
     floor = ctx.get("adaptive_offset_floor", 0.1)
     ceiling = ctx.get("adaptive_offset_ceiling", 0.2)
@@ -125,6 +130,7 @@ def effective_threshold(state, domain, base, ctx):
         return base
 
     offset = float(entry.get("offset", 0.0) or 0.0)
+    usefulness_offset = float(entry.get("usefulness_offset", 0.0) or 0.0)
 
     reject_bias = 0.0
     samples = (int(entry.get("accept", 0) or 0)
@@ -137,7 +143,7 @@ def effective_threshold(state, domain, base, ctx):
         reject_rate = rejects / samples
         reject_bias = ctx.get("adaptive_reject_gain", 0.15) * reject_rate
 
-    eff = base + offset + reject_bias
+    eff = base + offset + reject_bias + usefulness_offset
     return max(base - floor, min(base + ceiling, eff))
 
 
@@ -159,3 +165,41 @@ def record_outcome(state, domain, status):
         entry["actuation_reject"] += 1
     elif s in _DETECTOR_REJECT_STATUSES:
         entry["detector_reject"] += 1
+
+
+def recompute_usefulness(state, domain_stats, ctx):
+    """Set each domain's non-decaying usefulness_offset from access-based value.
+
+    The accept-driven *lowering* half of the adaptive threshold, run periodically
+    on the consolidation pass (not per-turn). A domain whose auto-logged memories
+    are genuinely retrieved earns a negative offset (a lower auto-log bar).
+
+    Args:
+        state: the mutable domain-state dict.
+        domain_stats: {domain: {"n": int, "mean_access": float}} aggregated over
+            the domain's own auto-logged entries.
+        ctx: config context.
+
+    Volume-gated by `adaptive_min_samples` (entries, not outcome events); a domain
+    below the gate is reset to 0. Access saturates against the existing
+    `auto_learn_over_injected_access` reference (no new knob). The offset is
+    clamped to [-adaptive_offset_floor, 0]. Returns the count of domains lowered.
+    """
+    floor = ctx.get("adaptive_offset_floor", 0.1)
+    gain = ctx.get("adaptive_usefulness_gain", 0.1)
+    min_samples = ctx.get("adaptive_min_samples", 10)
+    access_ref = ctx.get("auto_learn_over_injected_access", 5) or 5
+    lowered = 0
+    for domain, stats in domain_stats.items():
+        entry = _domain(state, domain)
+        n = int(stats.get("n", 0) or 0)
+        if n < min_samples:
+            entry["usefulness_offset"] = 0.0
+            continue
+        mean_access = float(stats.get("mean_access", 0.0) or 0.0)
+        usefulness = min(1.0, mean_access / access_ref) if access_ref > 0 else 0.0
+        off = -min(floor, gain * usefulness)  # in [-floor, 0]
+        entry["usefulness_offset"] = round(off, 6)
+        if off < 0:
+            lowered += 1
+    return lowered
