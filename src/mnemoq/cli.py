@@ -790,6 +790,8 @@ Examples:
                         help="Evaluate a pytest JUnit XML report: extract failing-test signals into candidates.")
     parser.add_argument("--capture-file", type=str, metavar="PATH",
                         help="Read a raw conversation file and capture learnable moments as memories")
+    parser.add_argument("--capture-hook", action="store_true",
+                        help="Read Windsurf hook payload from stdin, parse transcript JSONL, and capture last exchange")
 
     args = parser.parse_args()
 
@@ -798,7 +800,7 @@ Examples:
                              args.review_agents, args.auto_learn, args.evaluate, args.evaluate_file,
                              args.metrics, args.migrate_schema, args.eval, args.serve, args.dashboard,
                              args.mcp, args.verify, args.install_hooks, args.scan_staged,
-                             args.evaluate_ci, args.capture_file]):
+                             args.evaluate_ci, args.capture_file, args.capture_hook]):
         parser.error("--version cannot be combined with other operational flags")
 
     if args.version:
@@ -1107,6 +1109,32 @@ Examples:
                 c = s["candidate"]
                 print(f"  [{s['confidence']:.2f}] {c['type']}: {c['trigger']}")
         return result.get("exit_code", 0)
+
+    if args.capture_hook:
+        from mnemoq.engine.capture import capture_core, parse_transcript
+        if sys.stdin.isatty():
+            print("ERROR: --capture-hook expects JSON on stdin (piped by Windsurf hook)", file=sys.stderr)
+            return 0
+        try:
+            hook_payload = json.load(sys.stdin)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"ERROR: --capture-hook: invalid stdin JSON: {e}", file=sys.stderr)
+            return 0
+        transcript_path = hook_payload.get("tool_info", {}).get("transcript_path", "")
+        if not transcript_path:
+            print("ERROR: --capture-hook: no transcript_path in payload", file=sys.stderr)
+            return 0
+        conversation_text = parse_transcript(transcript_path)
+        if not conversation_text:
+            print("--capture-hook: no conversation extracted from transcript", file=sys.stderr)
+            return 0
+        result = capture_core(conversation_text, _get_paths(), _build_ctx())
+        if result.get("disabled"):
+            return 0
+        print(f"--capture-hook: tier={result.get('extraction_tier', 'heuristic')} "
+              f"summaries={result.get('summaries_count', 0)} "
+              f"auto_logged={len(result.get('auto_logged', []))}", file=sys.stderr)
+        return 0
 
     if args.consolidate:
         exit_code = handle_consolidate(args.sprint, args.confirm_reset, args.force)

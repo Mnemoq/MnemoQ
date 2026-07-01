@@ -696,3 +696,53 @@ def capture_core(conversation_text: str, paths, ctx: dict) -> dict:
         "extraction_tier": tier,
         "disabled": False,
     }
+
+
+def parse_transcript(transcript_path: str) -> str:
+    """Parse a Windsurf transcript JSONL file into conversation text.
+
+    Extracts the last user_input + all subsequent entries.
+    Returns text in 'Human: ... / Agent: ...' format for heuristic_extract.
+    Resilient to unknown entry types and malformed JSON lines.
+    """
+    try:
+        with open(transcript_path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return ""
+
+    entries: list[dict] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    last_user_idx = -1
+    for i in range(len(entries) - 1, -1, -1):
+        if entries[i].get("type") == "user_input":
+            last_user_idx = i
+            break
+
+    if last_user_idx == -1:
+        return ""
+
+    turns: list[str] = []
+    for entry in entries[last_user_idx:]:
+        etype = entry.get("type")
+        if etype == "user_input":
+            text = entry.get("user_input", {}).get("user_response", "")
+            if text:
+                turns.append(f"Human: {text}")
+        elif etype == "planner_response":
+            text = entry.get("planner_response", {}).get("response", "")
+            if text:
+                turns.append(f"Agent: {text}")
+        elif etype == "code_action":
+            path = entry.get("code_action", {}).get("path", "unknown")
+            turns.append(f"Agent: [edited {path}]")
+
+    return "\n".join(turns)

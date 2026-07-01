@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Capture tier-degradation observability: `capture` metrics event with mode/tier/degraded flag and per-domain degradation rates in `--metrics` summary
 - Capture heuristic improvements: negation-aware outcome detection, sentence-boundary gist extraction, deduplication, outcome-weighted summary ranking, and signal-gated none-outcome logging
 - `capture_none_log_requires_signal` tuning parameter in `config.json`
+- `--capture-hook` CLI flag: reads Windsurf `post_cascade_response_with_transcript` payload from stdin, parses JSONL transcript, and captures last conversation exchange via `capture_core`
+- `parse_transcript()` in `engine/capture.py`: parses Windsurf JSONL transcripts into `Human: ... / Agent: ...` format
+- `.windsurf/hooks.json` workspace hook config for automatic per-turn conversation capture
+- `/capture` Windsurf workflow for manual on-demand full-conversation capture
 
 ### Fixed
 - Hooks now return an error when a foreign hook refuses overwrite (#15)
