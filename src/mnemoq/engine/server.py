@@ -247,10 +247,12 @@ def create_app(paths, ctx, api_key: str | None = None, dashboard: bool = False):
         components: str = Query(""),
         files: str = Query(""),
         domain: str = Query(""),
+        no_profile: bool = Query(False, description="Skip profile/domain rules for deterministic retrieval"),
     ):
         task_components = [c.strip() for c in components.split(",") if c.strip()] if components else []
         task_files = [f.strip() for f in files.split(",") if f.strip()] if files else []
-        result = retrieve_core(step, task_components, task_files, domain, ctx, paths)
+        result = retrieve_core(step, task_components, task_files, domain, ctx, paths,
+                               no_profile=no_profile)
         return result
 
     # -- Log --

@@ -772,6 +772,8 @@ Examples:
                         help="Start HTTP API server (requires agent-memory[api])")
     parser.add_argument("--dashboard", action="store_true", help="Start HTTP API server with web dashboard UI")
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve/--dashboard (default: 8765)")
+    parser.add_argument("--host", type=str, default="127.0.0.1",
+                        help="Host to bind for --serve/--dashboard (default: 127.0.0.1)")
     parser.add_argument("--mcp", action="store_true", help="Start MCP server (JSON-RPC over stdio)")
     parser.add_argument("--evaluate", type=str, metavar="JSON",
                         help="Evaluate a structured prompt summary for learnable moments (JSON string)")
@@ -993,7 +995,7 @@ Examples:
         from mnemoq.engine.server import create_app
         api_key = _CTX.get("api_key") or None
         app = create_app(_get_paths(), _build_ctx(), api_key=api_key, dashboard=args.dashboard)
-        url = f"http://127.0.0.1:{args.port}"
+        url = f"http://{args.host}:{args.port}"
         if args.dashboard:
             print(f"Agent Memory Dashboard starting on {url}", file=sys.stderr)
             import threading
@@ -1002,7 +1004,7 @@ Examples:
         else:
             print(f"Agent Memory Engine API starting on {url}", file=sys.stderr)
             print(f"API docs at {url}/docs", file=sys.stderr)
-        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
         return 0
 
     if args.verify:

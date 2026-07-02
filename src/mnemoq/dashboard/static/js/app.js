@@ -73,6 +73,17 @@ window.addEventListener("hashchange", handleHash);
 // ---------------------------------------------------------------------------
 // Data source toggle (Real / Fakes)
 // ---------------------------------------------------------------------------
+// Show/hide the FAKE-DATA banner + badge across every tab based on the
+// active data source. Driven purely off the shared toggle value, so it
+// covers all tabs without per-tab wiring.
+function applyFakeDataIndicator(source) {
+  const isFake = source === "fakes";
+  const banner = document.getElementById("fake-data-banner");
+  const badge = document.getElementById("fake-data-badge");
+  if (banner) banner.hidden = !isFake;
+  if (badge) badge.hidden = !isFake;
+}
+
 async function initDataSourceToggle() {
   const select = document.getElementById("data-source-toggle");
   try {
@@ -81,9 +92,11 @@ async function initDataSourceToggle() {
   } catch (e) {
     select.value = "real";
   }
+  applyFakeDataIndicator(select.value);
   select.addEventListener("change", async () => {
     try {
       await API.put("/config", { data_source: select.value });
+      applyFakeDataIndicator(select.value);
       toast(`Switched to ${select.value} data`, "success");
       handleHash();
     } catch (e) {

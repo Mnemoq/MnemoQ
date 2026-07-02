@@ -88,11 +88,26 @@ _SPEAKER_RE = re.compile(
     r'^(?:\*{0,2}|#{1,3}\s*|\[)(Human|User|AI|Agent|Assistant|Cascade|Claude)(?:\]|\*{0,2}:)\s*(.*)',
     re.IGNORECASE,
 )
-_FILE_PATH_RE = re.compile(r'[\w/\\]+\.\w{1,5}')
+# Matches file paths including Windows drive prefixes (C:\..., D:/...).
+# The optional (?:[A-Za-z]:[\\/]) prefix captures a drive letter, but only when
+# followed by a separator, so a bare token like "C:foo.py" is not mistaken for a
+# path. The original r'[\w/\\]+\.\w{1,5}' dropped the drive because ':' is not \w.
+_FILE_PATH_RE = re.compile(r'(?:[A-Za-z]:[\\/])?[\w/\\]+\.\w{1,5}')
 _BACKTICK_RE = re.compile(r'`([^`]+)`')
 _PASCAL_CAMEL_RE = re.compile(r'\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}[a-z]\w*')
-_CORRECTION_SELF_RE = re.compile(r'\b(?:no,|stop|shouldn\'t|not that)(?!\w)', re.IGNORECASE)
-_CORRECTION_WRONG_RE = re.compile(r'\bwrong\b', re.IGNORECASE)
+_CORRECTION_SELF_RE = re.compile(
+    r'\b(?:no,|stop|shouldn\'t|not that'
+    r'|that\'s\s+(?:incorrect|wrong|not right|not how)'
+    r'|that\s+(?:won\'t\s+work|doesn\'t\s+work|isn\'t\s+right)'
+    r'|prefer\s+(?:to\s+use|using)\b'
+    r'|switch\s+to\b'
+    r'|instead\s+(?:of\s+that|use)\b'
+    r')(?!\w)', re.IGNORECASE,
+)
+_CORRECTION_WRONG_RE = re.compile(
+    r'\b(?:wrong|incorrect|not\s+correct|not\s+right|won\'t\s+work|doesn\'t\s+work)\b',
+    re.IGNORECASE,
+)
 _BUG_FIX_RE = re.compile(r'\b(fixed|error|bug|crash|exception|traceback|failed)\b', re.IGNORECASE)
 _DECISION_RE = re.compile(r'\b(let\'s|we should|going forward|decided|let us|shall we)\b', re.IGNORECASE)
 _PREFERENCE_SELF_RE = re.compile(r'\b(remember|don\'t forget|note this)\b', re.IGNORECASE)
@@ -252,12 +267,14 @@ def _detect_outcomes(text: str) -> list[str]:
 
 
 _GIST_SIGNAL_RE = re.compile(
-    r'[\w/\\]+\.\w{1,5}|error|exception|crash|traceback|no,|stop|wrong|shouldn\'t|not that',
+    r'(?:[A-Za-z]:[\\/])?[\w/\\]+\.\w{1,5}'
+    r'|error|exception|crash|traceback'
+    r'|no,|stop|wrong|incorrect|shouldn\'t|not that|won\'t work|switch to',
     re.IGNORECASE,
 )
 
 
-def _extract_gist(text: str, max_chars: int = 200) -> str:
+def _extract_gist(text: str, max_chars: int = 200, max_sentences: int = 1) -> str:
     """Extract a gist from text using sentence-boundary detection.
 
     Splits on punctuation followed by whitespace + capital letter,
@@ -265,7 +282,9 @@ def _extract_gist(text: str, max_chars: int = 200) -> str:
     numbers, abbreviations like 'e.g.').
 
     Prefers sentences containing signal (file paths, error terms, correction
-    signals). Truncates at word boundary if max_chars is reached.
+    signals). When max_sentences > 1, concatenates up to that many signal-
+    bearing sentences (useful for multi-part corrections). Truncates at
+    word boundary if max_chars is reached.
     """
     text = text.strip()
     if not text:
@@ -282,12 +301,30 @@ def _extract_gist(text: str, max_chars: int = 200) -> str:
     if not sentences:
         sentences = [text]
 
-    # Prefer first sentence with signal; fall back to first sentence
-    chosen = sentences[0]
-    for s in sentences:
-        if len(s) <= max_chars and _GIST_SIGNAL_RE.search(s):
-            chosen = s
-            break
+    if max_sentences > 1:
+        # Collect up to max_sentences *signal-bearing* sentences within budget.
+        # A non-signal sentence is never eagerly included (that could consume the
+        # whole budget and drop the actual correction); fall back to the first
+        # sentence only if no signal sentence is found at all.
+        chosen_parts: list[str] = []
+        total = 0
+        for s in sentences:
+            if not s or not _GIST_SIGNAL_RE.search(s):
+                continue
+            if total + len(s) + 1 > max_chars:
+                break
+            chosen_parts.append(s)
+            total += len(s) + 1
+            if len(chosen_parts) >= max_sentences:
+                break
+        chosen = " ".join(chosen_parts) if chosen_parts else sentences[0]
+    else:
+        # Prefer first sentence with signal; fall back to first sentence
+        chosen = sentences[0]
+        for s in sentences:
+            if len(s) <= max_chars and _GIST_SIGNAL_RE.search(s):
+                chosen = s
+                break
 
     if len(chosen) <= max_chars:
         return chosen
@@ -435,7 +472,11 @@ def heuristic_extract(conversation_text: str, ctx: dict | None = None) -> list[d
 
         components = _extract_components(turn_text)
         files = _extract_files(turn_text)
-        gist = _extract_gist(turn_text)
+        # Corrections can span multiple clauses; allow up to 3 sentences so
+        # "that's wrong, use X instead. Also avoid Y." is captured fully.
+        # Reuse `outcomes` (already computed above) rather than re-detecting.
+        is_correction = "correction" in outcomes
+        gist = _extract_gist(turn_text, max_sentences=3 if is_correction else 1)
 
         for outcome in outcomes:
             dedup_key = (outcome, tuple(sorted(components)), tuple(sorted(files)), gist)
@@ -496,17 +537,36 @@ def offline_llm_extract(conversation_text: str, ctx: dict | None = None) -> list
     """Extract summaries using a local LLM (Ollama/LM Studio).
 
     Returns None on any failure (no endpoint, network error, parse error).
+    Logs a one-line WARN for each typed failure so silent degradation is visible.
     """
+    import sys as _sys
+    import time as _time
+    import urllib.error as _urlerr
     ctx = ctx or {}
     endpoint = _probe_llm_endpoint(ctx.get("capture_llm_endpoint"))
     if endpoint is None:
         return None
 
     prompt = _build_extraction_prompt(conversation_text)
+    _t0 = _time.monotonic()
     try:
         response_text = _call_llm(endpoint, ctx.get("capture_llm_model"), prompt)
-    except Exception:
+    except _urlerr.URLError as e:
+        print(f"WARN: offline LLM capture failed (network): {e}", file=_sys.stderr)
         return None
+    except TimeoutError as e:
+        print(f"WARN: offline LLM capture timed out: {e}", file=_sys.stderr)
+        return None
+    except json.JSONDecodeError as e:
+        print(f"WARN: offline LLM capture returned invalid JSON: {e}", file=_sys.stderr)
+        return None
+    except Exception as e:
+        print(f"WARN: offline LLM capture unexpected error: {type(e).__name__}: {e}", file=_sys.stderr)
+        return None
+    elapsed = _time.monotonic() - _t0
+    if elapsed > 5.0:
+        print(f"WARN: offline LLM capture slow ({elapsed:.1f}s) — consider a lighter model",
+              file=_sys.stderr)
 
     return _parse_llm_response(response_text)
 
@@ -553,12 +613,32 @@ def online_llm_extract(conversation_text: str, ctx: dict | None = None) -> list[
         method="POST",
     )
 
+    import sys as _sys
+    import time as _time
+    import urllib.error as _urlerr
+    _t0 = _time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())
             response_text = data["choices"][0]["message"]["content"]
-    except Exception:
+    except _urlerr.HTTPError as e:
+        print(f"WARN: online LLM capture HTTP {e.code}: {e.reason}", file=_sys.stderr)
         return None
+    except _urlerr.URLError as e:
+        print(f"WARN: online LLM capture failed (network): {e}", file=_sys.stderr)
+        return None
+    except TimeoutError as e:
+        print(f"WARN: online LLM capture timed out: {e}", file=_sys.stderr)
+        return None
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        print(f"WARN: online LLM capture bad response ({type(e).__name__}): {e}", file=_sys.stderr)
+        return None
+    except Exception as e:
+        print(f"WARN: online LLM capture unexpected error: {type(e).__name__}: {e}", file=_sys.stderr)
+        return None
+    elapsed = _time.monotonic() - _t0
+    if elapsed > 5.0:
+        print(f"WARN: online LLM capture slow ({elapsed:.1f}s)", file=_sys.stderr)
 
     return _parse_llm_response(response_text)
 

@@ -137,6 +137,35 @@ class TestFakeGenStatus:
         assert data["status"] == "idle"
 
 
+class TestRetrievalQualityMetrics:
+    """R6: /api/metrics/retrieval-quality carries latency/buckets/domain hit-rate."""
+
+    async def test_new_fields_present(self, client, temp_project):
+        import json
+        metrics_path = temp_project / "memory" / "metrics.jsonl"
+        events = [
+            {"ts": "2026-07-01T00:00:00Z", "event_type": "retrieval",
+             "warnings_returned": 2, "patterns_returned": 0, "top_score": 0.9,
+             "query_domain": "ui", "latency_ms": 5},
+            {"ts": "2026-07-01T00:01:00Z", "event_type": "retrieval",
+             "warnings_returned": 0, "patterns_returned": 0, "top_score": 0.1,
+             "query_domain": "api", "latency_ms": 20},
+        ]
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            for e in events:
+                f.write(json.dumps(e) + "\n")
+
+        resp = await client.get("/api/metrics/retrieval-quality")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "latency" in data and data["latency"]["count"] == 2
+        assert "score_buckets" in data and sum(data["score_buckets"]["values"]) == 2
+        assert "hit_rate_by_domain" in data
+        by_dom = {d["domain"]: d for d in data["hit_rate_by_domain"]}
+        assert by_dom["ui"]["hit_rate"] == 1.0
+        assert by_dom["api"]["hit_rate"] == 0.0
+
+
 class TestFakeGenValidation:
     async def test_invalid_script_rejected(self, client):
         resp = await client.post("/api/fake-gen/start", json={"script": "unknown", "batch_name": "test"})

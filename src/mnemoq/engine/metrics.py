@@ -25,6 +25,7 @@ Type-specific fields are documented in the instrumentation points
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from collections import namedtuple
@@ -195,26 +196,73 @@ def _si(val, default=0):
         return default
 
 
+def _percentiles(values, ps=(50, 95, 99)):
+    """Nearest-rank percentiles of a numeric list.
+
+    Returns {'p50':.., 'p95':.., 'p99':.., 'count': n}. Non-numeric / None
+    values are dropped (via _sf) rather than raising, so a stray bad
+    latency_ms never breaks the report.
+    """
+    xs = sorted(v for v in (_sf(x, None) for x in values) if v is not None)
+    out = {f"p{p}": 0.0 for p in ps}
+    if not xs:
+        out["count"] = 0
+        return out
+    for p in ps:
+        # nearest-rank: ceil(p/100 * n), 1-indexed
+        k = max(1, math.ceil(p / 100 * len(xs)))
+        out[f"p{p}"] = round(xs[k - 1], 2)
+    out["count"] = len(xs)
+    return out
+
+
 def _retrieval_stats(events):
     """Compute retrieval effectiveness metrics."""
     total = len(events)
     if not total:
         return {}
 
-    hits = sum(1 for e in events
-               if _si(e.get("warnings_returned", 0)) + _si(e.get("patterns_returned", 0)) > 0)
+    def _is_hit(e):
+        return _si(e.get("warnings_returned", 0)) + _si(e.get("patterns_returned", 0)) > 0
+
+    hits = sum(1 for e in events if _is_hit(e))
     total_results = sum(_si(e.get("warnings_returned", 0)) + _si(e.get("patterns_returned", 0))
                         for e in events)
     scores = [_sf(e.get("top_score")) for e in events if e.get("top_score") is not None]
 
+    # Retrieval-quality buckets: distribution of top_score, so a blended
+    # hit-rate can be localized to "how good were the hits?".
+    bucket_values = [0, 0, 0, 0]  # [0-.25) [.25-.5) [.5-.75) [.75-1]
+    for s in scores:
+        if s < 0.25:
+            bucket_values[0] += 1
+        elif s < 0.5:
+            bucket_values[1] += 1
+        elif s < 0.75:
+            bucket_values[2] += 1
+        else:
+            bucket_values[3] += 1
+
     qcomps = {}
     qdoms = {}
+    dom_hits = {}  # domain -> [runs, hits], to localize which domains miss
     for e in events:
         for c in e.get("query_components", []):
             qcomps[c] = qcomps.get(c, 0) + 1
         d = e.get("query_domain")
         if d:
             qdoms[d] = qdoms.get(d, 0) + 1
+            rec = dom_hits.setdefault(d, [0, 0])
+            rec[0] += 1
+            if _is_hit(e):
+                rec[1] += 1
+
+    hit_rate_by_domain = sorted(
+        ({"domain": d, "runs": c[0], "hits": c[1],
+          "hit_rate": c[1] / c[0] if c[0] else 0}
+         for d, c in dom_hits.items()),
+        key=lambda x: -x["runs"],
+    )[:10]
 
     return {
         "total_retrievals": total,
@@ -226,6 +274,13 @@ def _retrieval_stats(events):
         "avg_top_score": sum(scores) / len(scores) if scores else 0,
         "max_top_score": max(scores) if scores else 0,
         "min_top_score": min(scores) if scores else 0,
+        "latency": _percentiles([e.get("latency_ms") for e in events]),
+        "score_buckets": {
+            "labels": ["0-.25", ".25-.5", ".5-.75", ".75-1"],
+            "values": bucket_values,
+            "n_scored": len(scores),
+        },
+        "hit_rate_by_domain": hit_rate_by_domain,
         "top_query_components": sorted(qcomps.items(), key=lambda x: -x[1])[:10],
         "top_query_domains": sorted(qdoms.items(), key=lambda x: -x[1])[:10],
     }
@@ -273,6 +328,7 @@ def _logging_stats(events):
 
     return {
         "total_logs": total,
+        "latency": _percentiles([e.get("latency_ms") for e in events]),
         "outcomes": outcomes,
         "added": outcomes.get("ADDED", 0),
         "duplicate": dup,
@@ -771,6 +827,9 @@ def _report_summary(events, json_out=False):
     if r:
         print(f"  Total: {r['total_retrievals']}, Hit rate: {r['hit_rate']:.1%}, "
               f"Avg results: {r['avg_results']:.1f}, Avg top score: {r['avg_top_score']:.3f}")
+        rlat = r.get("latency", {})
+        if rlat.get("count"):
+            print(f"  Latency (ms): p50 {rlat['p50']} · p95 {rlat['p95']} · p99 {rlat['p99']}")
     else:
         print("  No retrieval events.")
     print()
@@ -824,9 +883,27 @@ def _report_retrieval(events, json_out=False):
           f"({s['hit_count']} hits, {s['empty_count']} empty)")
     print(f"Avg results: {s['avg_results']:.1f}\n")
 
+    lat = s.get("latency", {})
+    if lat.get("count"):
+        print(f"Latency (ms): p50 {lat['p50']} · p95 {lat['p95']} · p99 {lat['p99']} "
+              f"(n={lat['count']})\n")
+
     print("### Score Distribution")
     print(f"  Avg: {s['avg_top_score']:.3f}, Max: {s['max_top_score']:.3f}, "
           f"Min: {s['min_top_score']:.3f}\n")
+
+    sb = s.get("score_buckets", {})
+    if sb.get("n_scored"):
+        print("### Top-Score Buckets")
+        for label, n in zip(sb["labels"], sb["values"]):
+            print(f"  {label}: {n}")
+        print()
+
+    if s.get("hit_rate_by_domain"):
+        print("### Hit Rate by Domain")
+        for d in s["hit_rate_by_domain"]:
+            print(f"  {d['domain']}: {d['hit_rate']:.0%} ({d['hits']}/{d['runs']})")
+        print()
 
     print("### Top Query Components")
     for c, n in s['top_query_components']:
