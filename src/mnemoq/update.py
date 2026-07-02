@@ -360,6 +360,57 @@ def sync_instructions(project_path, version):
     return results
 
 
+def _has_managed_block(path):
+    """True if `path` already carries the engine-managed memory block."""
+    try:
+        return "<!-- BEGIN agent-memory:managed" in Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+
+# IDE -> (surface detector, the key file whose managed block marks it "wired").
+# The surface detector reports that the project uses the IDE at all; the key file
+# tells us whether memory has already been wired into it.
+_IDE_DETECT = {
+    "opencode":    (lambda p: (p / ".opencode").exists() or (p / "opencode.json").exists(), "AGENTS.md"),
+    "windsurf":    (lambda p: (p / ".windsurf").exists(), "AGENTS.md"),
+    "cursor":      (lambda p: (p / ".cursor").exists(), ".cursor/rules/memory-protocol.mdc"),
+    "claude-code": (lambda p: (p / "CLAUDE.md").exists() or (p / ".claude").exists(), "CLAUDE.md"),
+    "copilot":     (lambda p: (p / ".github").exists(), ".github/copilot-instructions.md"),
+}
+
+
+def wire_new_ides(project_path, version, dry_run=False):
+    """Wire memory into IDE surfaces present in the project but not yet wired.
+
+    Opt-in counterpart to sync_instructions (which is refresh-only): this reaches
+    IDEs a project adopted *after* scaffold time. Reuses the scaffold wiring
+    functions, which are idempotent — an already-wired IDE resolves to a no-op.
+
+    Returns {ide: status} where status is one of
+    'wired' | 'already-wired' | 'would-wire' | 'error: ...'.
+    """
+    from mnemoq import scaffold  # lazy: avoids import cost on the common path
+
+    project_path = Path(project_path)
+    results = {}
+    for ide, (detect, key_file) in _IDE_DETECT.items():
+        if not detect(project_path):
+            continue
+        if _has_managed_block(project_path / key_file):
+            results[ide] = "already-wired"
+            continue
+        if dry_run:
+            results[ide] = "would-wire"
+            continue
+        try:
+            scaffold.IDE_WIRERS[ide](project_path)
+            results[ide] = "wired"
+        except Exception as e:  # best-effort per IDE; one failure can't block the rest
+            results[ide] = f"error: {e}"
+    return results
+
+
 def update_engine_files(project_path, engine_path, dry_run=False):
     """For shim projects, no file updates needed. For legacy copies, migrate to shim."""
     memory_dir = project_path / "memory"
@@ -555,6 +606,9 @@ Examples:
                         help="Refresh the managed Memory block in existing AGENTS.md/CLAUDE.md/"
                              "copilot/cursor files (preserves user content; never creates new files)")
     parser.add_argument("--migrate-to-shim", action="store_true", help="Replace full engine copies with shims")
+    parser.add_argument("--wire-new-ide", action="store_true",
+        help="Detect IDE surfaces present in each project and wire any missing memory "
+             "integrations (idempotent; opt-in — plain update only refreshes existing files)")
     parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt for multi-project updates")
     parser.add_argument("--version", action="store_true", help="Show update.py version")
     
@@ -590,7 +644,23 @@ Examples:
             success, msg = migrate_to_shim(project, args.dry_run)
             print(f"  {project}: {msg}")
         return 0
-    
+
+    # Handle --wire-new-ide (opt-in: wire IDE surfaces missing memory integration)
+    if args.wire_new_ide:
+        print(f"\n{'[DRY RUN] ' if args.dry_run else ''}Wiring new IDE integrations...\n")
+        for project in projects:
+            valid, message = validate_project(project)
+            if not valid:
+                print(f"  {project}: SKIP — {message}")
+                continue
+            results = wire_new_ides(project, engine_version, args.dry_run)
+            if results:
+                summary = ", ".join(f"{ide}: {status}" for ide, status in results.items())
+                print(f"  {project}: {summary}")
+            else:
+                print(f"  {project}: no IDE surfaces detected")
+        return 0
+
     # Confirm update
     if not args.yes and not confirm_update(projects, args.dry_run):
         print("Update cancelled.", file=sys.stderr)

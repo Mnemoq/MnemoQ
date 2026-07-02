@@ -32,7 +32,7 @@ from mnemoq.engine.agents_review import review_agents_core
 from mnemoq.engine.consolidation import consolidate_core
 from mnemoq.engine.constants import DEFAULTS as _CONST_DEFAULTS
 from mnemoq.engine.evaluate import evaluate_core
-from mnemoq.engine.handlers import log_core, resolve_core, stats_core
+from mnemoq.engine.handlers import log_core, resolve_core, stats_core, update_core
 from mnemoq.engine.io import read_learnings
 from mnemoq.engine.metrics import _consolidation_stats, _logging_stats, _retrieval_stats, read_metrics
 from mnemoq.engine.retrieval import retrieve_core
@@ -167,8 +167,47 @@ TOOLS = [
                 "files": {"type": "array", "items": {"type": "string"},
                           "description": "File paths being worked on"},
                 "domain": {"type": "string", "description": "Coarse domain tag (e.g. 'ui', 'data', 'tooling')"},
+                "no_profile": {"type": "boolean", "default": False,
+                               "description": "Skip profile/domain rules for deterministic retrieval"},
             },
             "required": ["step"],
+        },
+    },
+    {
+        "name": "update_learning",
+        "description": ("Update an existing learning entry identified by its timestamp. "
+                        "Preserves access_count, reinforcement_count, and fields not supplied. "
+                        "Re-computes embedding when trigger/action/reason changes."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "timestamp": {
+                    "type": "string",
+                    "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
+                    "description": "Timestamp of the entry to update (YYYY-MM-DDTHH:MM:SSZ)",
+                },
+                "entry": {
+                    "type": "object",
+                    "description": "Updated entry fields (same schema as log_learning).",
+                    "properties": {
+                        "step": {"type": "integer", "minimum": 1},
+                        "source_agent": {"type": "string"},
+                        "type": {"type": "string"},
+                        "domain": {"type": "string"},
+                        "components": {"type": "array", "items": {"type": "string"}},
+                        "files_touched": {"type": "array", "items": {"type": "string"}},
+                        "trigger": {"type": "string"},
+                        "action": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "importance": {"type": "integer", "minimum": 1, "maximum": 10},
+                        "severity": {"type": "string"},
+                    },
+                    "required": ["step", "source_agent", "type", "domain", "components",
+                                 "files_touched", "trigger", "action", "reason",
+                                 "importance", "severity"],
+                },
+            },
+            "required": ["timestamp", "entry"],
         },
     },
     {
@@ -320,24 +359,62 @@ RESOURCE_TEMPLATES = [
 # Tool dispatch
 # ---------------------------------------------------------------------------
 
+def _mcp_error(code: str, message: str, suggested_action: str = "") -> dict:
+    """Return a structured MCP tool error mirroring the HTTP ErrorResponse shape."""
+    return {
+        "isError": True,
+        "content": [{"type": "text", "text": json.dumps({
+            "code": code,
+            "message": message,
+            "suggested_action": suggested_action,
+        }, ensure_ascii=False)}],
+    }
+
+
 def _call_tool(name: str, arguments: dict, paths: _Paths, ctx: dict) -> dict:
     if name == "retrieve_learnings":
         step = arguments.get("step", 1)
         components = arguments.get("components", []) or []
         files = arguments.get("files", []) or []
         domain = arguments.get("domain", "") or ""
-        result = retrieve_core(step, components, files, domain, ctx, paths)
+        no_profile = bool(arguments.get("no_profile", False))
+        result = retrieve_core(step, components, files, domain, ctx, paths,
+                               no_profile=no_profile)
+        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
+
+    elif name == "update_learning":
+        ts = arguments.get("timestamp", "")
+        entry = arguments.get("entry", {})
+        result = update_core(ts, json.dumps(entry), paths, ctx)
+        if result.get("exit_code", 0) != 0:
+            return _mcp_error(
+                code=result.get("status", "ERROR").upper(),
+                message=result.get("message", "Update failed"),
+                suggested_action="Check that the timestamp exists and the entry fields are valid.",
+            )
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     elif name == "log_learning":
         entry = arguments.get("entry", {})
         json_str = json.dumps(entry)
         result = log_core(json_str, paths, ctx)
+        if result.get("exit_code", 0) != 0:
+            return _mcp_error(
+                code=result.get("status", "ERROR").upper(),
+                message=result.get("message", "Log failed"),
+                suggested_action="Check that the entry fields are valid and the domain is recognised.",
+            )
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     elif name == "resolve_learning":
         ts = arguments.get("timestamp", "")
         result = resolve_core(ts, paths)
+        if result.get("exit_code", 0) != 0:
+            return _mcp_error(
+                code=result.get("status", "ERROR").upper(),
+                message=result.get("message", "Resolve failed"),
+                suggested_action="Check that the timestamp exists in learnings.jsonl.",
+            )
         return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]}
 
     elif name == "get_stats":

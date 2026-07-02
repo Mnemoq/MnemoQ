@@ -15,6 +15,7 @@ Flags:
     --defaults             Skip prompts, use all defaults (non-interactive)
     --force                Overwrite engine files only (never data files)
     --ide <platforms>      Wire memory into IDE/agent platform(s): opencode, windsurf, cursor, claude-code, copilot
+    --template-dir <path>  Override the templates directory (default: repo checkout or deployed engine)
     --version              Show version and exit
 """
 
@@ -34,14 +35,60 @@ from mnemoq.shim import SHIM_TEMPLATE, is_shim
 ENGINE_VERSION = get_engine_version()
 ENGINE_DIR = Path.home() / ".agent-memory" / "engine"
 
+# Resolved once in main() from --template-dir; falls back to the resolver chain
+# for any direct call (e.g. from tests running out of a source checkout).
+_TEMPLATE_DIR_OVERRIDE = None
+
+
+def resolve_template_dir(override=None):
+    """Resolve the scaffold templates directory.
+
+    Order:
+      1. explicit override (--template-dir) — for tests/CI,
+      2. the repo-root ``templates/`` dir when running from a source checkout
+         (walk up from this file to a dir with ``templates/config.json`` plus a
+         checkout marker — ``pyproject.toml`` or ``.git``),
+      3. the deployed ``ENGINE_DIR/templates`` (the installed-user default),
+    then a clear error if none resolve. Kills the deploy-to-test loop: a source
+    checkout no longer needs a prior deploy to scaffold.
+    """
+    if override:
+        p = Path(override)
+        if (p / "config.json").exists():
+            return p
+        sys.exit(f"ERROR: --template-dir has no config.json: {p}")
+
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        cand = parent / "templates"
+        if (cand / "config.json").exists() and (
+            (parent / "pyproject.toml").exists() or (parent / ".git").exists()
+        ):
+            return cand
+
+    deployed = ENGINE_DIR / "templates"
+    if (deployed / "config.json").exists():
+        return deployed
+
+    sys.exit("ERROR: No templates found. Run the deploy script, run from a source "
+             "checkout, or pass --template-dir.")
+
+
+def template_dir():
+    """Return the active templates dir (override if set, else the resolver chain)."""
+    return _TEMPLATE_DIR_OVERRIDE or resolve_template_dir()
+
 
 def check_prerequisites():
-    """Verify engine files exist before scaffolding."""
-    required_files = ["filter.py", "templates/config.json"]
-    for f in required_files:
-        path = ENGINE_DIR / f
-        if not path.exists():
-            sys.exit(f"ERROR: Engine file missing: {path}\nRun the deploy script first.")
+    """Verify templates are resolvable before scaffolding.
+
+    The shim (filter.py) is written from the bundled SHIM_TEMPLATE constant, so
+    only a resolvable templates/config.json is actually required — no deploy.
+    """
+    tdir = template_dir()
+    if not (tdir / "config.json").exists():
+        sys.exit(f"ERROR: Template config missing under {tdir}\n"
+                 "Run the deploy script, run from a source checkout, or pass --template-dir.")
 
 
 def resolve_target_path(cli_path):
@@ -257,7 +304,7 @@ IMMUTABLE during active tasks. Only updated during Sleep Cycle.
     # Eval fixture directory with template
     eval_dir = target_memory / "eval"
     eval_dir.mkdir(exist_ok=True)
-    template_eval = ENGINE_DIR / "templates" / "eval" / "grading.jsonl"
+    template_eval = template_dir() / "eval" / "grading.jsonl"
     if template_eval.exists():
         (eval_dir / "grading.jsonl").write_text(template_eval.read_text())
     else:
@@ -268,7 +315,15 @@ def register_project(target_path):
     """Append project path to projects.txt if not already present."""
     projects_file = ENGINE_DIR / "projects.txt"
     target_str = str(target_path)
-    
+
+    # The engine dir may not exist yet on a deploy-free source-checkout run;
+    # registration is best-effort and must not block scaffolding.
+    try:
+        ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        print(f"  WARNING: could not create {ENGINE_DIR} for registration: {e}", file=sys.stderr)
+        return
+
     # Create file if missing
     if not projects_file.exists():
         projects_file.write_text("# Registered projects — one absolute path per line\n")
@@ -341,7 +396,7 @@ def merge_opencode_json(target_path):
     """Field-level merge of opencode.json with snippet template."""
     FILTER_BASH_RULE = "python memory/filter.py *"
     
-    snippet_path = ENGINE_DIR / "templates" / "opencode-snippet.json"
+    snippet_path = template_dir() / "opencode-snippet.json"
     opencode_path = target_path / "opencode.json"
     
     # Check template exists
@@ -432,7 +487,7 @@ def merge_opencode_json(target_path):
 
 def copy_prompts(target_path, src_dir=None, dst_dir=None, files=None):
     """Copy prompt/rule files to destination, skip if exists."""
-    prompts_src = src_dir or (ENGINE_DIR / "templates" / "prompts")
+    prompts_src = src_dir or (template_dir() / "prompts")
     prompts_dst = dst_dir or (target_path / ".opencode" / "prompts")
     prompts_dst.mkdir(parents=True, exist_ok=True)
     
@@ -498,7 +553,7 @@ def append_or_create_file(target_path, filename, section_content,
 
 def read_memory_section():
     """Read the shared memory section template."""
-    with open(ENGINE_DIR / "templates" / "agents-memory-section.md", encoding='utf-8') as f:
+    with open(template_dir() / "agents-memory-section.md", encoding='utf-8') as f:
         return f.read()
 
 
@@ -540,7 +595,7 @@ def wire_windsurf(target_path):
     """Wire memory into Windsurf: copy workflows, create Plans dir, append AGENTS.md."""
     print("\nWiring windsurf...")
     
-    workflows_src = ENGINE_DIR / "templates" / "windsurf" / "workflows"
+    workflows_src = template_dir() / "windsurf" / "workflows"
     workflows_dst = target_path / ".windsurf" / "workflows"
     workflow_files = ["gm.md", "code-reviewer.md", "test-writer.md", "fuzzer.md",
                       "meta-agent.md", "plan-deviation.md", "plan-reviewer.md",
@@ -585,7 +640,7 @@ def wire_cursor(target_path):
     memory-protocol.mdc from the canonical section, append AGENTS.md."""
     print("\nWiring cursor...")
 
-    rules_src = ENGINE_DIR / "templates" / "cursor-rules"
+    rules_src = template_dir() / "cursor-rules"
     rules_dst = target_path / ".cursor" / "rules"
     # memory-protocol.mdc is NOT copied — it is generated from the canonical
     # agents-memory-section.md below so all IDEs share one source of truth.
@@ -674,9 +729,15 @@ Examples:
         help="Wire memory into IDE/agent platform(s): opencode, windsurf, cursor, "
              "claude-code, copilot, all (comma-separated). Use --ide ? to list platforms.")
     parser.add_argument("--opencode", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--template-dir", type=str, default=None,
+        help="Override the templates directory (default: repo checkout or deployed engine)")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
-    
+
     args = parser.parse_args()
+
+    # Resolve templates once so all downstream reads share one source.
+    global _TEMPLATE_DIR_OVERRIDE
+    _TEMPLATE_DIR_OVERRIDE = resolve_template_dir(args.template_dir)
     
     # --ide ? or --ide '' → list available platforms and exit
     if args.ide is not None and args.ide.strip() in ("", "?"):
@@ -708,7 +769,7 @@ Examples:
             print("  --force: overwriting engine files only")
     
     # Load template config
-    template_path = ENGINE_DIR / "templates" / "config.json"
+    template_path = template_dir() / "config.json"
     with open(template_path) as f:
         template_config = json.load(f)
     

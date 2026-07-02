@@ -89,7 +89,7 @@ class _LocalTransport:
         self.paths = paths
         self.ctx = ctx
 
-    def retrieve(self, step, components, files, domain):
+    def retrieve(self, step, components, files, domain, no_profile=False):
         return retrieve_core(
             step,
             list(components) if components else [],
@@ -97,6 +97,7 @@ class _LocalTransport:
             domain or "",
             self.ctx,
             self.paths,
+            no_profile=no_profile,
         )
 
     def log(self, entry):
@@ -208,7 +209,7 @@ class _HTTPTransport:
         _HTTPError.raise_for_status(response)
         return response.json()
 
-    def retrieve(self, step, components, files, domain):
+    def retrieve(self, step, components, files, domain, no_profile=False):
         params: dict[str, Any] = {"step": step}
         if components:
             params["components"] = ",".join(components)
@@ -216,6 +217,8 @@ class _HTTPTransport:
             params["files"] = ",".join(files)
         if domain:
             params["domain"] = domain
+        if no_profile:
+            params["no_profile"] = "true"
         return self._request("GET", "/api/retrieve", params=params)
 
     def log(self, entry):
@@ -274,7 +277,7 @@ class _AsyncHTTPTransport:
         _HTTPError.raise_for_status(response)
         return response.json()
 
-    async def retrieve(self, step, components, files, domain):
+    async def retrieve(self, step, components, files, domain, no_profile=False):
         params: dict[str, Any] = {"step": step}
         if components:
             params["components"] = ",".join(components)
@@ -282,6 +285,8 @@ class _AsyncHTTPTransport:
             params["files"] = ",".join(files)
         if domain:
             params["domain"] = domain
+        if no_profile:
+            params["no_profile"] = "true"
         return await self._request("GET", "/api/retrieve", params=params)
 
     async def log(self, entry):
@@ -361,8 +366,9 @@ class MemoryClient:
         components: list[str] | None = None,
         files: list[str] | None = None,
         domain: str | None = None,
+        no_profile: bool = False,
     ) -> dict[str, Any]:
-        return self._transport.retrieve(step, components, files, domain)
+        return self._transport.retrieve(step, components, files, domain, no_profile)
 
     def log(self, entry: dict[str, Any]) -> dict[str, Any]:
         validated = _validate_entry(entry)
@@ -445,10 +451,11 @@ class AsyncMemoryClient:
         components: list[str] | None = None,
         files: list[str] | None = None,
         domain: str | None = None,
+        no_profile: bool = False,
     ) -> dict[str, Any]:
         if self._http_transport is not None:
-            return await self._http_transport.retrieve(step, components, files, domain)
-        return await asyncio.to_thread(self._get_local().retrieve, step, components, files, domain)
+            return await self._http_transport.retrieve(step, components, files, domain, no_profile)
+        return await asyncio.to_thread(self._get_local().retrieve, step, components, files, domain, no_profile)
 
     async def log(self, entry: dict[str, Any]) -> dict[str, Any]:
         validated = _validate_entry(entry)
