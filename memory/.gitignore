@@ -4,3 +4,4 @@ __pycache__/
 *.lock
 .consolidate_session.json
 .domain_state.json
+.promotion_state.json

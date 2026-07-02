@@ -37,6 +37,26 @@ def stamp_entry(entry, repo_root):
     return entry
 
 
+def staleness_tier(lines_changed, ctx=None):
+    """Classify churn since an entry's commit into a graded staleness tier.
+
+    Returns one of 'none' | 'minor' | 'moderate' | 'severe'. The 'minor' floor
+    re-uses the existing auto_learn_staleness_threshold so it agrees with
+    check_staleness()'s binary is_stale (is_stale == tier != 'none').
+    """
+    ctx = ctx or {}
+    minor = ctx.get("auto_learn_staleness_threshold", 500)
+    moderate = ctx.get("staleness_moderate_threshold", 1500)
+    severe = ctx.get("staleness_severe_threshold", 5000)
+    if lines_changed >= severe:
+        return "severe"
+    if lines_changed >= moderate:
+        return "moderate"
+    if lines_changed > minor:
+        return "minor"
+    return "none"
+
+
 def check_staleness(entry, repo_root, ctx=None):
     """Check if an entry is stale based on git diff.
 
