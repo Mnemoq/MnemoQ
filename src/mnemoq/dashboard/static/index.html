@@ -24,6 +24,7 @@
           <option value="real">Real Data</option>
           <option value="fakes">Fake Data</option>
         </select>
+        <span id="fake-data-badge" class="fake-data-badge" hidden>FAKE DATA</span>
       </div>
       <ul class="nav-tabs">
         <li data-tab="dashboard" class="active"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></li>
@@ -41,6 +42,10 @@
     </nav>
 
     <main id="content">
+      <div id="fake-data-banner" class="fake-data-banner" hidden>
+        &#9888; <strong>FAKE DATA</strong> &mdash; the dashboard is showing synthetic entries
+        (<code>data_source=fakes</code>). Switch the data source to <strong>Real</strong> for live numbers.
+      </div>
       <!-- Dashboard -->
       <section id="view-dashboard" class="view active">
         <div class="view-header">

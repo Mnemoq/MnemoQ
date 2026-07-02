@@ -58,13 +58,27 @@ function getSinceDate(days) {
 
 function renderRetrievalMetrics(r) {
   if (!r || !r.total_retrievals) return '<p class="placeholder">No retrieval events.</p>';
+  const lat = r.latency || {};
+  const latCard = lat.count
+    ? `<div class="metric-card"><div class="label">Latency (ms)</div><div class="value">${lat.p95}</div><div class="sub">p50 ${lat.p50} · p95 ${lat.p95} · p99 ${lat.p99}</div></div>`
+    : "";
+  const sb = r.score_buckets || {};
+  const maxBucket = Math.max(1, ...(sb.values || [1]));
+  const bucketBars = (sb.n_scored ? sb.labels.map((label, i) =>
+    `<div class="bar-row"><span>${escapeHtml(label)}</span><div class="bar" style="width:${Math.round(sb.values[i] / maxBucket * 100)}%">${sb.values[i]}</div></div>`).join("") : "");
+  const domHits = r.hit_rate_by_domain || [];
+  const domBars = domHits.map((d) =>
+    `<div class="bar-row"><span>${escapeHtml(d.domain)}</span><div class="bar" style="width:${Math.round(d.hit_rate * 100)}%">${(d.hit_rate * 100).toFixed(0)}% (${d.hits}/${d.runs})</div></div>`).join("");
   return `
     <div class="cards-grid">
       <div class="metric-card"><div class="label">Total Retrievals</div><div class="value">${r.total_retrievals}</div></div>
       <div class="metric-card"><div class="label">Hit Rate</div><div class="value">${(r.hit_rate * 100).toFixed(1)}%</div><div class="sub">${r.hit_count} hits, ${r.empty_count} empty</div></div>
       <div class="metric-card"><div class="label">Avg Results</div><div class="value">${r.avg_results.toFixed(1)}</div></div>
       <div class="metric-card"><div class="label">Avg Top Score</div><div class="value">${r.avg_top_score.toFixed(3)}</div><div class="sub">Max: ${r.max_top_score.toFixed(3)}, Min: ${r.min_top_score.toFixed(3)}</div></div>
+      ${latCard}
     </div>
+    ${bucketBars ? `<div class="chart-card"><h3>Top-Score Distribution</h3>${bucketBars}</div>` : ""}
+    ${domBars ? `<div class="chart-card"><h3>Hit Rate by Domain</h3>${domBars}</div>` : ""}
     <div class="chart-card"><h3>Top Query Components</h3>${(r.top_query_components || []).map(([c, n]) => `<div class="bar-row"><span>${escapeHtml(c)}</span><div class="bar" style="width:${Math.min(n * 10, 100)}%">${n}</div></div>`).join("")}</div>
     <div class="chart-card"><h3>Top Query Domains</h3>${(r.top_query_domains || []).map(([d, n]) => `<div class="bar-row"><span>${escapeHtml(d)}</span><div class="bar" style="width:${Math.min(n * 10, 100)}%">${n}</div></div>`).join("")}</div>
   `;

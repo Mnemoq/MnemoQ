@@ -28,6 +28,7 @@
 **1.22.x Hardening Line** — depth/quality polish to existing features before the SQLite store (which shifts to v1.23+)
 
 - [x] v1.22.0 — Trustworthy grading harness: in-process eval (no per-fixture subprocess), `--match exact|fuzzy|semantic|auto`, MRR/nDCG + per-fixture diagnostics, `--eval-json`
+- [x] v1.22.5 — Honest metrics & dashboard integrity: p50/p95/p99 latency percentiles, retrieval-quality score buckets + hit-rate-by-domain, and a FAKE-DATA banner/badge when `data_source=fakes`
 
 ## Tier 3 — Scalability & Intelligence (v1.22 – v1.28)
 
