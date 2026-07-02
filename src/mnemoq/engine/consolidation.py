@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-from mnemoq.engine.git_utils import check_staleness
+from mnemoq.engine.git_utils import check_staleness, staleness_tier
 from mnemoq.engine.io import read_learnings
 from mnemoq.engine.metrics import log_event, read_metrics
 
@@ -53,38 +53,56 @@ def _sprint_metrics(paths):
 
 
 def score_for_promotion(entry, current_step, ctx):
-    """Score an entry for promotion to SYSTEM_INVARIANTS.md."""
+    """Score an entry for promotion to SYSTEM_INVARIANTS.md.
+
+    The scoring weights, divisors, and severity map are all config-tunable
+    (PROMOTION_* in constants.py / tuning block); defaults reproduce the
+    historical hardcoded values so behavior is unchanged unless overridden.
+    """
+    ctx = ctx or {}
     access_count = entry.get("access_count", 0)
     severity = entry.get("severity", "minor")
     step_diff = current_step - entry.get("step", current_step)
 
-    access_score = min(access_count / 10.0, 1.0)
+    divisor = ctx.get("promotion_access_divisor", 10.0) or 10.0
+    access_score = min(access_count / divisor, 1.0)
 
-    severity_map = {"critical": 1.0, "major": 0.6, "minor": 0.3}
-    severity_score = severity_map.get(severity, 0.3)
+    minor_score = ctx.get("promotion_severity_minor", 0.3)
+    severity_map = {
+        "critical": ctx.get("promotion_severity_critical", 1.0),
+        "major": ctx.get("promotion_severity_major", 0.6),
+        "minor": minor_score,
+    }
+    severity_score = severity_map.get(severity, minor_score)
 
-    recency_score = max(0.0, 1.0 - step_diff / 30.0)
+    window = ctx.get("promotion_recency_window", 30.0) or 30.0
+    recency_score = max(0.0, 1.0 - step_diff / window)
 
     promotion_score = (
-        0.4 * access_score +
-        0.4 * severity_score +
-        0.2 * recency_score
+        ctx.get("promotion_weight_access", 0.4) * access_score +
+        ctx.get("promotion_weight_severity", 0.4) * severity_score +
+        ctx.get("promotion_weight_recency", 0.2) * recency_score
     )
 
     return promotion_score
 
 
 def is_promotion_candidate(entry, current_step, ctx):
-    """Check if an entry qualifies for promotion."""
+    """Check if an entry qualifies for promotion.
+
+    Candidacy cutoff and the critical/high-access force rules are config-tunable
+    (promotion_score_threshold, promotion_force_critical, promotion_force_access).
+    """
+    ctx = ctx or {}
     score = score_for_promotion(entry, current_step, ctx)
     severity = entry.get("severity", "minor")
     access_count = entry.get("access_count", 0)
 
-    if score >= 0.5:
+    if score >= ctx.get("promotion_score_threshold", 0.5):
         return True, score
-    if severity == "critical":
+    if ctx.get("promotion_force_critical", True) and severity == "critical":
         return True, score
-    if access_count > 5:
+    if access_count > ctx.get("promotion_force_access", 5):
         return True, score
 
     return False, score
@@ -306,6 +324,11 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
     stale_count = sum(1 for is_stale, _, _, _ in stale_entries if is_stale)
     error_count = sum(1 for _, _, err, _ in stale_entries if err is not None)
 
+    tier_counts = {"minor": 0, "moderate": 0, "severe": 0}
+    for is_stale, lines_changed, err, _ in stale_entries:
+        if is_stale and err is None:
+            tier_counts[staleness_tier(lines_changed, ctx)] += 1
+
     agents_suggestions = get_agents_md_suggestions(unresolved)
 
     _metrics_summary = _sprint_metrics(paths)
@@ -332,6 +355,15 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
         usefulness_lowered = hz.recompute_usefulness(state, dom_stats, ctx)
         hz.save_state(paths, state)
 
+    # Promotion feedback loop (best-effort). Record this pass's candidates and
+    # follow up on whether previously-proposed candidates were reinforced (their
+    # access_count grew since proposal). Never raises; degrades to no-op.
+    from mnemoq.engine import promotion_feedback as pf
+    pf_state = pf.load_state(paths)
+    current_by_key = {pf.entry_key(e): int(e.get("access_count", 0) or 0) for e in entries}
+    promotion_follow_up = pf.record_and_follow_up(pf_state, candidates, current_by_key)
+    pf.save_state(paths, pf_state)
+
     save_session(sprint_number, paths)
 
     log_event(paths, "consolidate",
@@ -341,10 +373,14 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
         unresolved_entries=len(unresolved),
         archived=len(unresolved),
         promotion_candidates=len(candidates),
+        promotion_tracked=promotion_follow_up["tracked"],
+        promotion_reinforced=promotion_follow_up["reinforced"],
         contradictions=len(contradictions),
         quarantine_count=quarantine_count,
         stale_entries=stale_count,
         stale_errors=error_count,
+        stale_moderate=tier_counts["moderate"],
+        stale_severe=tier_counts["severe"],
         agents_md_suggestions=len(agents_suggestions),
         usefulness_lowered=usefulness_lowered,
         latency_ms=round((time.perf_counter() - _start) * 1000, 2),
@@ -368,12 +404,16 @@ def consolidate_core(sprint_number, confirm_reset, force, paths, ctx):
         "stale": {
             "count": stale_count,
             "error_count": error_count,
+            "tier_counts": tier_counts,
             "entries": [{"is_stale": s, "lines_changed": lc,
-                         "error": err, "entry": e}
+                         "error": err,
+                         "tier": staleness_tier(lc, ctx) if (s and err is None) else "none",
+                         "entry": e}
                         for s, lc, err, e in stale_entries],
         },
         "agents_md_suggestions": agents_suggestions,
         "metrics_summary": _metrics_summary,
+        "promotion_follow_up": promotion_follow_up,
         "session_expiry_minutes": ctx.get("session_expiry_minutes", 10),
     }
 
@@ -407,6 +447,11 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     print(f"\n## PROMOTION CANDIDATES ({len(candidates)} entries)")
     print("The following entries are candidates for promotion to SYSTEM_INVARIANTS.md.")
     print("Review each entry, then apply approved entries to the invariants file.\n")
+
+    pfu = result.get("promotion_follow_up")
+    if pfu and pfu.get("tracked"):
+        print(f"Promotion follow-up: {pfu['reinforced']} of {pfu['tracked']} previously-proposed "
+              f"entries reinforced (accessed more) since proposal.\n")
 
     if candidates:
         for i, c in enumerate(candidates, 1):
@@ -469,6 +514,11 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
     print("The following entries may be stale based on git history.")
     print("Verify against current code before promoting.\n")
 
+    tc = stale.get("tier_counts")
+    if tc and stale["count"] > 0:
+        print(f"By churn tier: {tc['minor']} minor · {tc['moderate']} moderate · "
+              f"{tc['severe']} severe\n")
+
     if stale["count"] > 0 or stale["error_count"] > 0:
         idx = 1
         for item in stale["entries"]:
@@ -482,12 +532,13 @@ def handle_consolidate(sprint_number, confirm_reset, force, paths, ctx):
                 idx += 1
             elif item["is_stale"]:
                 entry = item["entry"]
+                tier = item.get("tier", "minor")
                 print(f"### Stale {idx}: [step-{entry.get('step', '?')}, "
                       f"{entry.get('domain', '?')}, {entry.get('source_agent', '?')}]")
                 print(f"**Commit:** {entry.get('commit', 'unknown')}")
                 print(f"**Files touched:** {', '.join(entry.get('files_touched', []))}")
                 print(f"**Lines changed since entry:** {item['lines_changed']}")
-                print("**Status:**  HIGH CHURN — verify trigger/action still hold")
+                print(f"**Status:**  {tier.upper()} CHURN — verify trigger/action still hold")
                 print(f"**Entry:** {entry.get('trigger', '')}")
                 print()
                 idx += 1

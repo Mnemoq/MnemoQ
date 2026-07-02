@@ -87,7 +87,11 @@ function renderStaleEntries(staleEntries) {
       </tr></thead><tbody>
         ${staleEntries.map((s) => {
           const e = s.entry;
-          const status = s.error ? `<span class="badge badge-minor">Check error</span>` : `<span class="badge badge-critical">Stale</span>`;
+          const tierBadge = { minor: "badge-minor", moderate: "badge-major", severe: "badge-critical" };
+          const tier = s.tier && s.tier !== "none" ? s.tier : "minor";
+          const status = s.error
+            ? `<span class="badge badge-minor">Check error</span>`
+            : `<span class="badge ${tierBadge[tier] || "badge-critical"}">${tier.charAt(0).toUpperCase() + tier.slice(1)}</span>`;
           const diff = e.commit && e.files_touched ? `<a href="${s.diff_url}" target="_blank" class="link">View diff</a>` : "—";
           return `<tr>
             <td>${e.step}</td>

@@ -53,7 +53,7 @@ class LogRequest(BaseModel):
 
 class UpdateRequest(BaseModel):
     """POST /api/update request body."""
-    ts: str
+    ts: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
     entry: dict[str, Any]
 
 

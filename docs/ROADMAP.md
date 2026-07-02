@@ -28,6 +28,7 @@
 **1.22.x Hardening Line** — depth/quality polish to existing features before the SQLite store (which shifts to v1.23+)
 
 - [x] v1.22.0 — Trustworthy grading harness: in-process eval (no per-fixture subprocess), `--match exact|fuzzy|semantic|auto`, MRR/nDCG + per-fixture diagnostics, `--eval-json`
+- [x] v1.22.6 — Sleep Cycle quality: promotion scoring moved into `PROMOTION_*` config (defaults unchanged), graded minor/moderate/severe staleness tiers, and a best-effort promotion feedback loop (`.promotion_state.json`) that tracks whether promoted candidates are later reinforced
 
 ## Tier 3 — Scalability & Intelligence (v1.22 – v1.28)
 

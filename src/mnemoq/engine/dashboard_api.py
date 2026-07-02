@@ -36,6 +36,7 @@ from mnemoq.engine.consolidation import (
     detect_contradictions,
     is_promotion_candidate,
     review_quarantine,
+    staleness_tier,
 )
 from mnemoq.engine.handlers import stats_core
 from mnemoq.engine.io import _read_raw_jsonl, read_learnings_for_dashboard
@@ -365,6 +366,7 @@ def create_dashboard_router(paths, ctx, event_hub, invalidate_cache, on_switch=N
                     "is_stale": is_stale,
                     "lines_changed": lines_changed,
                     "error": error,
+                    "tier": staleness_tier(lines_changed, ctx) if (is_stale and not error) else "none",
                     "diff_url": f"/api/diff?ts={e.get('ts')}",
                 })
 

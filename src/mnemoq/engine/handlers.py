@@ -17,6 +17,7 @@ from mnemoq.engine.agents_review import check_agents_conflict
 from mnemoq.engine.git_utils import stamp_entry
 from mnemoq.engine.io import (
     append_learning,
+    file_lock,
     quarantine,
     read_learnings,
     read_learnings_for_dashboard,
@@ -98,108 +99,109 @@ def log_core(json_str, paths, ctx):
             file=sys.stderr,
         )
 
-    existing_entries = read_learnings(paths)
+    with file_lock(paths.learnings_path):
+        existing_entries = read_learnings(paths)
 
-    _lat = lambda: round((time.perf_counter() - _start) * 1000, 2)
-    _entry_meta = lambda: {
-        "entry_ts": entry.get("ts"),
-        "entry_type": entry.get("type"),
-        "entry_domain": entry.get("domain"),
-        "entry_severity": entry.get("severity"),
-        "entry_step": entry.get("step"),
-        "entry_source_agent": entry.get("source_agent"),
-        "entry_components": entry.get("components", []),
-        "entry_files_touched": entry.get("files_touched", []),
-        "agents_md_conflict": conflict_detected,
-        "agents_md_section": best_section,
-        "agents_md_jaccard": round(jaccard_score, 4),
-    }
+        _lat = lambda: round((time.perf_counter() - _start) * 1000, 2)
+        _entry_meta = lambda: {
+            "entry_ts": entry.get("ts"),
+            "entry_type": entry.get("type"),
+            "entry_domain": entry.get("domain"),
+            "entry_severity": entry.get("severity"),
+            "entry_step": entry.get("step"),
+            "entry_source_agent": entry.get("source_agent"),
+            "entry_components": entry.get("components", []),
+            "entry_files_touched": entry.get("files_touched", []),
+            "agents_md_conflict": conflict_detected,
+            "agents_md_section": best_section,
+            "agents_md_jaccard": round(jaccard_score, 4),
+        }
 
-    # --- Semantic dedup: cosine check before Jaccard ---
-    sem_cosine, sem_match = find_semantic_duplicate(entry, existing_entries, ctx)
-    if sem_match is not None:
-        # Merge: combine access_count, keep richer description, append contributor
-        sem_match["access_count"] = sem_match.get("access_count", 0) + 1
-        sem_match["reinforcement_count"] = sem_match.get("reinforcement_count", 0) + 1
-        new_reason_len = len(entry.get("reason", ""))
-        old_reason_len = len(sem_match.get("reason", ""))
-        if new_reason_len > old_reason_len:
-            sem_match["trigger"] = entry["trigger"]
-            sem_match["action"] = entry["action"]
-            sem_match["reason"] = entry["reason"]
-        _contrib = sem_match.get("contributors", [])
-        if entry.get("source_agent") not in _contrib:
-            _contrib.append(entry.get("source_agent"))
-        sem_match["contributors"] = _contrib
-        # Backfill embedding on existing entry if new entry has one and old doesn't
-        if entry.get("embedding") is not None and sem_match.get("embedding") is None:
-            sem_match["embedding"] = entry["embedding"]
-        write_learnings(paths, existing_entries)
-        quarantine(paths, json_str, f"semantic_duplicate (cosine: {sem_cosine:.3f})")
-        msg = (
-            f"SEMANTIC DUPLICATE — merged with existing entry (cosine: {sem_cosine:.3f}):\n"
-            f"  [step-{sem_match['step']}, {sem_match['domain']}, "
-            f"{sem_match['source_agent']}] {sem_match['trigger']}: {sem_match['action']}\n"
-            f"  access_count incremented to {sem_match['access_count']}.\n"
-            f"  contributors: {', '.join(sem_match['contributors'])}"
-        )
-        log_event(paths, "log", outcome="SEMANTIC_DUPLICATE", similarity_score=round(sem_cosine, 4),
-                  latency_ms=_lat(), **_entry_meta())
-        return {"exit_code": 0, "status": "semantic_duplicate", "message": msg,
-                "matched_entry": sem_match, "similarity": round(sem_cosine, 4)}
-
-    similarity, best_match = find_best_match(entry, existing_entries)
-
-    if similarity >= 0.7:
-        best_match["access_count"] = best_match.get("access_count", 0) + 1
-        best_match["reinforcement_count"] = best_match.get("reinforcement_count", 0) + 1
-        # Backfill embedding on existing entry if new entry has one and old doesn't
-        if entry.get("embedding") is not None and best_match.get("embedding") is None:
-            best_match["embedding"] = entry["embedding"]
-        write_learnings(paths, existing_entries)
-        msg = (
-            f"DUPLICATE — existing entry matches (similarity: {similarity:.2f}):\n"
-            f"  [step-{best_match['step']}, {best_match['domain']}, "
-            f"{best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}\n"
-            f"  access_count incremented to {best_match['access_count']}.\n"
-            f"  reinforcement_count incremented to {best_match['reinforcement_count']}."
-        )
-        log_event(paths, "log", outcome="DUPLICATE", similarity_score=round(similarity, 4),
-                  latency_ms=_lat(), **_entry_meta())
-        return {"exit_code": 0, "status": "duplicate", "message": msg,
-                "matched_entry": best_match, "similarity": round(similarity, 4)}
-
-    if 0.4 <= similarity < 0.7:
-        if actions_oppose(entry["action"], best_match["action"]):
-            append_learning(paths, entry)
+        # --- Semantic dedup: cosine check before Jaccard ---
+        sem_cosine, sem_match = find_semantic_duplicate(entry, existing_entries, ctx)
+        if sem_match is not None:
+            # Merge: combine access_count, keep richer description, append contributor
+            sem_match["access_count"] = sem_match.get("access_count", 0) + 1
+            sem_match["reinforcement_count"] = sem_match.get("reinforcement_count", 0) + 1
+            new_reason_len = len(entry.get("reason", ""))
+            old_reason_len = len(sem_match.get("reason", ""))
+            if new_reason_len > old_reason_len:
+                sem_match["trigger"] = entry["trigger"]
+                sem_match["action"] = entry["action"]
+                sem_match["reason"] = entry["reason"]
+            _contrib = sem_match.get("contributors", [])
+            if entry.get("source_agent") not in _contrib:
+                _contrib.append(entry.get("source_agent"))
+            sem_match["contributors"] = _contrib
+            # Backfill embedding on existing entry if new entry has one and old doesn't
+            if entry.get("embedding") is not None and sem_match.get("embedding") is None:
+                sem_match["embedding"] = entry["embedding"]
+            write_learnings(paths, existing_entries)
+            quarantine(paths, json_str, f"semantic_duplicate (cosine: {sem_cosine:.3f})")
             msg = (
-                f"CONFLICT — potential contradiction detected (similarity: {similarity:.2f}):\n"
-                f"  Existing: [step-{best_match['step']}, {best_match['domain']}, "
-                f"{best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}\n"
-                f"  Your entry proposes an opposing action for the same trigger.\n"
-                f"  Follow the Challenge Protocol: re-submit with type 'architectural_pattern' and\n"
-                f"  explain in the reason why the old rule no longer applies."
+                f"SEMANTIC DUPLICATE — merged with existing entry (cosine: {sem_cosine:.3f}):\n"
+                f"  [step-{sem_match['step']}, {sem_match['domain']}, "
+                f"{sem_match['source_agent']}] {sem_match['trigger']}: {sem_match['action']}\n"
+                f"  access_count incremented to {sem_match['access_count']}.\n"
+                f"  contributors: {', '.join(sem_match['contributors'])}"
             )
-            log_event(paths, "log", outcome="CONFLICT", similarity_score=round(similarity, 4),
-                      matched_source_agent=best_match.get("source_agent", "unknown"),
+            log_event(paths, "log", outcome="SEMANTIC_DUPLICATE", similarity_score=round(sem_cosine, 4),
                       latency_ms=_lat(), **_entry_meta())
-            return {"exit_code": 0, "status": "conflict", "message": msg,
-                    "entry": entry, "matched_entry": best_match,
-                    "similarity": round(similarity, 4)}
-        else:
-            append_learning(paths, entry)
-            msg = (f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] "
-                   f"{entry['trigger']}: {entry['action']}")
-            log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
-                      latency_ms=_lat(), **_entry_meta())
-            return {"exit_code": 0, "status": "added", "message": msg,
-                    "entry": entry, "similarity": round(similarity, 4)}
+            return {"exit_code": 0, "status": "semantic_duplicate", "message": msg,
+                    "matched_entry": sem_match, "similarity": round(sem_cosine, 4)}
 
-    append_learning(paths, entry)
-    msg = f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}"
-    log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
-              latency_ms=_lat(), **_entry_meta())
-    return {"exit_code": 0, "status": "added", "message": msg, "entry": entry, "similarity": round(similarity, 4)}
+        similarity, best_match = find_best_match(entry, existing_entries)
+
+        if similarity >= 0.7:
+            best_match["access_count"] = best_match.get("access_count", 0) + 1
+            best_match["reinforcement_count"] = best_match.get("reinforcement_count", 0) + 1
+            # Backfill embedding on existing entry if new entry has one and old doesn't
+            if entry.get("embedding") is not None and best_match.get("embedding") is None:
+                best_match["embedding"] = entry["embedding"]
+            write_learnings(paths, existing_entries)
+            msg = (
+                f"DUPLICATE — existing entry matches (similarity: {similarity:.2f}):\n"
+                f"  [step-{best_match['step']}, {best_match['domain']}, "
+                f"{best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}\n"
+                f"  access_count incremented to {best_match['access_count']}.\n"
+                f"  reinforcement_count incremented to {best_match['reinforcement_count']}."
+            )
+            log_event(paths, "log", outcome="DUPLICATE", similarity_score=round(similarity, 4),
+                      latency_ms=_lat(), **_entry_meta())
+            return {"exit_code": 0, "status": "duplicate", "message": msg,
+                    "matched_entry": best_match, "similarity": round(similarity, 4)}
+
+        if 0.4 <= similarity < 0.7:
+            if actions_oppose(entry["action"], best_match["action"]):
+                append_learning(paths, entry)
+                msg = (
+                    f"CONFLICT — potential contradiction detected (similarity: {similarity:.2f}):\n"
+                    f"  Existing: [step-{best_match['step']}, {best_match['domain']}, "
+                    f"{best_match['source_agent']}] {best_match['trigger']}: {best_match['action']}\n"
+                    f"  Your entry proposes an opposing action for the same trigger.\n"
+                    f"  Follow the Challenge Protocol: re-submit with type 'architectural_pattern' and\n"
+                    f"  explain in the reason why the old rule no longer applies."
+                )
+                log_event(paths, "log", outcome="CONFLICT", similarity_score=round(similarity, 4),
+                          matched_source_agent=best_match.get("source_agent", "unknown"),
+                          latency_ms=_lat(), **_entry_meta())
+                return {"exit_code": 0, "status": "conflict", "message": msg,
+                        "entry": entry, "matched_entry": best_match,
+                        "similarity": round(similarity, 4)}
+            else:
+                append_learning(paths, entry)
+                msg = (f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] "
+                       f"{entry['trigger']}: {entry['action']}")
+                log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
+                          latency_ms=_lat(), **_entry_meta())
+                return {"exit_code": 0, "status": "added", "message": msg,
+                        "entry": entry, "similarity": round(similarity, 4)}
+
+        append_learning(paths, entry)
+        msg = f"ADDED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}"
+        log_event(paths, "log", outcome="ADDED", similarity_score=round(similarity, 4),
+                  latency_ms=_lat(), **_entry_meta())
+        return {"exit_code": 0, "status": "added", "message": msg, "entry": entry, "similarity": round(similarity, 4)}
 
 
 def handle_log(json_str, paths, ctx):
@@ -245,47 +247,48 @@ def update_core(ts, json_str, paths, ctx):
     original_fields = set(entry.keys())
     entry = stamp_entry(entry, paths.repo_root)
 
-    existing_entries = read_learnings(paths)
-    found = False
-    for i, existing in enumerate(existing_entries):
-        if existing.get("ts") == ts:
-            old_access_count = existing.get("access_count", 0)
-            old_reinforcement_count = existing.get("reinforcement_count", 0)
-            entry["access_count"] = old_access_count
-            entry["reinforcement_count"] = old_reinforcement_count
-            
-            if "verified" not in original_fields:
-                entry["verified"] = existing.get("verified", False)
-            if "scope" not in original_fields:
-                entry["scope"] = existing.get("scope", "file")
-            if "symptoms" not in original_fields:
-                entry["symptoms"] = existing.get("symptoms", "")
-            if "debt_level" not in original_fields:
-                entry["debt_level"] = existing.get("debt_level", "proper")
-            
-            entry["schema_version"] = existing.get("schema_version", CURRENT_SCHEMA_VERSION)
+    with file_lock(paths.learnings_path):
+        existing_entries = read_learnings(paths)
+        found = False
+        for i, existing in enumerate(existing_entries):
+            if existing.get("ts") == ts:
+                old_access_count = existing.get("access_count", 0)
+                old_reinforcement_count = existing.get("reinforcement_count", 0)
+                entry["access_count"] = old_access_count
+                entry["reinforcement_count"] = old_reinforcement_count
 
-            # Re-compute embedding if trigger/action/reason changed
-            text_changed = (entry.get("trigger") != existing.get("trigger") or
-                            entry.get("action") != existing.get("action") or
-                            entry.get("reason") != existing.get("reason"))
-            if text_changed:
-                _emb_model = ctx.get("embedding_model")
-                _emb_cache = ctx.get("embedding_cache_dir")
-                entry["embedding"] = encode_embedding(embed_entry(entry, _emb_model, _emb_cache))
-            else:
-                entry["embedding"] = existing.get("embedding")
+                if "verified" not in original_fields:
+                    entry["verified"] = existing.get("verified", False)
+                if "scope" not in original_fields:
+                    entry["scope"] = existing.get("scope", "file")
+                if "symptoms" not in original_fields:
+                    entry["symptoms"] = existing.get("symptoms", "")
+                if "debt_level" not in original_fields:
+                    entry["debt_level"] = existing.get("debt_level", "proper")
 
-            existing_entries[i] = entry
-            found = True
-            break
+                entry["schema_version"] = existing.get("schema_version", CURRENT_SCHEMA_VERSION)
 
-    if not found:
-        log_event(paths, "update", outcome="NOT_FOUND", target_ts=ts,
-                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        return {"exit_code": 1, "status": "not_found", "message": f"ERROR: No entry found with ts={ts}"}
+                # Re-compute embedding if trigger/action/reason changed
+                text_changed = (entry.get("trigger") != existing.get("trigger") or
+                                entry.get("action") != existing.get("action") or
+                                entry.get("reason") != existing.get("reason"))
+                if text_changed:
+                    _emb_model = ctx.get("embedding_model")
+                    _emb_cache = ctx.get("embedding_cache_dir")
+                    entry["embedding"] = encode_embedding(embed_entry(entry, _emb_model, _emb_cache))
+                else:
+                    entry["embedding"] = existing.get("embedding")
 
-    write_learnings(paths, existing_entries)
+                existing_entries[i] = entry
+                found = True
+                break
+
+        if not found:
+            log_event(paths, "update", outcome="NOT_FOUND", target_ts=ts,
+                      latency_ms=round((time.perf_counter() - _start) * 1000, 2))
+            return {"exit_code": 1, "status": "not_found", "message": f"ERROR: No entry found with ts={ts}"}
+
+        write_learnings(paths, existing_entries)
     msg = f"UPDATED [step-{entry['step']}, {entry['type']}, {entry['domain']}] {entry['trigger']}: {entry['action']}"
     log_event(paths, "update", outcome="UPDATED", target_ts=ts,
               entry_type=entry.get("type"), entry_domain=entry.get("domain"),
@@ -314,23 +317,24 @@ def resolve_core(ts, paths):
         return {"exit_code": 1, "status": "invalid_ts",
                 "message": f"ERROR: Invalid timestamp format: {ts}. Expected YYYY-MM-DDTHH:MM:SSZ"}
     
-    existing_entries = read_learnings(paths)
-    found = False
-    resolved_entry = None
+    with file_lock(paths.learnings_path):
+        existing_entries = read_learnings(paths)
+        found = False
+        resolved_entry = None
 
-    for i, existing in enumerate(existing_entries):
-        if existing.get("ts") == ts:
-            existing["resolved"] = True
-            resolved_entry = existing
-            found = True
-            break
+        for i, existing in enumerate(existing_entries):
+            if existing.get("ts") == ts:
+                existing["resolved"] = True
+                resolved_entry = existing
+                found = True
+                break
 
-    if not found:
-        log_event(paths, "resolve", outcome="NOT_FOUND", target_ts=ts,
-                  latency_ms=round((time.perf_counter() - _start) * 1000, 2))
-        return {"exit_code": 1, "status": "not_found", "message": f"ERROR: No entry found with ts={ts}"}
+        if not found:
+            log_event(paths, "resolve", outcome="NOT_FOUND", target_ts=ts,
+                      latency_ms=round((time.perf_counter() - _start) * 1000, 2))
+            return {"exit_code": 1, "status": "not_found", "message": f"ERROR: No entry found with ts={ts}"}
 
-    write_learnings(paths, existing_entries)
+        write_learnings(paths, existing_entries)
     msg = (f"RESOLVED [step-{resolved_entry['step']}, {resolved_entry['type']}, "
            f"{resolved_entry['domain']}] {resolved_entry['trigger']}")
     log_event(paths, "resolve", outcome="RESOLVED", target_ts=ts,
@@ -342,13 +346,7 @@ def resolve_core(ts, paths):
 
 
 def handle_resolve(ts, paths):
-    """
-    Handle --resolve mode: mark existing entry as resolved (partial update). CLI wrapper.
-    
-    Note: Uses read-modify-write pattern without file locking. Safe under
-    current sequential execution model. If parallel agent execution is added,
-    implement fcntl.flock() or equivalent per-platform locking.
-    """
+    """Handle --resolve mode: mark existing entry as resolved. CLI wrapper."""
     result = resolve_core(ts, paths)
     if result["exit_code"] != 0:
         print(result["message"], file=sys.stderr)
